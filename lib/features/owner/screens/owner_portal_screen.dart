@@ -60,8 +60,8 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
           backgroundColor: Colors.white,
           indicatorColor: AppColors.roleOwner.withValues(alpha: 0.15),
           surfaceTintColor: Colors.transparent,
-          labelTextStyle: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
               return AppTextStyles.labelMd.copyWith(color: AppColors.roleOwner);
             }
             return AppTextStyles.labelMd;
