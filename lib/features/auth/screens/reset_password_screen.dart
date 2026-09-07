@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -64,6 +65,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 color: AppColors.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,6 +161,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 color: AppColors.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

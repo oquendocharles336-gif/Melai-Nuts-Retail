@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_text_styles.dart';
 import 'customer_home_screen.dart';
 import 'product_catalog_screen.dart';
 import 'order_history_screen.dart';
 import 'customer_profile_screen.dart';
 
+/// Customer portal shell: owns the bottom navigation bar (Store / Catalog /
+/// My Orders / Account) and swaps between the four top-level tabs, matching
+/// the prototype's bottom nav across every customer screen.
 class CustomerPortalScreen extends StatefulWidget {
   const CustomerPortalScreen({super.key});
 
@@ -13,35 +17,63 @@ class CustomerPortalScreen extends StatefulWidget {
 }
 
 class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
-  int _selectedIndex = 0;
+  int _index = 0;
 
-  final List<Widget> _screens = [
-    const CustomerHomeScreen(),
-    const ProductCatalogScreen(),
-    const OrderHistoryScreen(),
-    const CustomerProfileScreen(),
+  static const _tabs = [
+    CustomerHomeScreen(),
+    ProductCatalogScreen(),
+    OrderHistoryScreen(),
+    CustomerProfileScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _screens,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: AppColors.surface,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.storefront_outlined), activeIcon: Icon(Icons.storefront), label: 'Shop'),
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_long_outlined), activeIcon: Icon(Icons.receipt_long), label: 'Orders'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
-        ],
+      body: IndexedStack(index: _index, children: _tabs),
+      bottomNavigationBar: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          indicatorColor: AppColors.primaryContainer.withValues(alpha: 0.5),
+          surfaceTintColor: Colors.transparent,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return AppTextStyles.labelMd.copyWith(color: AppColors.primary);
+            }
+            return AppTextStyles.labelMd;
+          }),
+          iconTheme: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return const IconThemeData(color: AppColors.primary, size: 26);
+            }
+            return const IconThemeData(color: AppColors.textSecondary, size: 24);
+          }),
+        ),
+        child: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.storefront_outlined),
+              selectedIcon: Icon(Icons.storefront_rounded),
+              label: 'Store',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view_rounded),
+              label: 'Catalog',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.receipt_long_outlined),
+              selectedIcon: Icon(Icons.receipt_long_rounded),
+              label: 'My Orders',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: 'Account',
+            ),
+          ],
+        ),
       ),
     );
   }

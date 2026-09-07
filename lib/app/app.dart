@@ -14,7 +14,7 @@ class MelaiNutsApp extends StatelessWidget {
       theme: AppTheme.light(),
       initialRoute: AppRoutes.splash,
       routes: AppRoutes.routes,
-      onGenerateRoute: AppRoutes.onGenerateRoute,
+      onGenerateRoute: (settings) => AppRoutes.onGenerateRoute(settings),
     );
   }
 }

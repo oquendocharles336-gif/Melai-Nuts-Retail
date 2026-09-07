@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
@@ -67,6 +68,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.md,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

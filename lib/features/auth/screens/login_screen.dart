@@ -118,6 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.md,
               ),
               child: Column(
                 children: [
@@ -224,6 +225,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: AppColors.warningBg,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AppColors.outlineVariant),
+                        boxShadow: AppShadows.sm,
                       ),
                       child: Row(
                         children: [
@@ -271,6 +273,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 color: AppColors.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

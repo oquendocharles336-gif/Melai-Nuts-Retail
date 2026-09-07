@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
 
 /// The Melai Nuts peanut-and-leaf brand mark.
 ///
@@ -23,6 +24,7 @@ class AppLogo extends StatelessWidget {
         border: showRing
             ? Border.all(color: AppColors.border, width: 2)
             : null,
+        boxShadow: showRing ? AppShadows.sm : null,
       ),
       padding: EdgeInsets.all(size * 0.16),
       child: SvgPicture.asset('assets/images/logo/melai_nuts_logo.svg'),

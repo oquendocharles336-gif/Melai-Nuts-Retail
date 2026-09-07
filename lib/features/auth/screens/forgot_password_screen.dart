@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -52,6 +53,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 color: AppColors.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.md,
               ),
               child: Column(
                 children: [

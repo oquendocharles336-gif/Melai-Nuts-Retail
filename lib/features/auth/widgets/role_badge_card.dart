@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/user_role.dart';
 
@@ -36,6 +37,7 @@ class RoleBadgeCard extends StatelessWidget {
             color: selected ? role.color : AppColors.border,
             width: selected ? 1.6 : 1,
           ),
+          boxShadow: selected ? null : AppShadows.sm,
         ),
         child: Row(
           children: [

@@ -13,13 +13,24 @@ class AppTextStyles {
     double? letterSpacing,
     Color color = AppColors.textPrimary,
   }) {
-    return GoogleFonts.plusJakartaSans(
-      fontSize: size,
-      fontWeight: weight,
-      height: height,
-      letterSpacing: letterSpacing,
-      color: color,
-    );
+    try {
+      return GoogleFonts.plusJakartaSans(
+        fontSize: size,
+        fontWeight: weight,
+        height: height,
+        letterSpacing: letterSpacing,
+        color: color,
+      );
+    } catch (_) {
+      return TextStyle(
+        fontSize: size,
+        fontWeight: weight,
+        height: height,
+        letterSpacing: letterSpacing,
+        color: color,
+        fontFamily: 'Sans-Serif',
+      );
+    }
   }
 
   static TextStyle headlineLg = _base(size: 26, weight: FontWeight.w700);
