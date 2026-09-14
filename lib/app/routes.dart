@@ -76,6 +76,14 @@ import '../features/owner/screens/branch_comparison_screen.dart';
 import '../features/owner/screens/branch_performance_screen.dart';
 import '../features/owner/screens/product_performance_screen.dart';
 import '../features/delivery/screens/delivery_portal_screen.dart';
+import '../features/delivery/screens/delivery_dashboard_screen.dart';
+import '../features/delivery/screens/create_delivery_screen.dart';
+import '../features/delivery/screens/route_optimization_screen.dart';
+import '../features/delivery/screens/route_map_screen.dart';
+import '../features/delivery/screens/delivery_manifest_screen.dart';
+import '../features/delivery/screens/delivery_details_screen.dart';
+import '../features/delivery/screens/delivery_history_screen.dart';
+import '../data/models/delivery.dart';
 
 /// Centralized route names. Keep every navigable screen registered here so
 /// navigation logic never has to hard-code route strings in feature code.
@@ -95,6 +103,15 @@ class AppRoutes {
   static const String staffHome = '/staff';
   static const String ownerHome = '/owner';
   static const String deliveryHome = '/delivery';
+
+  // Owner Delivery Management feature screens (lib/features/delivery/).
+  static const String deliveryDashboard = '/delivery/dashboard';
+  static const String deliveryCreate = '/delivery/create';
+  static const String routeOptimization = '/delivery/route-optimization';
+  static const String routeMap = '/delivery/route-map';
+  static const String deliveryManifest = '/delivery/manifest';
+  static const String deliveryDetails = '/delivery/details';
+  static const String deliveryHistory = '/delivery/history';
 
   // Customer feature screens (see lib/features/customer/screens/).
   // Screens that take arguments (product/category/order) expose sensible
@@ -206,6 +223,14 @@ class AppRoutes {
     staffHome: (_) => const StaffPortalScreen(),
     ownerHome: (_) => const OwnerPortalScreen(),
     deliveryHome: (_) => const DeliveryPortalScreen(),
+
+    deliveryDashboard: (_) => const DeliveryDashboardScreen(),
+    deliveryCreate: (_) => const CreateDeliveryScreen(),
+    deliveryHistory: (_) => const DeliveryHistoryScreen(),
+    // NOTE: routeOptimization, routeMap, deliveryManifest, and
+    // deliveryDetails all take a Delivery argument and are handled
+    // exclusively in onGenerateRoute below (see the earlier note on route
+    // shadowing).
 
     // Customer feature screens — reachable directly for testing/deep-links.
     customerStore: (_) => const CustomerHomeScreen(),
@@ -427,6 +452,26 @@ class AppRoutes {
         final branch = settings.arguments as String?;
         return MaterialPageRoute(
           builder: (_) => BranchPerformanceScreen(branch: branch ?? 'Calamba Highway Branch'),
+        );
+      case routeOptimization:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => RouteOptimizationScreen(delivery: delivery),
+        );
+      case routeMap:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => RouteMapScreen(delivery: delivery),
+        );
+      case deliveryManifest:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => DeliveryManifestScreen(delivery: delivery),
+        );
+      case deliveryDetails:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => DeliveryDetailsScreen(delivery: delivery),
         );
       default:
         return null;

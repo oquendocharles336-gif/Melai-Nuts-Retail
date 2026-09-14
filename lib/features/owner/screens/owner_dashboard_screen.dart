@@ -229,6 +229,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               _QuickLink(icon: Icons.query_stats_rounded, label: 'Sales Analytics', onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerSalesAnalytics)),
               _QuickLink(icon: Icons.auto_graph_rounded, label: 'Sales Forecast', onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerSalesForecast)),
               _QuickLink(icon: Icons.leaderboard_outlined, label: 'Product Performance', onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerProductPerformance)),
+              _QuickLink(icon: Icons.local_shipping_outlined, label: 'Delivery Management', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryDashboard)),
             ],
           ),
         ],

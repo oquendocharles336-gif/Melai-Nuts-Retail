@@ -3,11 +3,14 @@ import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
-import '../../../data/models/order.dart';
+import '../../../data/dummy_data/dummy_deliveries.dart';
+import '../../../data/models/delivery.dart';
 
-/// Delivery Personnel Portal — Assigned routes, optimized GPS navigation
-/// simulation, and delivery confirmation in a single-file shell.
+/// Delivery Personnel Portal — the rider's own assigned routes and
+/// delivery history. Reuses the shared [Delivery] model and links into
+/// the same Route Optimization / Route Map / Manifest screens used by the
+/// Owner's Delivery Management module, so both roles see one consistent
+/// (simulated) picture of each dispatch.
 class DeliveryPortalScreen extends StatefulWidget {
   const DeliveryPortalScreen({super.key});
 
@@ -39,7 +42,7 @@ class _DeliveryPortalScreenState extends State<DeliveryPortalScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Rider Portal', style: AppTextStyles.labelLg),
-                Text('Vehicle: Laguna-Van-04', style: AppTextStyles.bodySm),
+                Text('Juan Rider • Laguna Van #04', style: AppTextStyles.bodySm),
               ],
             ),
           ],
@@ -52,7 +55,7 @@ class _DeliveryPortalScreenState extends State<DeliveryPortalScreen> {
         index: _currentIndex,
         children: const [
           _MyRouteTab(),
-          _DeliveryHistoryTab(),
+          _RiderHistoryTab(),
         ],
       ),
       bottomNavigationBar: NavigationBarTheme(
@@ -93,52 +96,75 @@ class _MyRouteTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeItems = kOrders.where((o) => o.status == OrderStatus.outForDelivery).toList();
+    // In this frontend-only demo the rider is always "Juan Rider" — filter
+    // to deliveries assigned to them that are still active.
+    final myDeliveries = activeDeliveries.where((d) => d.riderName == 'Juan Rider').toList();
+    final nextStop = myDeliveries.isEmpty
+        ? null
+        : myDeliveries.first.stops.firstWhere(
+            (s) => s.status != StopStatus.delivered,
+            orElse: () => myDeliveries.first.stops.last,
+          );
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
-        _buildFleetStatusCard(),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.roleDelivery,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: AppShadows.md,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('ROUTE ENGINE (SIMULATED)', style: AppTextStyles.labelSm.copyWith(color: Colors.white70)),
+                  const Icon(Icons.gps_fixed_rounded, color: Colors.white, size: 18),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                myDeliveries.isEmpty ? 'No active route' : '${myDeliveries.first.stops.length} Drops Optimized',
+                style: AppTextStyles.headlineSm.copyWith(color: Colors.white),
+              ),
+              Text(
+                nextStop == null ? 'No pending stops' : 'Next stop: ${nextStop.customerName}',
+                style: AppTextStyles.bodySm.copyWith(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: AppSpacing.lg),
         Text('Active Assigned Deliveries', style: AppTextStyles.titleMd),
         const SizedBox(height: AppSpacing.sm),
-        if (activeItems.isEmpty)
-          const Center(child: Text('No active deliveries assigned.'))
+        if (myDeliveries.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Text('No active deliveries assigned.', style: AppTextStyles.bodyMd),
+          )
         else
-          ...activeItems.map((o) => _buildDeliveryCard(context, o)),
+          for (final delivery in myDeliveries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _AssignedDeliveryCard(delivery: delivery),
+            ),
       ],
     );
   }
+}
 
-  Widget _buildFleetStatusCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.roleDelivery,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppShadows.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('ROUTING ENGINE ACTIVE', style: AppTextStyles.labelSm.copyWith(color: Colors.white70)),
-              const Icon(Icons.gps_fixed_rounded, color: Colors.white, size: 18),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text('8 Drops Optimized', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
-          Text('Next stop: Calamba Residence Area', style: AppTextStyles.bodySm.copyWith(color: Colors.white70)),
-        ],
-      ),
-    );
-  }
+class _AssignedDeliveryCard extends StatelessWidget {
+  final Delivery delivery;
 
-  Widget _buildDeliveryCard(BuildContext context, Order o) {
+  const _AssignedDeliveryCard({required this.delivery});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
       child: Column(
@@ -147,19 +173,56 @@ class _MyRouteTab extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(o.id, style: AppTextStyles.labelLg),
-              Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(20)), child: Text('Priority', style: AppTextStyles.labelSm.copyWith(color: AppColors.success))),
+              Text(delivery.id, style: AppTextStyles.labelLg),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: delivery.status.color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+                child: Text(delivery.status.label, style: AppTextStyles.labelSm.copyWith(color: delivery.status.color)),
+              ),
             ],
           ),
           const SizedBox(height: 10),
-          Text('Elena Dimaculangan', style: AppTextStyles.titleMd),
-          Text('Unit 4B, Lakeside Residences, Calamba, Laguna', style: AppTextStyles.bodySm),
+          for (int i = 0; i < delivery.stops.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Icon(
+                    delivery.stops[i].status == StopStatus.delivered ? Icons.check_circle : Icons.radio_button_unchecked,
+                    size: 16,
+                    color: delivery.stops[i].status.color,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${i + 1}. ${delivery.stops[i].customerName}',
+                      style: AppTextStyles.bodyMd,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const Divider(height: 24),
           Row(
             children: [
-              Expanded(child: OutlinedButton.icon(onPressed: () {}, icon: const Icon(Icons.navigation_rounded, size: 18), label: const Text('Navigate'))),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.routeMap, arguments: delivery),
+                  icon: const Icon(Icons.navigation_rounded, size: 18),
+                  label: const Text('Navigate'),
+                ),
+              ),
               const SizedBox(width: 10),
-              Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.check_circle_outline_rounded, size: 18), label: const Text('Complete'), style: ElevatedButton.styleFrom(backgroundColor: AppColors.success))),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.deliveryDetails, arguments: delivery),
+                  icon: const Icon(Icons.checklist_rounded, size: 18),
+                  label: const Text('Manage Stops'),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+                ),
+              ),
             ],
           ),
         ],
@@ -168,22 +231,30 @@ class _MyRouteTab extends StatelessWidget {
   }
 }
 
-class _DeliveryHistoryTab extends StatelessWidget {
-  const _DeliveryHistoryTab();
+class _RiderHistoryTab extends StatelessWidget {
+  const _RiderHistoryTab();
 
   @override
   Widget build(BuildContext context) {
-    final completed = kOrders.where((o) => o.status == OrderStatus.completed).toList();
+    final completed = pastDeliveries.where((d) => d.riderName == 'Juan Rider' || d.status == DeliveryStatus.completed).toList();
+
+    if (completed.isEmpty) {
+      return Center(child: Text('No completed deliveries yet.', style: AppTextStyles.bodyMd));
+    }
+
     return ListView.separated(
       padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: completed.length,
       separatorBuilder: (context, index) => const SizedBox(height: 12),
       itemBuilder: (context, i) {
-        final o = completed[i];
+        final delivery = completed[i];
         return ListTile(
+          onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryDetails, arguments: delivery),
+          tileColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.border)),
           leading: const Icon(Icons.history_rounded, color: AppColors.textSecondary),
-          title: Text(o.id, style: AppTextStyles.labelLg),
-          subtitle: Text('Completed at 2:45 PM • Santa Cruz', style: AppTextStyles.bodySm),
+          title: Text(delivery.id, style: AppTextStyles.labelLg),
+          subtitle: Text('${delivery.stops.length} stops • ${delivery.branch}', style: AppTextStyles.bodySm),
           trailing: const Icon(Icons.chevron_right_rounded),
         );
       },
