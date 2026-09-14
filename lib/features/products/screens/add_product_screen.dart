@@ -1,0 +1,269 @@
+import 'package:flutter/material.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/secondary_button.dart';
+import '../../../data/dummy_data/dummy_products.dart';
+import '../../../data/dummy_data/dummy_inventory.dart';
+
+/// "Add New Product" — matches the prototype's multi-section wizard
+/// (Media, Basic Info, Pricing & Cost, Variants, Branch Availability),
+/// implemented as a single scrollable form for simplicity. Frontend-only:
+/// "Save & Publish" just confirms and pops back — nothing is persisted.
+class AddProductScreen extends StatefulWidget {
+  const AddProductScreen({super.key});
+
+  @override
+  State<AddProductScreen> createState() => _AddProductScreenState();
+}
+
+class _AddProductScreenState extends State<AddProductScreen> {
+  final _nameController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _cogsController = TextEditingController(text: '45.00');
+  final _srpController = TextEditingController(text: '120.00');
+  String _category = 'garlic';
+  bool _hasVariants = false;
+  final Set<String> _selectedBranches = {'Santa Cruz Flagship', 'Calamba Highway Branch', 'Los Baños Hub'};
+  bool _publishImmediately = true;
+  bool _saving = false;
+
+  double get _cogs => double.tryParse(_cogsController.text) ?? 0;
+  double get _srp => double.tryParse(_srpController.text) ?? 0;
+  double get _margin => _srp == 0 ? 0 : ((_srp - _cogs) / _srp) * 100;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    _cogsController.dispose();
+    _srpController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Simulated: "${_nameController.text.isEmpty ? 'New product' : _nameController.text}" saved & published.')),
+    );
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(
+        leading: IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.of(context).pop()),
+        title: const Text('Add New Product'),
+        actions: [
+          TextButton(onPressed: () {}, child: const Text('Save Draft')),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
+            _SectionCard(
+              title: '1. Product Media & Images',
+              child: InkWell(
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Simulated: photo picker opened (no backend/storage).')),
+                ),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  height: 120,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border, style: BorderStyle.solid),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.add_a_photo_outlined, color: AppColors.textSecondary, size: 28),
+                      const SizedBox(height: 6),
+                      Text('Tap to upload product photo', style: AppTextStyles.bodyMd),
+                      Text('Recommended: 1:1 square, PNG/JPG under 5MB', style: AppTextStyles.bodySm),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            _SectionCard(
+              title: '2. Basic Information',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppTextField(label: 'Product Name *', controller: _nameController, hint: 'e.g. Honey Glazed Cashew Peanuts'),
+                  const SizedBox(height: 14),
+                  Text('Category *', style: AppTextStyles.labelLg),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    initialValue: _category,
+                    items: [for (final c in kProductCategories) DropdownMenuItem(value: c.id, child: Text(c.name))],
+                    onChanged: (v) => setState(() => _category = v ?? _category),
+                  ),
+                  const SizedBox(height: 14),
+                  AppTextField(label: 'Product Description', controller: _descriptionController, hint: 'Handcrafted, roasted...'),
+                ],
+              ),
+            ),
+            _SectionCard(
+              title: '3. Pricing & Cost',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: AppTextField(
+                          label: 'Cost of Goods (COGS)',
+                          controller: _cogsController,
+                          prefixIcon: Icons.receipt_long_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: AppTextField(
+                          label: 'Base Retail Price (SRP) *',
+                          controller: _srpController,
+                          prefixIcon: Icons.sell_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _margin >= 50 ? AppColors.successBg : AppColors.warningBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(_margin >= 50 ? Icons.check_circle : Icons.info_outline_rounded,
+                            size: 18, color: _margin >= 50 ? AppColors.success : AppColors.warning),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Margin: ${_margin.toStringAsFixed(1)}% (₱${(_srp - _cogs).toStringAsFixed(2)} profit/unit)',
+                            style: AppTextStyles.labelMd.copyWith(color: _margin >= 50 ? AppColors.success : AppColors.warning),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _SectionCard(
+              title: '4. Variants Configuration',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _hasVariants,
+                    activeThumbColor: AppColors.primary,
+                    title: Text('This product has multiple variants', style: AppTextStyles.labelLg),
+                    subtitle: Text('e.g. weights, sizes, flavors', style: AppTextStyles.bodySm),
+                    onChanged: (v) => setState(() => _hasVariants = v),
+                  ),
+                  if (_hasVariants)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Configure variants after saving, from the Manage Variants screen.')),
+                        ),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Add / Configure Variants'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            _SectionCard(
+              title: '5. Branch Availability',
+              child: Column(
+                children: [
+                  for (final branch in kInventoryBranches)
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _selectedBranches.contains(branch),
+                      activeColor: AppColors.primary,
+                      title: Text(branch, style: AppTextStyles.bodyMd),
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _selectedBranches.add(branch);
+                        } else {
+                          _selectedBranches.remove(branch);
+                        }
+                      }),
+                    ),
+                  const Divider(height: 20),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _publishImmediately,
+                    activeThumbColor: AppColors.primary,
+                    title: Text('Publish immediately to POS & Storefront', style: AppTextStyles.labelLg),
+                    onChanged: (v) => setState(() => _publishImmediately = v),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Expanded(child: SecondaryButton(label: 'Cancel', onPressed: () => Navigator.of(context).pop())),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: PrimaryButton(label: 'Save & Publish Product', loading: _saving, onPressed: _save),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _SectionCard({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        border: Border.all(color: AppColors.border),
+        boxShadow: AppShadows.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTextStyles.titleMd),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}

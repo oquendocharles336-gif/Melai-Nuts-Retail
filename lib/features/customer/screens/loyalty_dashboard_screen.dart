@@ -2,198 +2,323 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../../../data/models/loyalty.dart';
 import '../widgets/loyalty_points_card.dart';
+import '../widgets/reward_card.dart';
 
+/// "Golden Kernel Club" — the customer loyalty home. Matches the
+/// prototype's Customer Loyalty Dashboard: profile row, membership card,
+/// RFID tap banner, a 2x2 points ledger, available rewards, and recent
+/// point activity.
 class LoyaltyDashboardScreen extends StatelessWidget {
   const LoyaltyDashboardScreen({super.key});
 
+  static const int _availablePoints = 250;
+  static const int _lifetimeEarned = 1450;
+  static const int _pointsSpent = 1200;
+
   @override
   Widget build(BuildContext context) {
+    final claimableRewards = dummyRewards.where((r) => r.pointsRequired <= _availablePoints * 5).toList();
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text('Loyalty Program'),
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.textPrimary,
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const LoyaltyPointsCard(
-              points: 1250,
-              status: 'Golden Kernel Member',
+      appBar: MelaiAppBar(
+        title: 'Golden Kernel Club',
+        showBack: true,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.md),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star_rounded, size: 14, color: AppColors.primaryDark),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$_lifetimeEarned pts',
+                      style: AppTextStyles.labelMd.copyWith(color: AppColors.primaryDark),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            _buildQuickActions(context),
-            const SizedBox(height: AppSpacing.lg),
-            _buildSectionHeader(
-              context,
-              'Recent Activity',
-              () => Navigator.pushNamed(context, '/customer/loyalty/history'),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    radius: 22,
+                    backgroundColor: AppColors.primaryContainer,
+                    child: Icon(Icons.person, color: AppColors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text('Juan Dela Cruz', style: AppTextStyles.titleMd),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.verified, size: 14, color: AppColors.success),
+                          ],
+                        ),
+                        Text('Branch: Santa Cruz Main', style: AppTextStyles.bodySm),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.warningBg,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text('VIP Kernel', style: AppTextStyles.labelSm.copyWith(color: AppColors.warning)),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
-            _buildRecentActivityList(),
+            const LoyaltyPointsCard(
+              points: _availablePoints,
+              status: 'Golden Kernel Member',
+            ),
+            const SizedBox(height: AppSpacing.md),
+            InkWell(
+              borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+              onTap: () => Navigator.pushNamed(context, '/customer/loyalty/rfid-tap'),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.outlineVariant, style: BorderStyle.solid),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(color: AppColors.primaryContainer, shape: BoxShape.circle),
+                      child: const Icon(Icons.contactless_rounded, color: AppColors.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Tap RFID Card at Store Counter', style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
+                          Text(
+                            'Instant scan at checkout in Santa Cruz, Calamba, & Los Baños',
+                            style: AppTextStyles.bodySm,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded, color: AppColors.primary),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: AppSpacing.lg),
-            _buildRfidPromotion(context),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Loyalty Ledger', style: AppTextStyles.headlineSm),
+                Text('Updated Just Now', style: AppTextStyles.bodySm),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.7,
+              children: [
+                _LedgerTile(
+                  label: 'AVAILABLE BALANCE',
+                  value: '$_availablePoints pts',
+                  footer: '↗ Ready to redeem',
+                  footerColor: AppColors.success,
+                  icon: Icons.savings_outlined,
+                ),
+                _LedgerTile(
+                  label: 'LIFETIME EARNED',
+                  value: '+$_lifetimeEarned pts',
+                  footer: 'Tier multiplier 1.2x',
+                  icon: Icons.workspace_premium_outlined,
+                ),
+                _LedgerTile(
+                  label: 'POINTS SPENT',
+                  value: '$_pointsSpent pts',
+                  footer: '₱360 savings applied',
+                  icon: Icons.shopping_bag_outlined,
+                ),
+                _LedgerTile(
+                  label: 'ACTIVE PERKS',
+                  value: '4 ready',
+                  footer: 'Valid at all registers',
+                  footerColor: AppColors.success,
+                  icon: Icons.local_offer_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Available Rewards', style: AppTextStyles.headlineSm),
+                TextButton(
+                  onPressed: () => Navigator.pushNamed(context, '/customer/loyalty/redeem'),
+                  child: const Text('View all'),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            for (final reward in claimableRewards.take(2))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: RewardCard(
+                  reward: reward,
+                  canRedeem: reward.pointsRequired <= _availablePoints,
+                  onRedeem: () => Navigator.pushNamed(
+                    context,
+                    '/customer/loyalty/redemption-success',
+                    arguments: reward,
+                  ),
+                ),
+              ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Recent Point Activity', style: AppTextStyles.headlineSm),
+                TextButton(
+                  onPressed: () => Navigator.pushNamed(context, '/customer/loyalty/history'),
+                  child: const Text('Full History'),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                children: [
+                  for (final tx in dummyLoyaltyTransactions.take(3))
+                    _ActivityRow(tx: tx, isLast: tx == dummyLoyaltyTransactions.take(3).last),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildQuickActions(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _ActionCard(
-            icon: Icons.redeem,
-            label: 'Redeem Rewards',
-            onTap: () => Navigator.pushNamed(context, '/customer/loyalty/redeem'),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: _ActionCard(
-            icon: Icons.history,
-            label: 'Points History',
-            onTap: () => Navigator.pushNamed(context, '/customer/loyalty/history'),
-          ),
-        ),
-      ],
-    );
-  }
+class _LedgerTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final String footer;
+  final Color? footerColor;
+  final IconData icon;
 
-  Widget _buildSectionHeader(BuildContext context, String title, VoidCallback onSeeAll) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(title, style: AppTextStyles.headlineSm),
-        TextButton(
-          onPressed: onSeeAll,
-          child: Text(
-            'See All',
-            style: AppTextStyles.labelLg.copyWith(color: AppColors.primary),
-          ),
-        ),
-      ],
-    );
-  }
+  const _LedgerTile({
+    required this.label,
+    required this.value,
+    required this.footer,
+    required this.icon,
+    this.footerColor,
+  });
 
-  Widget _buildRecentActivityList() {
-    final recent = dummyLoyaltyTransactions.take(3).toList();
-    return Column(
-      children: recent.map((tx) => _buildActivityTile(tx)).toList(),
-    );
-  }
-
-  Widget _buildActivityTile(LoyaltyPointTransaction tx) {
-    final isEarn = tx.type == LoyaltyTransactionType.earn;
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-        boxShadow: AppShadows.sm,
-      ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: isEarn ? AppColors.successBg : AppColors.errorBg,
-          child: Icon(
-            isEarn ? Icons.add : Icons.remove,
-            color: isEarn ? AppColors.success : AppColors.error,
-          ),
-        ),
-        title: Text(tx.description, style: AppTextStyles.titleMd),
-        subtitle: Text(
-          '${tx.date.day}/${tx.date.month}/${tx.date.year}',
-          style: AppTextStyles.bodySm,
-        ),
-        trailing: Text(
-          '${isEarn ? '+' : '-'}${tx.points}',
-          style: AppTextStyles.labelLg.copyWith(
-            color: isEarn ? AppColors.success : AppColors.error,
-          ),
-        ),
-        onTap: () {}, // Navigate to transaction details
-      ),
-    );
-  }
-
-  Widget _buildRfidPromotion(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerHigh,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
         border: Border.all(color: AppColors.border),
         boxShadow: AppShadows.sm,
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.contactless, size: 48, color: AppColors.primary),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            'Fast Tap Loyalty',
-            style: AppTextStyles.headlineSm,
+          Row(
+            children: [
+              Icon(icon, size: 14, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              Expanded(child: Text(label, style: AppTextStyles.labelSm)),
+            ],
           ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Tap your Melai RFID card at our physical stores to earn points instantly!',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.bodyMd,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          ElevatedButton(
-            onPressed: () => Navigator.pushNamed(context, '/customer/loyalty/rfid-tap'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: AppColors.onPrimary,
-            ),
-            child: const Text('Try Demo RFID Tap'),
-          ),
+          const Spacer(),
+          Text(value, style: AppTextStyles.headlineSm.copyWith(color: AppColors.darkBrown)),
+          Text(footer, style: AppTextStyles.bodySm.copyWith(color: footerColor)),
         ],
       ),
     );
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+class _ActivityRow extends StatelessWidget {
+  final LoyaltyPointTransaction tx;
+  final bool isLast;
 
-  const _ActionCard({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _ActivityRow({required this.tx, required this.isLast});
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          border: Border.all(color: AppColors.border),
-          boxShadow: AppShadows.sm,
+    final isEarn = tx.type == LoyaltyTransactionType.earn;
+    return Column(
+      children: [
+        ListTile(
+          onTap: () => Navigator.pushNamed(context, '/customer/loyalty/transaction', arguments: tx),
+          leading: CircleAvatar(
+            backgroundColor: isEarn ? AppColors.successBg : AppColors.errorBg,
+            child: Icon(
+              isEarn ? Icons.add_rounded : Icons.remove_rounded,
+              color: isEarn ? AppColors.success : AppColors.error,
+            ),
+          ),
+          title: Text(tx.description, style: AppTextStyles.labelLg),
+          subtitle: Text(
+            '${tx.date.day}/${tx.date.month}/${tx.date.year}',
+            style: AppTextStyles.bodySm,
+          ),
+          trailing: Text(
+            '${isEarn ? '+' : '-'}${tx.points}',
+            style: AppTextStyles.labelLg.copyWith(color: isEarn ? AppColors.success : AppColors.error),
+          ),
         ),
-        child: Column(
-          children: [
-            Icon(icon, color: AppColors.primary, size: 32),
-            const SizedBox(height: AppSpacing.sm),
-            Text(label, style: AppTextStyles.labelLg),
-          ],
-        ),
-      ),
+        if (!isLast) const Divider(height: 1, indent: 16, endIndent: 16),
+      ],
     );
   }
 }

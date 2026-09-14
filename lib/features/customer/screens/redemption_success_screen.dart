@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/loyalty.dart';
 
 class RedemptionSuccessScreen extends StatelessWidget {
@@ -10,7 +11,7 @@ class RedemptionSuccessScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final reward = ModalRoute.of(context)!.settings.arguments as RewardItem;
-    const userPointsBefore = 1250;
+    const userPointsBefore = 250;
     final userPointsAfter = userPointsBefore - reward.pointsRequired;
 
     return Scaffold(
@@ -56,6 +57,7 @@ class RedemptionSuccessScreen extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppColors.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  boxShadow: AppShadows.sm,
                 ),
                 child: Column(
                   children: [
@@ -82,17 +84,10 @@ class RedemptionSuccessScreen extends StatelessWidget {
                 style: AppTextStyles.bodySm,
               ),
               const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.popUntil(context, ModalRoute.withName('/customer/loyalty')),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: AppColors.onPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  ),
-                  child: const Text('Back to Loyalty Dashboard'),
-                ),
+              PrimaryButton(
+                label: 'Back to Loyalty Dashboard',
+                icon: Icons.arrow_forward_rounded,
+                onPressed: () => Navigator.popUntil(context, ModalRoute.withName('/customer/loyalty')),
               ),
             ],
           ),

@@ -7,6 +7,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
+import '../../inventory/screens/inventory_dashboard_screen.dart';
 
 /// Comprehensive Branch Staff Portal — Register (POS), Transactions,
 /// and Inventory (FEFO) management in a single-file shell.
@@ -49,7 +50,11 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_none_rounded),
-            onPressed: () {},
+            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffNotifications),
+          ),
+          IconButton(
+            icon: const Icon(Icons.person_outline_rounded),
+            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffProfile),
           ),
           IconButton(
             icon: const Icon(Icons.logout_rounded),
@@ -113,6 +118,7 @@ class _PosRegisterTab extends StatefulWidget {
 class _PosRegisterTabState extends State<_PosRegisterTab> {
   String _selectedCat = 'All';
   final Map<String, int> _cart = {};
+  final _searchController = TextEditingController();
 
   double get _total {
     double sum = 0;
@@ -124,18 +130,32 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final products = _selectedCat == 'All' ? kProducts : productsByCategory(_selectedCat.toLowerCase());
+    var products = _selectedCat == 'All' ? kProducts : productsByCategory(_selectedCat.toLowerCase());
+    final query = _searchController.text.toLowerCase();
+    if (query.isNotEmpty) {
+      products = products.where((p) => p.name.toLowerCase().contains(query)).toList();
+    }
 
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: TextField(
+            controller: _searchController,
+            onChanged: (v) => setState(() {}),
             decoration: InputDecoration(
               hintText: 'Scan barcode or search SKU...',
               prefixIcon: const Icon(Icons.qr_code_scanner_rounded),
-              suffixIcon: IconButton(icon: const Icon(Icons.search_rounded), onPressed: () {}),
+              suffixIcon: query.isNotEmpty 
+                ? IconButton(icon: const Icon(Icons.clear_rounded), onPressed: () => setState(() => _searchController.clear()))
+                : const Icon(Icons.search_rounded),
             ),
           ),
         ),
@@ -165,46 +185,102 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
               childAspectRatio: 1.4,
             ),
             itemCount: products.length,
             itemBuilder: (context, i) {
               final p = products[i];
               final qty = _cart[p.id] ?? 0;
-              return InkWell(
-                onTap: () => setState(() => _cart[p.id] = qty + 1),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: qty > 0 ? AppColors.roleStaff : AppColors.border, width: qty > 0 ? 1.6 : 1),
-                    boxShadow: AppShadows.sm,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              final isSelected = qty > 0;
+
+              return Stack(
+                children: [
+                  InkWell(
+                    onTap: () => setState(() => _cart[p.id] = qty + 1),
+                    borderRadius: BorderRadius.circular(16),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.roleStaff.withValues(alpha: 0.04) : Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? AppColors.roleStaff : AppColors.border,
+                          width: isSelected ? 2 : 1,
+                        ),
+                        boxShadow: isSelected ? null : AppShadows.sm,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(p.icon, size: 20, color: p.color),
-                          if (qty > 0)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: AppColors.roleStaff, borderRadius: BorderRadius.circular(10)),
-                              child: Text('$qty', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                          Icon(p.icon, size: 22, color: isSelected ? AppColors.roleStaff : p.color),
+                          const Spacer(),
+                          Text(
+                            p.name,
+                            style: AppTextStyles.labelMd.copyWith(
+                              color: isSelected ? AppColors.roleStaff : null,
+                              fontWeight: isSelected ? FontWeight.bold : null,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '₱${p.price.toStringAsFixed(0)}',
+                            style: AppTextStyles.bodySm.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: isSelected ? AppColors.roleStaff : AppColors.textSecondary,
+                            ),
+                          ),
                         ],
                       ),
-                      const Spacer(),
-                      Text(p.name, style: AppTextStyles.labelMd, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text('₱${p.price.toStringAsFixed(0)}', style: AppTextStyles.bodySm.copyWith(fontWeight: FontWeight.bold)),
-                    ],
+                    ),
                   ),
-                ),
+                  if (isSelected)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () => setState(() {
+                              if (qty > 1) {
+                                _cart[p.id] = qty - 1;
+                              } else {
+                                _cart.remove(p.id);
+                              }
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: AppColors.error,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.remove, size: 14, color: Colors.white),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.roleStaff,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$qty',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               );
             },
           ),
@@ -229,18 +305,13 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                     ],
                   ),
                 ),
-                SizedBox(
-                  width: 140,
-                  child: PrimaryButton(
-                    label: 'Checkout',
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Transaction completed & receipt printed.')),
-                      );
-                      setState(() => _cart.clear());
-                    },
+                  SizedBox(
+                    width: 140,
+                    child: PrimaryButton(
+                      label: 'Checkout',
+                      onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffPosCart, arguments: _cart),
+                    ),
                   ),
-                ),
               ],
             ),
             ),
@@ -295,7 +366,10 @@ class _TransactionsTab extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text('${o.date.hour}:${o.date.minute.toString().padLeft(2, '0')} • ${o.paymentMethod}', style: AppTextStyles.bodySm),
                   const Spacer(),
-                  TextButton(onPressed: () {}, child: const Text('View Ticket')),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffTransactionDetails, arguments: o),
+                    child: const Text('View Details'),
+                  ),
                 ],
               ),
             ],
@@ -311,52 +385,7 @@ class _InventoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      itemCount: kProducts.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, i) {
-        final p = kProducts[i];
-        final stock = 42 - (i * 8); // dummy stock
-        final isLow = stock < 10;
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isLow ? AppColors.error : AppColors.border),
-            boxShadow: AppShadows.sm,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(color: p.color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                child: Icon(p.icon, color: p.color),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(p.name, style: AppTextStyles.labelLg, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text('Batch #LN-2024-${i+100} • FEFO Tracking', style: AppTextStyles.bodySm),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('$stock', style: AppTextStyles.headlineSm.copyWith(color: isLow ? AppColors.error : AppColors.success)),
-                  Text('units left', style: AppTextStyles.labelSm),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    return const InventoryDashboardBody();
   }
 }
 

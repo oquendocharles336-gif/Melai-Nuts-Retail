@@ -3,6 +3,9 @@ import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../data/dummy_data/dummy_sales.dart';
+import '../widgets/branch_performance_card.dart';
+import 'owner_dashboard_screen.dart';
 
 /// Owner Executive Dashboard — Sales analytics, multi-branch comparisons,
 /// and total oversight in a single-file shell.
@@ -43,6 +46,16 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.inventory_2_outlined),
+            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productManagement),
+            tooltip: 'Product & Pricing Hub',
+          ),
+          IconButton(
+            icon: const Icon(Icons.manage_accounts_rounded),
+            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerUserManagement),
+            tooltip: 'Manage Users',
+          ),
           IconButton(icon: const Icon(Icons.share_outlined), onPressed: () {}),
           IconButton(icon: const Icon(Icons.logout_rounded), onPressed: _logout),
         ],
@@ -50,7 +63,7 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
       body: IndexedStack(
         index: _currentIndex,
         children: const [
-          _AnalyticsTab(),
+          OwnerDashboardScreen(),
           _BranchComparisonTab(),
           _SystemLogsTab(),
         ],
@@ -72,9 +85,9 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
           onDestinationSelected: (i) => setState(() => _currentIndex = i),
           destinations: const [
             NavigationDestination(
-              icon: Icon(Icons.analytics_outlined),
-              selectedIcon: Icon(Icons.analytics_rounded, color: AppColors.roleOwner),
-              label: 'Analytics',
+              icon: Icon(Icons.dashboard_outlined),
+              selectedIcon: Icon(Icons.dashboard_rounded, color: AppColors.roleOwner),
+              label: 'Dashboard',
             ),
             NavigationDestination(
               icon: Icon(Icons.compare_arrows_rounded),
@@ -93,101 +106,6 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
   }
 }
 
-class _AnalyticsTab extends StatelessWidget {
-  const _AnalyticsTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      children: [
-        _buildSummaryCard(),
-        const SizedBox(height: AppSpacing.lg),
-        Text('Revenue Trends', style: AppTextStyles.titleMd),
-        const SizedBox(height: AppSpacing.sm),
-        _buildChartPlaceholder(),
-        const SizedBox(height: AppSpacing.lg),
-        Text('Top Performing SKUs', style: AppTextStyles.titleMd),
-        const SizedBox(height: AppSpacing.sm),
-        _buildTopProduct('Garlic Peanuts', '₱124,500', 0.85),
-        _buildTopProduct('Spicy Skinless', '₱82,200', 0.62),
-        _buildTopProduct('Mixed Nuts Blend', '₱45,100', 0.35),
-      ],
-    );
-  }
-
-  Widget _buildSummaryCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [AppColors.roleOwner, AppColors.secondaryBrown]),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppShadows.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('TOTAL REVENUE (OCT)', style: AppTextStyles.labelSm.copyWith(color: Colors.white70)),
-          const SizedBox(height: 6),
-          Text('₱482,910.50', style: AppTextStyles.headlineLg.copyWith(color: Colors.white, fontSize: 32)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Icon(Icons.trending_up_rounded, color: Colors.greenAccent, size: 20),
-              const SizedBox(width: 6),
-              Text('+12.4% from last month', style: AppTextStyles.bodySm.copyWith(color: Colors.greenAccent)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChartPlaceholder() {
-    return Container(
-      height: 180,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-        boxShadow: AppShadows.sm,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.bar_chart_rounded, size: 48, color: AppColors.primaryContainer),
-            Text('Live Revenue Chart Simulation', style: AppTextStyles.bodySm),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopProduct(String name, String rev, double val) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(name, style: AppTextStyles.labelLg),
-                Text(rev, style: AppTextStyles.labelLg.copyWith(color: AppColors.roleOwner)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            LinearProgressIndicator(value: val, backgroundColor: AppColors.border, color: AppColors.roleOwner, minHeight: 6, borderRadius: BorderRadius.circular(3)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _BranchComparisonTab extends StatelessWidget {
   const _BranchComparisonTab();
 
@@ -196,40 +114,26 @@ class _BranchComparisonTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
-        _buildBranchCard('Santa Cruz Main', '₱210.4k', '98% Stock', AppColors.success),
-        _buildBranchCard('Calamba Branch', '₱154.2k', '82% Stock', AppColors.success),
-        _buildBranchCard('Los Baños Hub', '₱118.3k', '14% Stock', AppColors.error),
-      ],
-    );
-  }
-
-  Widget _buildBranchCard(String name, String rev, String stock, Color stockColor) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: AppTextStyles.titleMd),
-                Text('Active Terminal: 02 • Laguna South', style: AppTextStyles.bodySm),
-              ],
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Branch Operations', style: AppTextStyles.headlineSm),
+            TextButton(
+              onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchComparison),
+              child: const Text('Full Comparison'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        for (final sales in kBranchSalesList)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: BranchPerformanceCard(
+              sales: sales,
+              onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: sales.branch),
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(rev, style: AppTextStyles.labelLg.copyWith(color: AppColors.roleOwner)),
-              Text(stock, style: AppTextStyles.labelSm.copyWith(color: stockColor)),
-            ],
-          ),
-          const SizedBox(width: 8),
-          const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
-        ],
-      ),
+      ],
     );
   }
 }

@@ -1,0 +1,177 @@
+import 'package:flutter/material.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/primary_button.dart';
+import '../../../data/dummy_data/dummy_products.dart';
+import '../../../data/models/product.dart';
+
+/// Editable pricing form for one product's variants — live margin
+/// recalculation as COGS/SRP change. Frontend-only: "Save Pricing" just
+/// confirms and pops back, nothing is persisted.
+class ProductPricingScreen extends StatefulWidget {
+  final String productId;
+
+  const ProductPricingScreen({super.key, this.productId = 'p1'});
+
+  @override
+  State<ProductPricingScreen> createState() => _ProductPricingScreenState();
+}
+
+class _VariantPricingControllers {
+  final ProductVariant variant;
+  final TextEditingController cogs;
+  final TextEditingController srp;
+
+  _VariantPricingControllers(this.variant)
+      : cogs = TextEditingController(text: (variant.costPrice ?? 0).toStringAsFixed(2)),
+        srp = TextEditingController(text: variant.price.toStringAsFixed(2));
+
+  double get cogsValue => double.tryParse(cogs.text) ?? 0;
+  double get srpValue => double.tryParse(srp.text) ?? 0;
+  double get margin => srpValue == 0 ? 0 : ((srpValue - cogsValue) / srpValue) * 100;
+
+  void dispose() {
+    cogs.dispose();
+    srp.dispose();
+  }
+}
+
+class _ProductPricingScreenState extends State<ProductPricingScreen> {
+  late final Product _product = findProductById(widget.productId);
+  late final List<_VariantPricingControllers> _rows =
+      [for (final v in _product.variants) _VariantPricingControllers(v)];
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    for (final r in _rows) {
+      r.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Simulated: pricing updated for ${_product.name} across all Laguna branches.')),
+    );
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: MelaiAppBar(title: 'Edit Pricing • ${_product.name}', showBack: true),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Price changes sync to all connected POS registers and the customer storefront within 30 seconds.',
+                      style: AppTextStyles.bodyMd,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            for (final row in _rows)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _PricingRowCard(row: row, onChanged: () => setState(() {})),
+              ),
+            const SizedBox(height: AppSpacing.md),
+            PrimaryButton(label: 'Save Pricing', icon: Icons.check_rounded, loading: _saving, onPressed: _save),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PricingRowCard extends StatelessWidget {
+  final _VariantPricingControllers row;
+  final VoidCallback onChanged;
+
+  const _PricingRowCard({required this.row, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final healthy = row.margin >= 50;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        border: Border.all(color: AppColors.border),
+        boxShadow: AppShadows.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(row.variant.label, style: AppTextStyles.titleMd),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: row.cogs,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => onChanged(),
+                  decoration: const InputDecoration(labelText: 'COGS (₱)', prefixIcon: Icon(Icons.receipt_long_outlined, size: 18)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: row.srp,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => onChanged(),
+                  decoration: const InputDecoration(labelText: 'SRP (₱)', prefixIcon: Icon(Icons.sell_outlined, size: 18)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: healthy ? AppColors.successBg : AppColors.warningBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(healthy ? Icons.check_circle : Icons.warning_amber_rounded, size: 16, color: healthy ? AppColors.success : AppColors.warning),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Margin ${row.margin.toStringAsFixed(1)}% • Profit ₱${(row.srpValue - row.cogsValue).toStringAsFixed(2)}/pack',
+                    style: AppTextStyles.labelMd.copyWith(color: healthy ? AppColors.success : AppColors.warning),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

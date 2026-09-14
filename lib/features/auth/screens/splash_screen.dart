@@ -142,37 +142,37 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
               const SizedBox(height: 20),
               Row(
-                children: AppConstants.branches.map((b) {
-                  final isMain = b == AppConstants.branches.first;
-                  return Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceContainerLow,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.border),
-                        boxShadow: AppShadows.sm,
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            b.split(' ').first,
-                            style: AppTextStyles.labelLg,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isMain ? '● Main Hub' : '● Synced',
-                            style: AppTextStyles.bodySm.copyWith(
-                              color: AppColors.success,
+                children: [
+                  for (final b in AppConstants.branches)
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                          boxShadow: AppShadows.sm,
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              b.split(' ').first,
+                              style: AppTextStyles.labelLg,
+                              textAlign: TextAlign.center,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 4),
+                            Text(
+                              b == AppConstants.branches.first ? '● Main Hub' : '● Synced',
+                              style: AppTextStyles.bodySm.copyWith(
+                                color: AppColors.success,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  );
-                }).toList(),
+                ],
               ),
               const SizedBox(height: 20),
               Row(

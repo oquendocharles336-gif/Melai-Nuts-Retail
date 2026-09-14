@@ -198,6 +198,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     icon: const Icon(Icons.shield_outlined, size: 16),
                     label: const Text('Login & Security Settings'),
                   ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text("Don't have an account?"),
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pushNamed(AppRoutes.register),
+                        child: const Text('Register Here'),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: AppSpacing.sm),
                   Row(
                     children: [
@@ -321,15 +332,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisSpacing: 10,
                     crossAxisSpacing: 10,
                     childAspectRatio: 2.6,
-                    children: kDemoAccounts.map((acc) {
-                      return RoleBadgeCard(
-                        role: acc.role,
-                        name: acc.name,
-                        subtitle: acc.subtitle,
-                        selected: _selectedRole == acc.role,
-                        onTap: () => _applyDemoAccount(acc),
-                      );
-                    }).toList(),
+                    children: [
+                      for (final acc in kDemoAccounts)
+                        RoleBadgeCard(
+                          role: acc.role,
+                          name: acc.name,
+                          subtitle: acc.subtitle,
+                          selected: _selectedRole == acc.role,
+                          onTap: () => _applyDemoAccount(acc),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Row(

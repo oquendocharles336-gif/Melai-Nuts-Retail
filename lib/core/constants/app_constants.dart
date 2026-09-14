@@ -1,4 +1,3 @@
-/// App-wide static constants (frontend-only / dummy-data phase).
 class AppConstants {
   AppConstants._();
 

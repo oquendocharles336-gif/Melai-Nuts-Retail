@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/models/loyalty.dart';
 
 class LoyaltyTransactionScreen extends StatelessWidget {
@@ -14,12 +15,7 @@ class LoyaltyTransactionScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text('Transaction Details'),
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.textPrimary,
-        elevation: 0,
-      ),
+      appBar: const MelaiAppBar(title: 'Transaction Details', showBack: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
@@ -30,6 +26,7 @@ class LoyaltyTransactionScreen extends StatelessWidget {
                 color: AppColors.surfaceContainer,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
               child: Column(
                 children: [

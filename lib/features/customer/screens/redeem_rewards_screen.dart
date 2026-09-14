@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../widgets/reward_card.dart';
 
@@ -10,15 +11,13 @@ class RedeemRewardsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const userPoints = 1250;
+    const userPoints = 250;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text('Redeem Rewards'),
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.textPrimary,
-        elevation: 0,
+      appBar: MelaiAppBar(
+        title: 'Redeem Rewards',
+        showBack: true,
         actions: [
           Center(
             child: Padding(
@@ -41,15 +40,10 @@ class RedeemRewardsScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: GridView.builder(
+      body: ListView.separated(
         padding: const EdgeInsets.all(AppSpacing.md),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: AppSpacing.md,
-          crossAxisSpacing: AppSpacing.md,
-          childAspectRatio: 0.7,
-        ),
         itemCount: dummyRewards.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           final reward = dummyRewards[index];
           return RewardCard(
