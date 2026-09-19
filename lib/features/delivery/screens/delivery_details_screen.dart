@@ -4,12 +4,18 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Full detail for a single delivery dispatch — status, rider/vehicle,
 /// every stop with its own status, and simulated status-update actions.
+///
+/// Shared by both the Owner Delivery Management module and the rider-
+/// facing flow (Assigned Deliveries → **Delivery Details** → Optimized
+/// Route → Start Delivery → ...). When no stop has started yet, a
+/// prominent "Start Delivery" button appears to kick off that rider flow.
 class DeliveryDetailsScreen extends StatefulWidget {
   final Delivery delivery;
 
@@ -86,6 +92,15 @@ class _DeliveryDetailsScreenState extends State<DeliveryDetailsScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            if (delivery.stops.every((s) => s.status == StopStatus.pending))
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: PrimaryButton(
+                  label: 'Start Delivery',
+                  icon: Icons.play_circle_outline_rounded,
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.deliveryRoute, arguments: delivery),
+                ),
+              ),
             Text('Delivery Stops', style: AppTextStyles.headlineSm),
             const SizedBox(height: AppSpacing.sm),
             for (int i = 0; i < delivery.stops.length; i++)

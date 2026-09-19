@@ -213,7 +213,7 @@ class _SequenceNode extends StatelessWidget {
               child: Padding(
                 padding: EdgeInsets.only(bottom: 16, top: isFirst ? 0 : 8),
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,7 +223,7 @@ class _SequenceNode extends StatelessWidget {
                           Expanded(child: Text(title, style: AppTextStyles.labelLg)),
                           if (statusLabel != null)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(color: (statusColor ?? AppColors.textSecondary).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
                               child: Text(statusLabel!, style: AppTextStyles.labelSm.copyWith(color: statusColor)),
                             ),

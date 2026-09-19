@@ -8,9 +8,11 @@ import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import '../../inventory/screens/inventory_dashboard_screen.dart';
+import 'staff_extra_screens.dart';
 
 /// Comprehensive Branch Staff Portal — Register (POS), Transactions,
-/// and Inventory (FEFO) management in a single-file shell.
+/// Inventory (FEFO) management, and Profile (incl. Log Out) in a single-file
+/// shell.
 class StaffPortalScreen extends StatefulWidget {
   const StaffPortalScreen({super.key});
 
@@ -20,10 +22,6 @@ class StaffPortalScreen extends StatefulWidget {
 
 class _StaffPortalScreenState extends State<StaffPortalScreen> {
   int _currentIndex = 0;
-
-  void _logout() {
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (r) => false);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,14 +50,6 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
             icon: const Icon(Icons.notifications_none_rounded),
             onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffNotifications),
           ),
-          IconButton(
-            icon: const Icon(Icons.person_outline_rounded),
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffProfile),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: _logout,
-          ),
         ],
       ),
       body: IndexedStack(
@@ -68,6 +58,7 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
           _PosRegisterTab(),
           _TransactionsTab(),
           _InventoryTab(),
+          StaffProfileBody(),
         ],
       ),
       bottomNavigationBar: NavigationBarTheme(
@@ -100,6 +91,11 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
               icon: Icon(Icons.inventory_2_outlined),
               selectedIcon: Icon(Icons.inventory_2_rounded, color: AppColors.roleStaff),
               label: 'Inventory',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded, color: AppColors.roleStaff),
+              label: 'Profile',
             ),
           ],
         ),
@@ -153,9 +149,9 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
             decoration: InputDecoration(
               hintText: 'Scan barcode or search SKU...',
               prefixIcon: const Icon(Icons.qr_code_scanner_rounded),
-              suffixIcon: query.isNotEmpty 
-                ? IconButton(icon: const Icon(Icons.clear_rounded), onPressed: () => setState(() => _searchController.clear()))
-                : const Icon(Icons.search_rounded),
+              suffixIcon: query.isNotEmpty
+                  ? IconButton(icon: const Icon(Icons.clear_rounded), onPressed: () => setState(() => _searchController.clear()))
+                  : const Icon(Icons.search_rounded),
             ),
           ),
         ),
@@ -196,6 +192,9 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
               final isSelected = qty > 0;
 
               return Stack(
+                // Force the card to fill its whole grid cell so every card
+                // has the same width/height regardless of its text length.
+                fit: StackFit.expand,
                 children: [
                   InkWell(
                     onTap: () => setState(() => _cart[p.id] = qty + 1),
@@ -294,17 +293,17 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
             ),
             child: SafeArea(
               child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('TRANSACTION TOTAL', style: AppTextStyles.bodySm),
-                      Text('₱${_total.toStringAsFixed(0)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.roleStaff)),
-                    ],
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('TRANSACTION TOTAL', style: AppTextStyles.bodySm),
+                        Text('₱${_total.toStringAsFixed(0)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.roleStaff)),
+                      ],
+                    ),
                   ),
-                ),
                   SizedBox(
                     width: 140,
                     child: PrimaryButton(
@@ -312,8 +311,8 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                       onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffPosCart, arguments: _cart),
                     ),
                   ),
-              ],
-            ),
+                ],
+              ),
             ),
           ),
       ],

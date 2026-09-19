@@ -9,12 +9,29 @@ import '../../../core/widgets/secondary_button.dart';
 import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/models/product.dart';
 
-/// "Product & Pricing Hub" — the Product Management landing screen.
-/// Matches the prototype's dashboard: catalog/margin stats, category
-/// revenue & margin breakdown, recent price adjustments, and quick actions
-/// into the rest of the Product Management + Pricing feature.
+/// Standalone "Product & Pricing Hub" page (kept so the `/products` route
+/// still works). The content lives in [ProductManagementBody], which is also
+/// embedded as the "Products" tab in the Owner Portal bottom navigation.
 class ProductManagementScreen extends StatelessWidget {
   const ProductManagementScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: MelaiAppBar(title: 'Product & Pricing Hub', showBack: true),
+      body: SafeArea(child: ProductManagementBody()),
+    );
+  }
+}
+
+/// "Product & Pricing Hub" content — the Product Management landing view.
+/// Matches the prototype's dashboard: catalog/margin stats, category
+/// revenue & margin breakdown, recent price adjustments, and quick actions
+/// into the rest of the Product Management + Pricing feature. Has no
+/// Scaffold of its own so it can be used as a tab body.
+class ProductManagementBody extends StatelessWidget {
+  const ProductManagementBody({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -30,157 +47,151 @@ class ProductManagementScreen extends StatelessWidget {
       byCategory.putIfAbsent(p.categoryId, () => []).add(p);
     }
 
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: const MelaiAppBar(title: 'Product & Pricing Hub', showBack: true),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.border),
-                boxShadow: AppShadows.sm,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+            border: Border.all(color: AppColors.border),
+            boxShadow: AppShadows.sm,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(color: AppColors.primaryContainer, borderRadius: BorderRadius.circular(12)),
-                        child: const Icon(Icons.savings_outlined, color: AppColors.primary),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Artisanal Peanut Lines & Margin Health', style: AppTextStyles.titleMd),
-                            Text('Laguna Network • 3 Branches Synced', style: AppTextStyles.bodySm),
-                          ],
-                        ),
-                      ),
-                    ],
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: AppColors.primaryContainer, borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.savings_outlined, color: AppColors.primary),
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SecondaryButton(
-                          label: 'Batch Price Adjustment',
-                          icon: Icons.price_change_outlined,
-                          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Simulated: batch price adjustment applied.')),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  PrimaryButton(
-                    label: '+ Add New Product',
-                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productAdd),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Artisanal Peanut Lines & Margin Health', style: AppTextStyles.titleMd),
+                        Text('Laguna Network • 3 Branches Synced', style: AppTextStyles.bodySm),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                Expanded(
-                  child: _StatCard(
-                    label: 'Total Active Catalog',
-                    value: '$activeCount SKUs',
-                    icon: Icons.inventory_2_outlined,
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.productList),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'Batch Price Adjustment',
+                      icon: Icons.price_change_outlined,
+                      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Simulated: batch price adjustment applied.')),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _StatCard(
-                    label: 'Average Gross Margin',
-                    value: '${avgMargin.toStringAsFixed(1)}%',
-                    icon: Icons.trending_up_rounded,
-                    valueColor: AppColors.success,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _StatCard(
-                    label: 'Pricing Updates',
-                    value: 'Today',
-                    icon: Icons.sync_rounded,
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.productPricing),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _StatCard(
-                    label: 'Low Margin Alert',
-                    value: '${lowMarginSkus.length} SKU${lowMarginSkus.length == 1 ? '' : 's'}',
-                    icon: Icons.warning_amber_rounded,
-                    valueColor: lowMarginSkus.isEmpty ? AppColors.success : AppColors.error,
-                    highlight: lowMarginSkus.isNotEmpty,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Category Revenue & Margin Breakdown', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            for (final entry in byCategory.entries)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _CategoryBreakdownRow(categoryId: entry.key, products: entry.value),
+                ],
               ),
-            const SizedBox(height: AppSpacing.lg),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Quick Links', style: AppTextStyles.headlineSm),
-              ],
+              const SizedBox(height: 10),
+              PrimaryButton(
+                label: '+ Add New Product',
+                onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productAdd),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                label: 'Total Active Catalog',
+                value: '$activeCount SKUs',
+                icon: Icons.inventory_2_outlined,
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.productList),
+              ),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickLinkTile(
-                    icon: Icons.list_alt_rounded,
-                    label: 'Catalog',
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.productList),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _QuickLinkTile(
-                    icon: Icons.sell_outlined,
-                    label: 'Pricing',
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.productPricing),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _QuickLinkTile(
-                    icon: Icons.leaderboard_outlined,
-                    label: 'Performance',
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.productPerformance),
-                  ),
-                ),
-              ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatCard(
+                label: 'Average Gross Margin',
+                value: '${avgMargin.toStringAsFixed(1)}%',
+                icon: Icons.trending_up_rounded,
+                valueColor: AppColors.success,
+              ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                label: 'Pricing Updates',
+                value: 'Today',
+                icon: Icons.sync_rounded,
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.productPricing),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatCard(
+                label: 'Low Margin Alert',
+                value: '${lowMarginSkus.length} SKU${lowMarginSkus.length == 1 ? '' : 's'}',
+                icon: Icons.warning_amber_rounded,
+                valueColor: lowMarginSkus.isEmpty ? AppColors.success : AppColors.error,
+                highlight: lowMarginSkus.isNotEmpty,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Text('Category Revenue & Margin Breakdown', style: AppTextStyles.headlineSm),
+        const SizedBox(height: AppSpacing.sm),
+        for (final entry in byCategory.entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _CategoryBreakdownRow(categoryId: entry.key, products: entry.value),
+          ),
+        const SizedBox(height: AppSpacing.lg),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Quick Links', style: AppTextStyles.headlineSm),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
+          children: [
+            Expanded(
+              child: _QuickLinkTile(
+                icon: Icons.list_alt_rounded,
+                label: 'Catalog',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.productList),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickLinkTile(
+                icon: Icons.sell_outlined,
+                label: 'Pricing',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.productPricing),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickLinkTile(
+                icon: Icons.leaderboard_outlined,
+                label: 'Performance',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.productPerformance),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

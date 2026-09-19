@@ -4,11 +4,15 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/dummy_data/dummy_sales.dart';
+import '../../products/screens/product_management_screen.dart';
 import '../widgets/branch_performance_card.dart';
 import 'owner_dashboard_screen.dart';
+import 'owner_profile_screen.dart';
+import 'user_management_screen.dart';
 
 /// Owner Executive Dashboard — Sales analytics, multi-branch comparisons,
-/// and total oversight in a single-file shell.
+/// product & pricing, user management, and profile (incl. Log Out) behind a
+/// single bottom-navigation shell.
 class OwnerPortalScreen extends StatefulWidget {
   const OwnerPortalScreen({super.key});
 
@@ -18,10 +22,6 @@ class OwnerPortalScreen extends StatefulWidget {
 
 class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
   int _currentIndex = 0;
-
-  void _logout() {
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (r) => false);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,20 +45,6 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.inventory_2_outlined),
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productManagement),
-            tooltip: 'Product & Pricing Hub',
-          ),
-          IconButton(
-            icon: const Icon(Icons.manage_accounts_rounded),
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerUserManagement),
-            tooltip: 'Manage Users',
-          ),
-          IconButton(icon: const Icon(Icons.share_outlined), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.logout_rounded), onPressed: _logout),
-        ],
       ),
       body: IndexedStack(
         index: _currentIndex,
@@ -66,6 +52,9 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
           OwnerDashboardScreen(),
           _BranchComparisonTab(),
           _SystemLogsTab(),
+          ProductManagementBody(),
+          UserManagementBody(showAddButton: true),
+          OwnerProfileBody(),
         ],
       ),
       bottomNavigationBar: NavigationBarTheme(
@@ -73,11 +62,14 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
           backgroundColor: Colors.white,
           indicatorColor: AppColors.roleOwner.withValues(alpha: 0.15),
           surfaceTintColor: Colors.transparent,
+          // Six tabs share the bar, so use a slightly smaller label to keep
+          // "Dashboard" / "Branches" from clipping on narrow phones.
           labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final base = AppTextStyles.labelMd.copyWith(fontSize: 10.5, letterSpacing: 0);
             if (states.contains(WidgetState.selected)) {
-              return AppTextStyles.labelMd.copyWith(color: AppColors.roleOwner);
+              return base.copyWith(color: AppColors.roleOwner);
             }
-            return AppTextStyles.labelMd;
+            return base;
           }),
         ),
         child: NavigationBar(
@@ -98,6 +90,23 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
               icon: Icon(Icons.security_rounded),
               selectedIcon: Icon(Icons.security_rounded, color: AppColors.roleOwner),
               label: 'Security',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.inventory_2_outlined),
+              selectedIcon: Icon(Icons.inventory_2_rounded, color: AppColors.roleOwner),
+              label: 'Products',
+              tooltip: 'Product & Pricing Hub',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.manage_accounts_outlined),
+              selectedIcon: Icon(Icons.manage_accounts_rounded, color: AppColors.roleOwner),
+              label: 'Users',
+              tooltip: 'Manage Users',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded, color: AppColors.roleOwner),
+              label: 'Profile',
             ),
           ],
         ),

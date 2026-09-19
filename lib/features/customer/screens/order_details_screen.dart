@@ -8,6 +8,9 @@ import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import '../widgets/order_status_badge.dart';
 import 'repeat_order_screen.dart';
+import '../../../core/widgets/secondary_button.dart';
+import '../../payments/screens/payment_status_screen.dart';
+import '../../refunds/screens/refund_request_screen.dart';
 
 /// Full order receipt — items, per-item "Reorder SKU", billing summary,
 /// branch info, and "Repeat Entire Order" (matches the prototype's Order
@@ -203,6 +206,26 @@ class OrderDetailsScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => RepeatOrderScreen(order: order)),
               ),
             ),
+            const SizedBox(height: 10),
+            SecondaryButton(
+              label: 'View Payment Status',
+              icon: Icons.receipt_long_rounded,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PaymentStatusScreen(orderId: order.id, amount: order.total),
+                ),
+              ),
+            ),
+            if (order.status == OrderStatus.completed) ...[
+              const SizedBox(height: 10),
+              SecondaryButton(
+                label: 'Request a Refund',
+                icon: Icons.assignment_return_outlined,
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => RefundRequestScreen(order: order)),
+                ),
+              ),
+            ],
           ],
         ),
       ),

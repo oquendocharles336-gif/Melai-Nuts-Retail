@@ -4,6 +4,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../data/dummy_data/dummy_notifications.dart';
+import '../../notifications/screens/notification_center_screen.dart';
+import '../../settings/screens/logout_confirmation_screen.dart';
 import 'edit_profile_screen.dart';
 
 /// "Account" tab — profile header, loyalty summary, contact info, and
@@ -12,15 +15,38 @@ import 'edit_profile_screen.dart';
 class CustomerProfileScreen extends StatelessWidget {
   const CustomerProfileScreen({super.key});
 
-  void _logout(BuildContext context) {
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
-  }
-
   @override
   Widget build(BuildContext context) {
+    final unreadCount = kNotifications.where((n) => !n.read).length;
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('Account & Settings')),
+      appBar: AppBar(
+        title: const Text('Account & Settings'),
+        actions: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_outlined),
+                tooltip: 'Notifications',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NotificationCenterScreen()),
+                ),
+              ),
+              if (unreadCount > 0)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -156,19 +182,24 @@ class CustomerProfileScreen extends StatelessWidget {
               child: Column(
                 children: [
                   _SettingsTile(
+                    icon: Icons.settings_outlined,
+                    title: 'App Settings',
+                    subtitle: 'Preferences, branch, and more',
+                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.appSettings),
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
                     icon: Icons.shield_outlined,
                     title: 'Login & Security',
                     subtitle: 'Password, 2FA & active sessions',
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.security),
+                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.accountSecurity),
                   ),
                   const Divider(height: 1),
                   _SettingsTile(
                     icon: Icons.notifications_outlined,
                     title: 'Notification Preferences',
                     subtitle: 'Order updates & promos',
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Notification preferences coming soon')),
-                    ),
+                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.notificationSettings),
                   ),
                   const Divider(height: 1),
                   _SettingsTile(
@@ -179,6 +210,13 @@ class CustomerProfileScreen extends StatelessWidget {
                       const SnackBar(content: Text('Saved addresses coming soon')),
                     ),
                   ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.assignment_return_outlined,
+                    title: 'Refund History',
+                    subtitle: 'Track your refund requests',
+                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.customerRefundHistory),
+                  ),
                 ],
               ),
             ),
@@ -186,7 +224,9 @@ class CustomerProfileScreen extends StatelessWidget {
             SecondaryButton(
               label: 'Log Out of Session',
               icon: Icons.logout_rounded,
-              onPressed: () => _logout(context),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
+              ),
             ),
           ],
         ),

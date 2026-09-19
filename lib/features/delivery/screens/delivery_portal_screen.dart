@@ -5,9 +5,10 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
+import 'delivery_profile_screen.dart';
 
-/// Delivery Personnel Portal — the rider's own assigned routes and
-/// delivery history. Reuses the shared [Delivery] model and links into
+/// Delivery Personnel Portal — the rider's own assigned routes, delivery
+/// history, and profile (incl. Log Out). Reuses the shared [Delivery] model and links into
 /// the same Route Optimization / Route Map / Manifest screens used by the
 /// Owner's Delivery Management module, so both roles see one consistent
 /// (simulated) picture of each dispatch.
@@ -20,10 +21,6 @@ class DeliveryPortalScreen extends StatefulWidget {
 
 class _DeliveryPortalScreenState extends State<DeliveryPortalScreen> {
   int _currentIndex = 0;
-
-  void _logout() {
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (r) => false);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,15 +44,13 @@ class _DeliveryPortalScreenState extends State<DeliveryPortalScreen> {
             ),
           ],
         ),
-        actions: [
-          IconButton(icon: const Icon(Icons.logout_rounded), onPressed: _logout),
-        ],
       ),
       body: IndexedStack(
         index: _currentIndex,
         children: const [
           _MyRouteTab(),
           _RiderHistoryTab(),
+          DeliveryProfileBody(),
         ],
       ),
       bottomNavigationBar: NavigationBarTheme(
@@ -84,6 +79,11 @@ class _DeliveryPortalScreenState extends State<DeliveryPortalScreen> {
               selectedIcon: Icon(Icons.history_rounded, color: AppColors.roleDelivery),
               label: 'History',
             ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded, color: AppColors.roleDelivery),
+              label: 'Profile',
+            ),
           ],
         ),
       ),
@@ -102,9 +102,9 @@ class _MyRouteTab extends StatelessWidget {
     final nextStop = myDeliveries.isEmpty
         ? null
         : myDeliveries.first.stops.firstWhere(
-            (s) => s.status != StopStatus.delivered,
-            orElse: () => myDeliveries.first.stops.last,
-          );
+          (s) => s.status != StopStatus.delivered,
+      orElse: () => myDeliveries.first.stops.last,
+    );
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -139,7 +139,16 @@ class _MyRouteTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        Text('Active Assigned Deliveries', style: AppTextStyles.titleMd),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Active Assigned Deliveries', style: AppTextStyles.titleMd),
+            TextButton(
+              onPressed: () => Navigator.of(context).pushNamed(AppRoutes.deliveryAssigned),
+              child: const Text('View All'),
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpacing.sm),
         if (myDeliveries.isEmpty)
           Padding(
@@ -209,7 +218,14 @@ class _AssignedDeliveryCard extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.routeMap, arguments: delivery),
+                  onPressed: () {
+                    final notStarted = delivery.stops.every((s) => s.status == StopStatus.pending);
+                    if (notStarted) {
+                      Navigator.of(context).pushNamed(AppRoutes.deliveryRoute, arguments: delivery);
+                    } else {
+                      Navigator.of(context).pushNamed(AppRoutes.gpsTracking, arguments: delivery);
+                    }
+                  },
                   icon: const Icon(Icons.navigation_rounded, size: 18),
                   label: const Text('Navigate'),
                 ),

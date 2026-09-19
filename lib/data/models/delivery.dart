@@ -43,7 +43,7 @@ extension DeliveryStatusX on DeliveryStatus {
 }
 
 /// Status of a single stop within a delivery route.
-enum StopStatus { pending, enRoute, delivered, skipped }
+enum StopStatus { pending, enRoute, delivered, delayed, skipped }
 
 extension StopStatusX on StopStatus {
   String get label {
@@ -54,8 +54,10 @@ extension StopStatusX on StopStatus {
         return 'En Route';
       case StopStatus.delivered:
         return 'Delivered';
+      case StopStatus.delayed:
+        return 'Delayed';
       case StopStatus.skipped:
-        return 'Skipped';
+        return 'Cancelled';
     }
   }
 
@@ -67,6 +69,8 @@ extension StopStatusX on StopStatus {
         return AppColors.warning;
       case StopStatus.delivered:
         return AppColors.success;
+      case StopStatus.delayed:
+        return AppColors.warning;
       case StopStatus.skipped:
         return AppColors.error;
     }
@@ -91,6 +95,8 @@ class DeliveryStop {
   final String eta;
 
   StopStatus status;
+  String? issueReason; // populated when status is delayed/skipped
+  String? proofNote; // delivery confirmation note (simulated proof)
 
   DeliveryStop({
     required this.id,
@@ -103,6 +109,8 @@ class DeliveryStop {
     required this.travelMinutesFromPrevious,
     required this.eta,
     this.status = StopStatus.pending,
+    this.issueReason,
+    this.proofNote,
   });
 }
 

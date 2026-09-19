@@ -83,7 +83,34 @@ import '../features/delivery/screens/route_map_screen.dart';
 import '../features/delivery/screens/delivery_manifest_screen.dart';
 import '../features/delivery/screens/delivery_details_screen.dart';
 import '../features/delivery/screens/delivery_history_screen.dart';
+import '../features/delivery/screens/assigned_deliveries_screen.dart';
+import '../features/delivery/screens/active_delivery_screen.dart';
+import '../features/delivery/screens/delivery_route_screen.dart';
+import '../features/delivery/screens/gps_tracking_screen.dart';
+import '../features/delivery/screens/route_details_screen.dart';
+import '../features/delivery/screens/delivery_progress_screen.dart';
+import '../features/delivery/screens/next_stop_screen.dart';
+import '../features/delivery/screens/delivery_confirmation_screen.dart';
+import '../features/delivery/screens/completed_delivery_screen.dart';
+import '../features/delivery/screens/delayed_delivery_screen.dart';
+import '../features/delivery/screens/cancelled_delivery_screen.dart';
 import '../data/models/delivery.dart';
+import '../data/models/payment.dart';
+import '../data/models/refund.dart';
+import '../features/payments/screens/payment_screen.dart';
+import '../features/payments/screens/payment_status_screen.dart';
+import '../features/refunds/screens/refund_request_screen.dart';
+import '../features/refunds/screens/refund_history_screen.dart';
+import '../features/refunds/screens/refund_processing_screen.dart';
+import '../data/models/notification_item.dart';
+import '../features/notifications/screens/notification_center_screen.dart';
+import '../features/notifications/screens/notification_detail_screen.dart';
+import '../features/notifications/screens/notification_settings_screen.dart';
+import '../features/settings/screens/settings_screen.dart';
+import '../features/settings/screens/security_screen.dart';
+import '../features/settings/screens/branch_settings_screen.dart';
+import '../features/settings/screens/logout_confirmation_screen.dart';
+import '../features/settings/screens/logout_success_screen.dart';
 
 /// Centralized route names. Keep every navigable screen registered here so
 /// navigation logic never has to hard-code route strings in feature code.
@@ -113,6 +140,19 @@ class AppRoutes {
   static const String deliveryDetails = '/delivery/details';
   static const String deliveryHistory = '/delivery/history';
 
+  // Delivery Personnel (rider) flow screens.
+  static const String deliveryAssigned = '/delivery/assigned';
+  static const String deliveryActive = '/delivery/active';
+  static const String deliveryRoute = '/delivery/route';
+  static const String gpsTracking = '/delivery/gps-tracking';
+  static const String deliveryRouteDetails = '/delivery/route-details';
+  static const String deliveryProgress = '/delivery/progress';
+  static const String deliveryNextStop = '/delivery/next-stop';
+  static const String deliveryConfirmation = '/delivery/confirmation';
+  static const String deliveryCompleted = '/delivery/completed';
+  static const String deliveryDelayed = '/delivery/delayed';
+  static const String deliveryCancelled = '/delivery/cancelled';
+
   // Customer feature screens (see lib/features/customer/screens/).
   // Screens that take arguments (product/category/order) expose sensible
   // defaults so they also work when reached via Navigator.pushNamed; normal
@@ -141,6 +181,29 @@ class AppRoutes {
   static const String customerRedeemRewards = '/customer/loyalty/redeem';
   static const String customerRedemptionSuccess = '/customer/loyalty/redemption-success';
 
+  // Payments feature screens (lib/features/payments/).
+  static const String paymentPay = '/payments/pay';
+  static const String paymentStatus = '/payments/status';
+
+  // Refunds feature screens (lib/features/refunds/).
+  static const String customerRefundRequest = '/refunds/request';
+  static const String customerRefundHistory = '/refunds/history';
+  static const String refundProcessing = '/refunds/processing';
+
+  // Notifications feature screens (lib/features/notifications/) — shared
+  // across all roles.
+  static const String notificationCenter = '/notifications';
+  static const String notificationDetail = '/notifications/detail';
+  static const String notificationSettings = '/notifications/settings';
+
+  // Settings feature screens (lib/features/settings/) — shared across all
+  // roles.
+  static const String appSettings = '/settings';
+  static const String accountSecurity = '/settings/security';
+  static const String branchSettings = '/settings/branch';
+  static const String logoutConfirmation = '/settings/logout';
+  static const String logoutSuccess = '/settings/logout-success';
+
   static String homeFor(UserRole role) {
     switch (role) {
       case UserRole.customer:
@@ -155,7 +218,6 @@ class AppRoutes {
   }
 
   // Staff feature screens
-  static const String staffPosRegister = '/staff/pos';
   static const String staffPosCart = '/staff/pos/cart';
   static const String staffPosPayment = '/staff/pos/payment';
   static const String staffPosCashInput = '/staff/pos/cash-input';
@@ -227,6 +289,13 @@ class AppRoutes {
     deliveryDashboard: (_) => const DeliveryDashboardScreen(),
     deliveryCreate: (_) => const CreateDeliveryScreen(),
     deliveryHistory: (_) => const DeliveryHistoryScreen(),
+    deliveryAssigned: (_) => const AssignedDeliveriesScreen(),
+    // NOTE: deliveryActive, deliveryRoute, gpsTracking, deliveryRouteDetails,
+    // deliveryProgress, deliveryNextStop, deliveryConfirmation,
+    // deliveryCompleted, deliveryDelayed, and deliveryCancelled all take a
+    // Delivery (and sometimes a DeliveryStop) argument and are handled
+    // exclusively in onGenerateRoute below (see the earlier note on route
+    // shadowing).
     // NOTE: routeOptimization, routeMap, deliveryManifest, and
     // deliveryDetails all take a Delivery argument and are handled
     // exclusively in onGenerateRoute below (see the earlier note on route
@@ -255,6 +324,18 @@ class AppRoutes {
     customerRfidDetected: (_) => const RfidDetectedScreen(),
     customerLoyaltyHistory: (_) => const LoyaltyHistoryScreen(),
     customerRedeemRewards: (_) => const RedeemRewardsScreen(),
+    customerRefundHistory: (_) => const RefundHistoryScreen(),
+    notificationCenter: (_) => const NotificationCenterScreen(),
+    notificationSettings: (_) => const NotificationSettingsScreen(),
+    appSettings: (_) => const SettingsScreen(),
+    accountSecurity: (_) => const SecurityScreen(),
+    branchSettings: (_) => const BranchSettingsScreen(),
+    logoutConfirmation: (_) => const LogoutConfirmationScreen(),
+    logoutSuccess: (_) => const LogoutSuccessScreen(),
+    // NOTE: paymentPay, paymentStatus, customerRefundRequest,
+    // refundProcessing, and notificationDetail all take arguments and are
+    // handled exclusively in onGenerateRoute below (see the earlier note on
+    // route shadowing).
 
     staffPosFailed: (_) => const PosFailedScreen(),
     staffNotifications: (_) => const StaffNotificationsScreen(),
@@ -325,13 +406,45 @@ class AppRoutes {
           builder: (_) => RepeatOrderScreen(order: order),
         );
       case customerLoyaltyTransaction:
-        // Assume arguments is LoyaltyPointTransaction if needed
+      // Assume arguments is LoyaltyPointTransaction if needed
         return MaterialPageRoute(
           builder: (_) => const LoyaltyTransactionScreen(),
         );
       case customerRedemptionSuccess:
         return MaterialPageRoute(
           builder: (_) => const RedemptionSuccessScreen(),
+        );
+      case paymentPay:
+        final args = settings.arguments as Map<String, dynamic>;
+        return MaterialPageRoute(
+          builder: (_) => PaymentScreen(
+            orderId: args['orderId'] as String,
+            amount: args['amount'] as double,
+            initialMethod: args['method'] as PaymentMethod? ?? PaymentMethod.gcash,
+          ),
+        );
+      case paymentStatus:
+        final args = settings.arguments as Map<String, dynamic>;
+        return MaterialPageRoute(
+          builder: (_) => PaymentStatusScreen(
+            orderId: args['orderId'] as String,
+            amount: args['amount'] as double? ?? 0,
+          ),
+        );
+      case customerRefundRequest:
+        final order = settings.arguments as Order?;
+        return MaterialPageRoute(
+          builder: (_) => RefundRequestScreen(order: order),
+        );
+      case refundProcessing:
+        final request = settings.arguments as RefundRequest;
+        return MaterialPageRoute(
+          builder: (_) => RefundProcessingScreen(request: request),
+        );
+      case notificationDetail:
+        final item = settings.arguments as NotificationItem;
+        return MaterialPageRoute(
+          builder: (_) => NotificationDetailScreen(item: item),
         );
       case staffPosCart:
         final cart = settings.arguments as Map<String, int>;
@@ -472,6 +585,65 @@ class AppRoutes {
         final delivery = settings.arguments as Delivery?;
         return MaterialPageRoute(
           builder: (_) => DeliveryDetailsScreen(delivery: delivery),
+        );
+      case deliveryActive:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => ActiveDeliveryScreen(delivery: delivery),
+        );
+      case deliveryRoute:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => DeliveryRouteScreen(delivery: delivery),
+        );
+      case gpsTracking:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => GpsTrackingScreen(delivery: delivery),
+        );
+      case deliveryRouteDetails:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => RouteDetailsScreen(delivery: delivery),
+        );
+      case deliveryProgress:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => DeliveryProgressScreen(delivery: delivery),
+        );
+      case deliveryNextStop:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => NextStopScreen(delivery: delivery),
+        );
+      case deliveryConfirmation:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return MaterialPageRoute(
+          builder: (_) => DeliveryConfirmationScreen(
+            delivery: args?['delivery'] as Delivery?,
+            stop: args?['stop'] as DeliveryStop?,
+          ),
+        );
+      case deliveryCompleted:
+        final delivery = settings.arguments as Delivery?;
+        return MaterialPageRoute(
+          builder: (_) => CompletedDeliveryScreen(delivery: delivery),
+        );
+      case deliveryDelayed:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return MaterialPageRoute(
+          builder: (_) => DelayedDeliveryScreen(
+            delivery: args?['delivery'] as Delivery?,
+            stop: args?['stop'] as DeliveryStop?,
+          ),
+        );
+      case deliveryCancelled:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return MaterialPageRoute(
+          builder: (_) => CancelledDeliveryScreen(
+            delivery: args?['delivery'] as Delivery?,
+            stop: args?['stop'] as DeliveryStop?,
+          ),
         );
       default:
         return null;
