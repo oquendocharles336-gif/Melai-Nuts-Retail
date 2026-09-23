@@ -20,6 +20,7 @@ import '../features/customer/screens/product_details_screen.dart';
 import '../features/customer/screens/search_results_screen.dart';
 import '../features/customer/screens/cart_screen.dart';
 import '../features/customer/screens/checkout_screen.dart';
+import '../features/customer/screens/order_confirmation_screen.dart';
 import '../features/customer/screens/order_history_screen.dart';
 import '../features/customer/screens/order_details_screen.dart';
 import '../features/customer/screens/repeat_order_screen.dart';
