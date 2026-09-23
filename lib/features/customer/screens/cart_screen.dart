@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../app/routes.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -204,9 +206,21 @@ class _CartScreenState extends State<CartScreen> {
                         Expanded(
                           child: PrimaryButton(
                             label: 'Proceed to Checkout',
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const CheckoutScreen()),
-                            ),
+                            onPressed: () {
+                              // Placing an order requires a signed-in customer.
+                              if (AuthService.instance.currentFirebaseUser == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please sign in to place your order.'),
+                                  ),
+                                );
+                                Navigator.of(context).pushNamed(AppRoutes.customerAccess);
+                                return;
+                              }
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const CheckoutScreen()),
+                              );
+                            },
                           ),
                         ),
                       ],
