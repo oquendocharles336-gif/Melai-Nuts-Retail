@@ -52,7 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(
             content: Text(
               'This sign-in is for staff, owner, and delivery accounts. '
-              'Use Customer Account Access below.',
+                  'Use Customer Account Access below.',
             ),
           ),
         );
@@ -165,7 +165,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       icon: Icons.shield_outlined,
                       title: 'Security Policy',
                       text:
-                          'Staff access requires authenticated email & password. RFID hardware is restricted to shopper loyalty.',
+                      'Staff access requires authenticated email & password. RFID hardware is restricted to shopper loyalty.',
                     ),
                     const SizedBox(height: AppSpacing.md),
                     AppTextField(
@@ -173,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _emailController,
                       prefixIcon: Icons.person_outline_rounded,
                       keyboardType: TextInputType.emailAddress,
-                      validator: ValidationUtils.validateEmail,
+                      validator: ValidationUtils.validateEmailFormat,
                     ),
                     const SizedBox(height: 14),
                     Row(
