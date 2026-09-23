@@ -31,7 +31,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
 
   Future<void> _continue() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     if (!_isSignIn && !_agreed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please agree to the Terms of Service')),
@@ -43,15 +43,15 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
     try {
       final user = _isSignIn
           ? await AuthService.instance.signIn(
-              email: _emailController.text,
-              password: _passwordController.text,
-            )
+        email: _emailController.text,
+        password: _passwordController.text,
+      )
           : await AuthService.instance.registerCustomer(
-              name: _nameController.text,
-              email: _emailController.text,
-              phone: _phoneController.text,
-              password: _passwordController.text,
-            );
+        name: _nameController.text,
+        email: _emailController.text,
+        phone: _phoneController.text,
+        password: _passwordController.text,
+      );
 
       if (user.role != UserRole.customer) {
         // A staff/owner/delivery email typed into the customer portal.
@@ -62,7 +62,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
           const SnackBar(
             content: Text(
               'This account is not a customer account. Use the staff/owner/'
-              'delivery sign-in instead.',
+                  'delivery sign-in instead.',
             ),
           ),
         );
@@ -198,7 +198,10 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       helperText: _isSignIn
                           ? null
                           : 'For digital receipts and pack batch tracking.',
-                      validator: ValidationUtils.validateEmail,
+                      // Sign-in: format only (existing accounts). Sign-up: also catch typos.
+                      validator: _isSignIn
+                          ? ValidationUtils.validateEmailFormat
+                          : ValidationUtils.validateEmail,
                     ),
                     const SizedBox(height: 14),
                     AppTextField(
@@ -213,7 +216,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       icon: Icons.contactless_rounded,
                       title: 'Physical RFID Member Card Support',
                       text:
-                          'Have a Melai Nuts RFID Loyalty Card from Calamba, Los Baños, or Santa Cruz branches? You can link your physical card number during checkout or via in-store tap.',
+                      'Have a Melai Nuts RFID Loyalty Card from Calamba, Los Baños, or Santa Cruz branches? You can link your physical card number during checkout or via in-store tap.',
                     ),
                     const SizedBox(height: 14),
                     if (!_isSignIn)
@@ -298,12 +301,12 @@ class _ToggleTab extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           boxShadow: selected
               ? [
-                  BoxShadow(
-                    color: AppColors.darkBrown.withValues(alpha: 0.06),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
+            BoxShadow(
+              color: AppColors.darkBrown.withValues(alpha: 0.06),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ]
               : null,
         ),
         child: Row(
