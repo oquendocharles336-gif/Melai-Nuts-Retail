@@ -46,3 +46,37 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# ---------------------------------------------------------------------------
+# Secrets / private credentials — NEVER commit these.
+# (Firebase *client* config — google-services.json, lib/firebase_options.dart —
+# is intentionally tracked; it contains identifiers, not secrets. See SECURITY.md.)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.env
+secrets/
+# Firebase Admin SDK / Google Cloud service-account keys
+*-adminsdk-*.json
+*firebase-adminsdk*.json
+service-account*.json
+serviceAccount*.json
+serviceaccountkey*.json
+# Android signing material
+*.jks
+*.keystore
+key.properties
+android/key.properties
+# Private keys / certificates
+*.pem
+*.p12
+*.pfx
+*.key
+# Firebase CLI local state & logs
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+# Rules-test tooling
+node_modules/
