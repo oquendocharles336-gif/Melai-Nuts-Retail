@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../app/routes.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import 'customer_home_screen.dart';
@@ -19,6 +21,8 @@ class CustomerPortalScreen extends StatefulWidget {
 class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
   int _index = 0;
 
+  bool get _isSignedIn => AuthService.instance.currentFirebaseUser != null;
+
   static const _tabs = [
     CustomerHomeScreen(),
     ProductCatalogScreen(),
@@ -29,7 +33,17 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _tabs),
+      // Guests may browse the Store and Catalog. The account-specific tabs
+      // (My Orders, Account) are not even built until someone is signed in.
+      body: IndexedStack(
+        index: _index,
+        children: [
+          _tabs[0],
+          _tabs[1],
+          _isSignedIn ? _tabs[2] : const SizedBox.shrink(),
+          _isSignedIn ? _tabs[3] : const SizedBox.shrink(),
+        ],
+      ),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
           backgroundColor: Colors.white,
@@ -50,7 +64,18 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
         ),
         child: NavigationBar(
           selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
+          onDestinationSelected: (i) {
+            if (i >= 2 && !_isSignedIn) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please sign in to view your orders and account.'),
+                ),
+              );
+              Navigator.of(context).pushNamed(AppRoutes.customerAccess);
+              return;
+            }
+            setState(() => _index = i);
+          },
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.storefront_outlined),
