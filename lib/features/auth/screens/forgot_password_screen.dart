@@ -111,7 +111,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
-                      validator: ValidationUtils.validateEmail,
+                      validator: ValidationUtils.validateEmailFormat,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(
                           Icons.email_outlined,
@@ -131,7 +131,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     const SizedBox(height: 16),
                     const InfoBanner(
                       text:
-                          'A verification code will be dispatched to your email for Laguna branch personnel verification.',
+                      'A verification code will be dispatched to your email for Laguna branch personnel verification.',
                     ),
                     const SizedBox(height: 20),
                     PrimaryButton(
