@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../app/routes.dart';
 import '../../data/models/user_role.dart';
+import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
@@ -20,10 +21,10 @@ class PortalPlaceholderScreen extends StatelessWidget {
     required this.upcomingFeatures,
   });
 
-  void _logout(BuildContext context) {
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+  Future<void> _logout(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    await AuthService.instance.signOut();
+    navigator.pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
   }
 
   @override

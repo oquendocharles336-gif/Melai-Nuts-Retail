@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/models/user_role.dart';
+import 'route_guard.dart';
 import '../data/models/product.dart';
 import '../data/models/order.dart';
 import '../features/auth/screens/splash_screen.dart';
@@ -272,7 +273,183 @@ class AppRoutes {
   static const String ownerBranchPerformance = '/owner/branch-performance';
   static const String ownerProductPerformance = '/owner/product-performance';
 
+
+  // ---------------------------------------------------------------------
+  // Access policy (client-side gate — see RouteGuard for why this is only
+  // defence-in-depth; the real enforcement is firestore.rules).
+  //
+  // Every named route MUST appear in [_policy]. Anything not listed is
+  // rejected in debug builds (assert) and, in release, requires a signed-in
+  // user of any role rather than being silently public.
+  // ---------------------------------------------------------------------
+  static const _Access _public = _Access.public();
+  static const _Access _anySignedIn = _Access(null);
+  static const _Access _customerOnly = _Access({UserRole.customer});
+  // Public catalog browsing: guests and customers only.
+  static const _Access _customerBrowse = _Access({UserRole.customer}, guest: true);
+  // Owner is a superset of staff (matches firestore.rules); the Owner portal
+  // also links into the inventory / OCR screens.
+  static const _Access _staff = _Access({UserRole.staff, UserRole.owner});
+  static const _Access _owner = _Access({UserRole.owner});
+  // Delivery screens shared by riders and the Owner's delivery management.
+  static const _Access _rider = _Access({UserRole.delivery, UserRole.owner});
+  static const _Access _riderOnly = _Access({UserRole.delivery});
+
+  static const Map<String, _Access> _policy = {
+    splash: _public,
+    login: _public,
+    register: _public,
+    customerAccess: _public,
+    forgotPassword: _public,
+    logoutSuccess: _public,
+    resetPassword: _anySignedIn,
+    resetSuccess: _anySignedIn,
+    security: _anySignedIn,
+    notificationCenter: _anySignedIn,
+    notificationDetail: _anySignedIn,
+    notificationSettings: _anySignedIn,
+    appSettings: _anySignedIn,
+    accountSecurity: _anySignedIn,
+    branchSettings: _anySignedIn,
+    logoutConfirmation: _anySignedIn,
+
+    customerHome: _customerBrowse,
+    customerStore: _customerBrowse,
+    customerCatalog: _customerBrowse,
+    customerCategories: _customerBrowse,
+    customerProductList: _customerBrowse,
+    customerProductDetails: _customerBrowse,
+    customerSearch: _customerBrowse,
+    customerCart: _customerBrowse,
+
+    customerCheckout: _customerOnly,
+    customerOrderConfirmation: _customerOnly,
+    customerOrderHistory: _customerOnly,
+    customerOrderDetails: _customerOnly,
+    customerRepeatOrder: _customerOnly,
+    customerOrderTracking: _customerOnly,
+    customerProfile: _customerOnly,
+    customerEditProfile: _customerOnly,
+    customerLoyaltyDashboard: _customerOnly,
+    customerRfidTap: _customerOnly,
+    customerRfidDetected: _customerOnly,
+    customerLoyaltyTransaction: _customerOnly,
+    customerLoyaltyHistory: _customerOnly,
+    customerRedeemRewards: _customerOnly,
+    customerRedemptionSuccess: _customerOnly,
+    paymentPay: _customerOnly,
+    paymentStatus: _customerOnly,
+    customerRefundRequest: _customerOnly,
+    customerRefundHistory: _customerOnly,
+    refundProcessing: _customerOnly,
+
+    staffHome: _staff,
+    staffPosCart: _staff,
+    staffPosPayment: _staff,
+    staffPosCashInput: _staff,
+    staffPosProcessing: _staff,
+    staffPosReceipt: _staff,
+    staffPosFailed: _staff,
+    staffTransactionDetails: _staff,
+    staffNotifications: _staff,
+    staffProfile: _staff,
+    inventoryDashboard: _staff,
+    inventoryList: _staff,
+    inventoryBranch: _staff,
+    inventoryProductDetails: _staff,
+    inventoryFefo: _staff,
+    inventoryBatchDetails: _staff,
+    inventoryLowStock: _staff,
+    inventoryAdjustment: _staff,
+    inventoryAdjustmentSuccess: _staff,
+    inventoryAdd: _staff,
+    ocrCapture: _staff,
+    ocrPreview: _staff,
+    ocrProcessing: _staff,
+    ocrVerify: _staff,
+    ocrSuccess: _staff,
+    ocrError: _staff,
+
+    ownerHome: _owner,
+    ownerUserManagement: _owner,
+    ownerDashboard: _owner,
+    ownerBusinessOverview: _owner,
+    ownerSalesOverview: _owner,
+    ownerSalesAnalytics: _owner,
+    ownerSalesTrends: _owner,
+    ownerSalesForecast: _owner,
+    ownerBranchComparison: _owner,
+    ownerBranchPerformance: _owner,
+    ownerProductPerformance: _owner,
+    productManagement: _owner,
+    productList: _owner,
+    productDetails: _owner,
+    productAdd: _owner,
+    productEdit: _owner,
+    productVariants: _owner,
+    productPricing: _owner,
+    productPerformance: _owner,
+    deliveryDashboard: _owner,
+    deliveryCreate: _owner,
+    deliveryHistory: _owner,
+
+    deliveryHome: _riderOnly,
+    deliveryAssigned: _rider,
+    routeOptimization: _rider,
+    routeMap: _rider,
+    deliveryManifest: _rider,
+    deliveryDetails: _rider,
+    deliveryActive: _rider,
+    deliveryRoute: _rider,
+    gpsTracking: _rider,
+    deliveryRouteDetails: _rider,
+    deliveryProgress: _rider,
+    deliveryNextStop: _rider,
+    deliveryConfirmation: _rider,
+    deliveryCompleted: _rider,
+    deliveryDelayed: _rider,
+    deliveryCancelled: _rider,
+  };
+
+  static WidgetBuilder _guard(String? name, WidgetBuilder builder) {
+    final access = _policy[name];
+    assert(access != null, 'No access policy defined for route "$name".');
+    final effective = access ?? _anySignedIn;
+    if (effective.isPublic) return builder;
+    return (context) => RouteGuard(
+          allowedRoles: effective.roles,
+          allowGuest: effective.guest,
+          builder: builder,
+        );
+  }
+
+  /// All static routes, each wrapped with its access policy.
   static Map<String, WidgetBuilder> get routes => {
+        for (final e in _rawRoutes.entries) e.key: _guard(e.key, e.value),
+      };
+
+  /// Dynamic route generator for screens that require complex objects as
+  /// arguments (e.g. Product, Order). Wrapped with the same access policy;
+  /// invalid/mismatched arguments show a safe screen instead of crashing.
+  static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
+    final Route<dynamic>? raw;
+    try {
+      raw = _rawOnGenerateRoute(settings);
+    } catch (_) {
+      return MaterialPageRoute<dynamic>(
+        settings: settings,
+        builder: (_) => const UnavailableRouteScreen(),
+      );
+    }
+    if (raw is! MaterialPageRoute) return raw;
+    final inner = raw.builder;
+    return MaterialPageRoute<dynamic>(
+      settings: settings,
+      builder: _guard(settings.name, inner),
+    );
+  }
+
+  static Map<String, WidgetBuilder> get _rawRoutes => {
     splash: (_) => const SplashScreen(),
     login: (_) => const LoginScreen(),
     register: (_) => const RegisterScreen(),
@@ -382,9 +559,7 @@ class AppRoutes {
     // handled exclusively in onGenerateRoute below.
   };
 
-  /// Dynamic route generator for screens that require complex objects as
-  /// arguments (e.g. Product, Order).
-  static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
+  static Route<dynamic>? _rawOnGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
       case customerProductDetails:
         final product = settings.arguments as Product;
@@ -664,4 +839,18 @@ class AppRoutes {
         return null;
     }
   }
+}
+
+/// Who may open a route. See [AppRoutes._policy].
+class _Access {
+  /// `null` roles = any signed-in role.
+  final Set<UserRole>? roles;
+  final bool guest;
+  final bool isPublic;
+
+  const _Access(this.roles, {this.guest = false}) : isPublic = false;
+  const _Access.public()
+      : roles = null,
+        guest = true,
+        isPublic = true;
 }

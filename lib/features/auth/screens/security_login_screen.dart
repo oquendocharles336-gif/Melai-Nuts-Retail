@@ -76,7 +76,8 @@ class _SecurityLoginScreenState extends State<SecurityLoginScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Terminate all other sessions?'),
         content: const Text(
-          'Every device except this one will be signed out immediately.',
+          'This app cannot remotely sign out other devices. Changing your '
+          'password ends all other sessions.',
         ),
         actions: [
           TextButton(
@@ -91,10 +92,17 @@ class _SecurityLoginScreenState extends State<SecurityLoginScreen> {
       ),
     );
     if (confirmed == true) {
-      setState(() => _sessions.removeWhere((s) => !s.isThisDevice));
+      // The app cannot revoke other devices' sessions itself (that needs the
+      // Firebase Admin SDK). Changing the password does end them, so say so
+      // instead of claiming an action that did not happen.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Other active sessions terminated.')),
+        const SnackBar(
+          content: Text(
+            'Other devices cannot be signed out from here. '
+            'Change your password to end all other sessions.',
+          ),
+        ),
       );
     }
   }

@@ -1,99 +1,239 @@
 rules_version = '2';
+
+// =============================================================================
+// Melai Nuts — Firestore Security Rules  (server-side authorization)
+//
+// These rules are THE security boundary. Flutter route guards, hidden buttons
+// and cached roles are UX only: a modified app can skip them, but it cannot
+// skip these rules. Identity comes from Firebase Auth (request.auth); the role,
+// branch and active flag come from the server-stored profile at users/{uid} —
+// never from anything the client sends.
+//
+// Roles (existing): customer, staff, owner, delivery. Owner is a superset of
+// staff, as in the previous rules. Default for anything not matched: DENY.
+//
+// STATUS OF EACH COLLECTION
+//   users        -> used by the app today (auth profile). Rules are exact.
+//   products, inventory, orders, deliveries, refunds
+//                -> the app currently keeps these in memory (prototype data)
+//                   and does not read/write them in Firestore yet. Rules below
+//                   are least-privilege for the field names in lib/data/models
+//                   (customerId, branch, status, quantity, riderId, ...).
+//                   Re-verify field names when those collections are wired up.
+//
+// DEPLOY:  firebase deploy --only firestore:rules   (firebase.json points here)
+// NOTE: staff queries on branch-scoped collections must filter by their own
+//       branch (where('branch', isEqualTo: <their branch>)) or Firestore will
+//       reject the query — that is the rules working as intended.
+// =============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions for security and role authorization
-    function isSignedIn() {
+    // ---------------------------------------------------------------- helpers
+    function signedIn() {
       return request.auth != null;
     }
 
-    function isOwner() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
-    }
-
-    function isStaff() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['staff', 'owner'];
-    }
-
-    function isDelivery() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['delivery', 'owner'];
-    }
-
     function isSelf(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+      return signedIn() && request.auth.uid == userId;
     }
 
-    // Users Collection Security Rules
+    function myProfilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    // Server-stored profile of the caller (Firestore de-duplicates repeated
+    // get() calls of the same document within one request).
+    function me() {
+      return get(myProfilePath()).data;
+    }
+
+    // Signed in, has a profile, and has NOT been deactivated. A deactivated
+    // user keeps a valid Firebase session but loses every privilege here.
+    function activeUser() {
+      return signedIn() && exists(myProfilePath()) && me().get('isActive', true) == true;
+    }
+
+    function hasRole(role) {
+      return activeUser() && me().role == role;
+    }
+
+    function isOwner()    { return hasRole('owner'); }
+    function isStaff()    { return hasRole('staff'); }
+    function isRider()    { return hasRole('delivery'); }
+    function isCustomer() { return hasRole('customer'); }
+    function isStaffOrOwner() { return isStaff() || isOwner(); }
+
+    // Owner sees every branch; staff only their own assigned branch.
+    function inMyBranch(branch) {
+      return isOwner() ||
+             (isStaff() && me().get('branch', null) != null && me().get('branch', null) == branch);
+    }
+
+    function validRole(role) {
+      return role in ['customer', 'staff', 'owner', 'delivery'];
+    }
+
+    // Fields that may exist on a users/{uid} document (mirrors AppUser).
+    function profileFieldsOk(d) {
+      return d.keys().hasOnly(['email', 'name', 'role', 'phone', 'branch', 'isActive', 'createdAt']) &&
+             d.keys().hasAll(['email', 'name', 'role']) &&
+             d.email is string && d.email.size() <= 254 &&
+             d.name is string && d.name.size() >= 1 && d.name.size() <= 100 &&
+             validRole(d.role) &&
+             d.get('isActive', true) is bool &&
+             (d.get('phone', null) == null ||
+                (d.phone is string && d.phone.size() <= 20)) &&
+             (d.get('branch', null) == null ||
+                (d.branch is string && d.branch.size() <= 60));
+    }
+
+    // Brand-new profile: all fields present, active, server-stamped.
+    function newProfileOk(d) {
+      return profileFieldsOk(d) &&
+             d.keys().hasAll(['isActive', 'createdAt']) &&
+             d.isActive == true &&
+             d.createdAt == request.time;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ------------------------------------------------------------------ users
     match /users/{userId} {
-      // Anyone signed in can read their own profile; Owners can read all managed profiles
+      // Own profile (also lets a deactivated user be told why), or Owner.
       allow read: if isSelf(userId) || isOwner();
 
-      // Self-service registration for customers; Owners can create/update staff accounts
-      allow create: if isSignedIn() && (
-        (isSelf(userId) && request.resource.data.role == 'customer') || isOwner()
+      // Self-registration: ONLY a customer profile, bound to the caller's own
+      // Firebase identity and email, no branch, active. Nobody can register
+      // themselves as staff / owner / delivery.
+      // Owner: may provision staff / owner / delivery (and customer) profiles.
+      allow create: if newProfileOk(request.resource.data) && (
+        (isSelf(userId) &&
+          request.resource.data.role == 'customer' &&
+          request.resource.data.get('branch', null) == null &&
+          request.resource.data.email.lower() == request.auth.token.email.lower())
+        ||
+        (isOwner() &&
+          (!(request.resource.data.role in ['staff', 'delivery']) ||
+            request.resource.data.get('branch', null) != null))
       );
 
-      // Updates allowed by owner or by self for non-role fields
-      allow update: if isOwner() || (
-        isSelf(userId) && request.resource.data.role == resource.data.role
+      // Self: only name / phone, and only while active. Cannot touch role,
+      // branch, isActive, email or createdAt (blocks self-promotion, branch
+      // hopping and self-reactivation after deactivation).
+      // Owner: may edit name / phone / branch / role / isActive.
+      allow update: if profileFieldsOk(request.resource.data) && (
+        (isSelf(userId) && activeUser() &&
+          changedKeys().hasOnly(['name', 'phone']))
+        ||
+        (isOwner() &&
+          changedKeys().hasOnly(['name', 'phone', 'branch', 'role', 'isActive']))
       );
 
-      // Hard deletion restricted to Owner role
       allow delete: if isOwner();
     }
 
-    // Products & Pricing Catalog Security Rules
+    // --------------------------------------------------------------- products
+    // Public catalog (guests browse the store). Only the Owner manages
+    // products, prices and variants — Staff cannot change prices.
     match /products/{productId} {
-      // Public / Customer read access to product catalog
       allow read: if true;
-
-      // Only Staff or Owner can create, edit, or archive products and pricing
-      allow write: if isStaff();
+      allow create, update, delete: if isOwner();
     }
 
-    // Inventory & FEFO Batches Security Rules
+    // -------------------------------------------------------------- inventory
+    // Branch-scoped stock. Staff read/adjust only their own branch's batches;
+    // Owner all branches. Riders and customers have no access.
     match /inventory/{batchId} {
-      // Staff, Delivery, and Owners can read inventory batches
-      allow read: if isStaff() || isDelivery();
+      allow read: if isStaffOrOwner() && inMyBranch(resource.data.branch);
 
-      // Only Staff and Owners can log new batches, adjust stock, or record OCR intake
-      allow write: if isStaff();
-    }
+      allow create: if isStaffOrOwner() &&
+        inMyBranch(request.resource.data.branch) &&
+        request.resource.data.quantity is int &&
+        request.resource.data.quantity >= 0;
 
-    // Orders Collection Security Rules
-    match /orders/{orderId} {
-      // Customers can read their own orders; Staff, Delivery, and Owners can read all branch orders
-      allow read: if isStaff() || isDelivery() || (
-        isSignedIn() && resource.data.customerId == request.auth.uid
-      );
-
-      // Signed-in customers can place orders; Staff can process counter POS orders
-      allow create: if isSignedIn();
-
-      // Staff, Delivery, and Owners can update order status (e.g. preparing, out_for_delivery, completed)
-      allow update: if isStaff() || isDelivery();
+      // Branch cannot be changed by staff (no moving stock to another branch).
+      allow update: if isStaffOrOwner() &&
+        inMyBranch(resource.data.branch) &&
+        inMyBranch(request.resource.data.branch) &&
+        (isOwner() || request.resource.data.branch == resource.data.branch) &&
+        request.resource.data.quantity is int &&
+        request.resource.data.quantity >= 0;
 
       allow delete: if isOwner();
     }
 
-    // Deliveries Collection Security Rules
-    match /deliveries/{deliveryId} {
-      allow read: if isStaff() || isDelivery() || (
-        isSignedIn() && resource.data.customerId == request.auth.uid
-      );
-      allow write: if isStaff() || isDelivery();
+    // ----------------------------------------------------------------- orders
+    // Money/ownership fields are set at creation and are immutable for
+    // everyone except the Owner. NOTE: line-item prices are supplied by the
+    // client; rules cannot recompute totals from arrays. Enforcing price
+    // integrity needs a Cloud Function (see SECURITY.md).
+    match /orders/{orderId} {
+      allow read: if isOwner() ||
+        (isStaff() && inMyBranch(resource.data.branch)) ||
+        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
+        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
+
+      // A customer can only create an order for THEMSELVES, in 'pending', and
+      // cannot pre-assign a rider. Staff create counter (POS) orders for their
+      // own branch.
+      allow create:
+        if (isCustomer() &&
+              request.resource.data.customerId == request.auth.uid &&
+              request.resource.data.status == 'pending' &&
+              !request.resource.data.keys().hasAny(['riderId']))
+        || (isStaffOrOwner() &&
+              inMyBranch(request.resource.data.branch) &&
+              request.resource.data.status in ['pending', 'confirmed', 'completed']);
+
+      // Staff: status only, own branch. Assigned rider: status only, and only
+      // to out-for-delivery / completed. Owner: full edit.
+      allow update: if isOwner() ||
+        (isStaff() && inMyBranch(resource.data.branch) &&
+          changedKeys().hasOnly(['status', 'updatedAt']) &&
+          request.resource.data.status in
+            ['pending', 'confirmed', 'preparing', 'outForDelivery', 'completed', 'cancelled']) ||
+        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
+          changedKeys().hasOnly(['status', 'updatedAt']) &&
+          request.resource.data.status in ['outForDelivery', 'completed']);
+
+      allow delete: if isOwner();
     }
 
-    // Refunds Collection Security Rules
+    // -------------------------------------------------------------- deliveries
+    // The Owner dispatches deliveries; the assigned rider updates progress.
+    match /deliveries/{deliveryId} {
+      allow read: if isOwner() ||
+        (isStaff() && inMyBranch(resource.data.get('branch', null))) ||
+        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
+        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
+
+      allow create, delete: if isOwner();
+
+      allow update: if isOwner() ||
+        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
+          changedKeys().hasOnly(['status', 'stops', 'updatedAt']));
+    }
+
+    // ---------------------------------------------------------------- refunds
+    // Customers request refunds for themselves; only the Owner decides them.
     match /refunds/{refundId} {
-      allow read: if isStaff() || (
-        isSignedIn() && resource.data.customerId == request.auth.uid
-      );
-      allow create: if isSignedIn();
+      allow read: if isStaffOrOwner() ||
+        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
+
+      allow create: if isCustomer() &&
+        request.resource.data.customerId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+
       allow update, delete: if isOwner();
+    }
+
+    // ---------------------------------------------------------- default: deny
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
