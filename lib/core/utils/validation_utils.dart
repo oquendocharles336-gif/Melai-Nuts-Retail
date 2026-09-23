@@ -126,6 +126,28 @@ class ValidationUtils {
     return null;
   }
 
+  /// Delivery/customer address validation:
+  /// - Cannot be blank or whitespace-only
+  /// - Must contain enough information to actually be useful (rejects
+  ///   very short meaningless values like "ok" or "123")
+  static String? validateAddress(String? value, [String fieldName = 'Delivery address']) {
+    final requiredError = validateRequired(value, fieldName);
+    if (requiredError != null) return 'Please enter a valid delivery address.';
+
+    final trimmedValue = value!.trim();
+    if (trimmedValue.length < 10) {
+      return 'Please enter a valid delivery address.';
+    }
+
+    // Require at least one digit (house/unit/street number) alongside
+    // letters, so a random short word isn't accepted as an address.
+    if (!RegExp(r'[a-zA-Z]').hasMatch(trimmedValue)) {
+      return 'Please enter a valid delivery address.';
+    }
+
+    return null;
+  }
+
   /// Numeric range & format validation (for prices, costs, amounts).
   static String? validateNumber(
     String? value, {

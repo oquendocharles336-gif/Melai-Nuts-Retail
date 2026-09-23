@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -219,35 +220,34 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
               // RFID Rewards Teaser
-              if (false) // Hidden until loyalty points are connected
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryContainer.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-                    boxShadow: AppShadows.sm,
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.workspace_premium_rounded, color: AppColors.primary, size: 32),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Golden Kernel Rewards', style: AppTextStyles.labelLg),
-                            Text('Earn points for every purchase!', style: AppTextStyles.bodySm),
-                          ],
-                        ),
-                      ),
-                      OutlinedButton(
-                        onPressed: () => Navigator.pushNamed(context, '/customer/loyalty'),
-                        child: const Text('View'),
-                      ),
-                    ],
-                  ),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                  boxShadow: AppShadows.sm,
                 ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.workspace_premium_rounded, color: AppColors.primary, size: 32),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Golden Kernel Rewards', style: AppTextStyles.labelLg),
+                          Text('Earn points for every purchase!', style: AppTextStyles.bodySm),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => Navigator.pushNamed(context, AppRoutes.customerLoyaltyDashboard),
+                      child: const Text('View'),
+                    ),
+                  ],
+                ),
+              ),
             ],
           );
         },

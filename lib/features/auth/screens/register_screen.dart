@@ -25,8 +25,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   bool _agreed = false;
   bool _submitting = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -139,6 +150,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       obscure: true,
                       hint: '••••••••',
                       validator: ValidationUtils.validatePassword,
+                    ),
+                    const SizedBox(height: 16),
+                    AppTextField(
+                      label: 'Confirm Password',
+                      controller: _confirmPasswordController,
+                      prefixIcon: Icons.lock_outline_rounded,
+                      obscure: true,
+                      hint: '••••••••',
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Please confirm your password.';
+                        if (v != _passwordController.text) return 'Passwords do not match.';
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 20),
                     Row(
