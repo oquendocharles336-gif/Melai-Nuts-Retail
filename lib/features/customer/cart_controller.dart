@@ -54,26 +54,50 @@ class CartController extends ChangeNotifier {
         double.infinity,
       );
 
-  void addProduct(Product product, ProductVariant variant, {int quantity = 1}) {
+  /// Adds [quantity] of [product]/[variant] to the cart. If the variant has
+  /// known stock information, the resulting cart quantity is capped at
+  /// what's actually available — it never silently adds more than exists.
+  /// Returns the quantity that was actually added (may be less than
+  /// requested, or 0 if the variant is already at its stock limit).
+  int addProduct(Product product, ProductVariant variant, {int quantity = 1}) {
+    if (quantity <= 0) return 0;
+
     final lineId = '${product.id}_${variant.label}';
     final existingIndex = _lines.indexWhere((l) => l.id == lineId);
+    final currentQty = existingIndex == -1 ? 0 : _lines[existingIndex].quantity;
+
+    var addable = quantity;
+    final stock = variant.stockOnHand;
+    if (stock != null) {
+      final remaining = stock - currentQty;
+      addable = remaining < quantity ? (remaining < 0 ? 0 : remaining) : quantity;
+    }
+    if (addable <= 0) {
+      notifyListeners();
+      return 0;
+    }
+
     if (existingIndex != -1) {
-      _lines[existingIndex].quantity += quantity;
+      _lines[existingIndex].quantity += addable;
     } else {
       _lines.add(
-        CartLine(id: lineId, product: product, variant: variant, quantity: quantity),
+        CartLine(id: lineId, product: product, variant: variant, quantity: addable),
       );
     }
     notifyListeners();
+    return addable;
   }
 
+  /// Sets the quantity for an existing cart line, capped at available
+  /// stock (if known) and never allowed below 0 (0 removes the line).
   void updateQuantity(String lineId, int quantity) {
     final index = _lines.indexWhere((l) => l.id == lineId);
     if (index == -1) return;
     if (quantity <= 0) {
       _lines.removeAt(index);
     } else {
-      _lines[index].quantity = quantity;
+      final stock = _lines[index].variant.stockOnHand;
+      _lines[index].quantity = stock != null && quantity > stock ? stock : quantity;
     }
     notifyListeners();
   }

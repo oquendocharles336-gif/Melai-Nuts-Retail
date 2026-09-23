@@ -20,8 +20,12 @@ class ProductDetailsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final product = findProductById(productId);
-    final minPrice = product.variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
-    final maxPrice = product.variants.map((v) => v.price).reduce((a, b) => a > b ? a : b);
+    final minPrice = product.variants.isEmpty
+        ? 0.0
+        : product.variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
+    final maxPrice = product.variants.isEmpty
+        ? 0.0
+        : product.variants.map((v) => v.price).reduce((a, b) => a > b ? a : b);
 
     return Scaffold(
       backgroundColor: AppColors.canvas,

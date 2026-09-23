@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/dummy_data/dummy_orders.dart';
+import '../../../data/models/order.dart';
 import '../cart_controller.dart';
 import 'order_confirmation_screen.dart';
 
@@ -22,32 +25,76 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
+  final _formKey = GlobalKey<FormState>();
   _FulfillmentMethod _fulfillment = _FulfillmentMethod.pickup;
   _PaymentMethod _payment = _PaymentMethod.gcash;
   final _notesController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _contactController = TextEditingController();
   bool _placingOrder = false;
 
   @override
   void dispose() {
     _notesController.dispose();
+    _addressController.dispose();
+    _contactController.dispose();
     super.dispose();
   }
 
   Future<void> _placeOrder() async {
+    final cart = CartController.instance;
+    if (cart.lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your cart is empty.')),
+      );
+      return;
+    }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
     setState(() => _placingOrder = true);
     await Future.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
     setState(() => _placingOrder = false);
 
-    final cart = CartController.instance;
+    final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
+    final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
+        .clamp(0, double.infinity);
+    final paymentLabel = switch (_payment) {
+      _PaymentMethod.gcash => 'GCash E-Wallet',
+      _PaymentMethod.card => 'Maya / Credit Card',
+      _PaymentMethod.cash => 'Cash on Counter Pickup',
+    };
+
+    final order = Order(
+      id: 'ORD-${DateTime.now().millisecondsSinceEpoch}',
+      date: DateTime.now(),
+      status: OrderStatus.confirmed,
+      branch: cart.currentBranch,
+      isDelivery: _fulfillment == _FulfillmentMethod.delivery,
+      items: [
+        for (final line in cart.lines)
+          OrderItem(
+            productName: line.product.name,
+            variantLabel: line.variant.label,
+            quantity: line.quantity,
+            unitPrice: line.variant.price,
+          ),
+      ],
+      discount: cart.loyaltyDiscount + cart.voucherDiscount,
+      deliveryFee: deliveryFee,
+      paymentMethod: paymentLabel,
+      pointsEarned: (cart.subtotal / 10).floor(),
+    );
+    kOrders.insert(0, order);
     final itemCount = cart.itemCount;
-    final total = cart.total;
     cart.clear();
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => OrderConfirmationScreen(itemCount: itemCount, total: total),
+        builder: (_) => OrderConfirmationScreen(order: order, itemCount: itemCount, total: total.toDouble()),
       ),
     );
   }
@@ -63,7 +110,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Checkout', showBack: true),
       body: SafeArea(
-        child: ListView(
+        child: Form(
+          key: _formKey,
+          child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Row(
@@ -194,6 +243,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ],
               ),
             ),
+            if (_fulfillment == _FulfillmentMethod.delivery) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text('Delivery Details', style: AppTextStyles.titleMd),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _addressController,
+                decoration: const InputDecoration(hintText: 'House/unit no., street, barangay, city'),
+                maxLines: 2,
+                validator: (v) => ValidationUtils.validateAddress(v),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _contactController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(hintText: '09XXXXXXXXX'),
+                validator: (v) => ValidationUtils.validatePhone(v),
+              ),
+            ],
             const SizedBox(height: AppSpacing.lg),
             Text('Payment Method', style: AppTextStyles.titleMd),
             const SizedBox(height: AppSpacing.sm),
@@ -290,6 +357,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
       bottomNavigationBar: Container(

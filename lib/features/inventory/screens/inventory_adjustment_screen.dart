@@ -28,7 +28,8 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
   final _reasonController = TextEditingController();
   String _reasonPreset = 'Restock delivery';
 
-  int get _newStock => (widget.batch.quantity + _adjustment).clamp(0, 999999);
+  int get _rawNewStock => widget.batch.quantity + _adjustment;
+  int get _newStock => _rawNewStock.clamp(0, 999999);
 
   @override
   void dispose() {
@@ -38,7 +39,12 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
-    
+    if (_rawNewStock < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Stock cannot go below 0. Reduce the adjustment amount.')),
+      );
+      return;
+    }
     Navigator.of(context).pushReplacementNamed(
       AppRoutes.inventoryAdjustmentSuccess,
       arguments: {
@@ -161,7 +167,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
               PrimaryButton(
                 label: 'Submit Adjustment',
                 icon: Icons.check_rounded,
-                onPressed: _adjustment == 0 ? null : _submit,
+                onPressed: _adjustment == 0 || _rawNewStock < 0 ? null : _submit,
               ),
             ],
           ),

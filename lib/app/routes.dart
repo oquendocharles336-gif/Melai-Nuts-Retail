@@ -20,7 +20,6 @@ import '../features/customer/screens/product_details_screen.dart';
 import '../features/customer/screens/search_results_screen.dart';
 import '../features/customer/screens/cart_screen.dart';
 import '../features/customer/screens/checkout_screen.dart';
-import '../features/customer/screens/order_confirmation_screen.dart';
 import '../features/customer/screens/order_history_screen.dart';
 import '../features/customer/screens/order_details_screen.dart';
 import '../features/customer/screens/repeat_order_screen.dart';
@@ -313,7 +312,9 @@ class AppRoutes {
     customerSearch: (_) => const SearchResultsScreen(),
     customerCart: (_) => const CartScreen(),
     customerCheckout: (_) => const CheckoutScreen(),
-    customerOrderConfirmation: (_) => const OrderConfirmationScreen(),
+    // customerOrderConfirmation is NOT registered here — it now requires a
+    // real Order argument (built at checkout time) and is only reachable
+    // via the direct MaterialPageRoute push from CheckoutScreen.
     customerOrderHistory: (_) => const OrderHistoryScreen(),
     customerProfile: (_) => const CustomerProfileScreen(),
     customerEditProfile: (_) => const EditProfileScreen(),
@@ -393,6 +394,15 @@ class AppRoutes {
         final order = settings.arguments as Order;
         return MaterialPageRoute(
           builder: (_) => OrderTrackingScreen(order: order),
+        );
+      case customerOrderConfirmation:
+        final args = settings.arguments as Map<String, dynamic>;
+        return MaterialPageRoute(
+          builder: (_) => OrderConfirmationScreen(
+            order: args['order'] as Order,
+            itemCount: args['itemCount'] as int? ?? 1,
+            total: args['total'] as double? ?? 0.0,
+          ),
         );
       case customerProductList:
         final categoryId = settings.arguments as String;
