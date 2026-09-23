@@ -195,7 +195,7 @@ class ValidationUtils {
       return 'Password must contain at least one number (0-9).';
     }
 
-    if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(trimmedValue)) {
+    if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>_]').hasMatch(trimmedValue)) {
       return 'Password must contain at least one special character (!@#\$...).';
     }
 

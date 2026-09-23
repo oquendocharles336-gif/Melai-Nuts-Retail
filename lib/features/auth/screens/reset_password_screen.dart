@@ -31,12 +31,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool get _hasUpper => _passwordController.text.contains(RegExp(r'[A-Z]'));
   bool get _hasNumber => _passwordController.text.contains(RegExp(r'[0-9]'));
   bool get _hasSpecial =>
-      _passwordController.text.contains(RegExp(r'[!@#\$%^&*]'));
+      _passwordController.text.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>_]'));
   int get _score =>
       [_hasLength, _hasUpper, _hasNumber, _hasSpecial].where((e) => e).length;
   bool get _match =>
       _passwordController.text.isNotEmpty &&
-      _passwordController.text == _confirmController.text;
+          _passwordController.text == _confirmController.text;
 
   bool get _canSubmit => _score == 4 && _match;
 
@@ -244,7 +244,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     _CheckRow(ok: _hasNumber, label: 'At least 1 number (0-9)'),
                     _CheckRow(
                       ok: _hasSpecial,
-                      label: 'At least 1 special character (!@#\$)',
+                      label: 'At least 1 special character (!@#\$_)',
                     ),
                   ],
                 ),
