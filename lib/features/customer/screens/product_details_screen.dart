@@ -4,7 +4,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/models/product.dart';
 import '../cart_controller.dart';
 import '../widgets/product_card.dart';
@@ -16,7 +15,7 @@ import 'cart_screen.dart';
 class ProductDetailsScreen extends StatefulWidget {
   final Product product;
 
-  ProductDetailsScreen({super.key, Product? product}) : product = product ?? kProducts.first;
+  const ProductDetailsScreen({super.key, required this.product});
 
   @override
   State<ProductDetailsScreen> createState() => _ProductDetailsScreenState();

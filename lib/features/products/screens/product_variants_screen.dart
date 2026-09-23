@@ -13,7 +13,7 @@ import '../../../data/models/product.dart';
 class ProductVariantsScreen extends StatelessWidget {
   final String productId;
 
-  const ProductVariantsScreen({super.key, this.productId = 'p1'});
+  const ProductVariantsScreen({super.key, required this.productId});
 
   @override
   Widget build(BuildContext context) {

@@ -5,7 +5,6 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/models/order.dart';
 import '../cart_controller.dart';
@@ -19,7 +18,7 @@ import 'cart_screen.dart';
 class RepeatOrderScreen extends StatelessWidget {
   final Order order;
 
-  RepeatOrderScreen({super.key, Order? order}) : order = order ?? kOrders.first;
+  const RepeatOrderScreen({super.key, required this.order});
 
   void _repeat(BuildContext context) {
     int matched = 0;

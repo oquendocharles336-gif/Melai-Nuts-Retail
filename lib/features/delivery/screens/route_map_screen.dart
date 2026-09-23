@@ -3,7 +3,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// A decorative, non-interactive route visualization — numbered stop pins
@@ -15,7 +14,7 @@ import '../../../data/models/delivery.dart';
 class RouteMapScreen extends StatelessWidget {
   final Delivery delivery;
 
-  RouteMapScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const RouteMapScreen({super.key, required this.delivery});
 
   @override
   Widget build(BuildContext context) {

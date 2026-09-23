@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import 'order_details_screen.dart';
 
@@ -13,7 +12,7 @@ import 'order_details_screen.dart';
 class OrderTrackingScreen extends StatelessWidget {
   final Order order;
 
-  OrderTrackingScreen({super.key, Order? order}) : order = order ?? activeOrder ?? kOrders.first;
+  const OrderTrackingScreen({super.key, required this.order});
 
   @override
   Widget build(BuildContext context) {

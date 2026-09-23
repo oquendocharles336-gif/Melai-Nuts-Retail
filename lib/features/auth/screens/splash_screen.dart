@@ -2,13 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/app_logo.dart';
+import '../../../data/models/user_role.dart';
 
-/// First screen shown on launch. Simulates a short "connecting to branch
-/// network" sequence before landing on the Login screen.
+/// First screen shown on launch. Runs a short "connecting to branch
+/// network" animation while, in parallel, checking whether someone is
+/// already signed in (Firebase persists sessions across app restarts) so
+/// returning users land straight back in their portal instead of Login.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -40,7 +44,29 @@ class _SplashScreenState extends State<SplashScreen> {
     super.dispose();
   }
 
-  void _goToLogin() {
+  bool _resolving = false;
+
+  Future<void> _proceed() async {
+    if (_resolving) return;
+    setState(() => _resolving = true);
+    try {
+      final profile = await AuthService.instance.loadCurrentProfile();
+      if (!mounted) return;
+      if (profile != null) {
+        final destination = profile.role == UserRole.customer
+            ? AppRoutes.homeFor(UserRole.customer)
+            : AppRoutes.homeFor(profile.role);
+        Navigator.of(context).pushReplacementNamed(destination);
+        return;
+      }
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      // Ignore — e.g. no network on first launch. Fall through to Login,
+      // which will surface a clearer error on the actual sign-in attempt.
+    }
+    if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(AppRoutes.login);
   }
 
@@ -211,7 +237,7 @@ class _SplashScreenState extends State<SplashScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _goToLogin,
+                  onPressed: _resolving ? null : _proceed,
                   icon: const Icon(Icons.arrow_forward_rounded),
                   label: const Text('Get Started / Sign In'),
                 ),
@@ -220,7 +246,7 @@ class _SplashScreenState extends State<SplashScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: _goToLogin,
+                  onPressed: _resolving ? null : _proceed,
                   icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                   label: const Text('Quick Terminal Register Check'),
                 ),

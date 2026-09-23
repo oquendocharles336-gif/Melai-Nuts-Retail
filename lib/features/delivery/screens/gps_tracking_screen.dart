@@ -4,16 +4,13 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
-/// Simulated GPS tracking — an animated van marker moves along a static
-/// route line toward the next pending stop. There is no real GPS/Maps API
-/// behind this; position and ETA are purely animated dummy values.
+/// Simulated GPS tracking.
 class GpsTrackingScreen extends StatefulWidget {
   final Delivery delivery;
 
-  GpsTrackingScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const GpsTrackingScreen({super.key, required this.delivery});
 
   @override
   State<GpsTrackingScreen> createState() => _GpsTrackingScreenState();

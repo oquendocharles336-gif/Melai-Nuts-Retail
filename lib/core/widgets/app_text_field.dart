@@ -12,6 +12,8 @@ class AppTextField extends StatefulWidget {
   final Widget? trailing;
   final TextInputType? keyboardType;
   final String? helperText;
+  final String? Function(String?)? validator;
+  final void Function(String)? onChanged;
 
   const AppTextField({
     super.key,
@@ -23,6 +25,8 @@ class AppTextField extends StatefulWidget {
     this.trailing,
     this.keyboardType,
     this.helperText,
+    this.validator,
+    this.onChanged,
   });
 
   @override
@@ -39,11 +43,13 @@ class _AppTextFieldState extends State<AppTextField> {
       children: [
         Text(widget.label, style: AppTextStyles.labelLg),
         const SizedBox(height: 6),
-        TextField(
+        TextFormField(
           controller: widget.controller,
           obscureText: _obscured,
           keyboardType: widget.keyboardType,
           style: AppTextStyles.bodyLg,
+          validator: widget.validator,
+          onChanged: widget.onChanged,
           decoration: InputDecoration(
             hintText: widget.hint,
             prefixIcon: widget.prefixIcon != null

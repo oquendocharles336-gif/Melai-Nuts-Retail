@@ -103,32 +103,33 @@ class _OwnerProductPerformanceScreenState extends State<OwnerProductPerformanceS
                 ),
               ),
             const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: AppColors.primaryContainer.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(AppSpacing.radiusMd)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.link_rounded, color: AppColors.primaryDark),
-                      const SizedBox(width: 8),
-                      Text('Cross-Selling & Profit Driver', style: AppTextStyles.titleMd),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Builder(
-                    builder: (context) {
-                      final names = topTwo.map((p) => p.name.split('(').first.trim()).join(' + ');
-                      return Text(
-                        '$names generate ${crossSellShare.toStringAsFixed(1)}% of gross retail profits across all branches.',
-                        style: AppTextStyles.bodyMd,
-                      );
-                    },
-                  ),
-                ],
+            if (products.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: AppColors.primaryContainer.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(AppSpacing.radiusMd)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.link_rounded, color: AppColors.primaryDark),
+                        const SizedBox(width: 8),
+                        Text('Cross-Selling & Profit Driver', style: AppTextStyles.titleMd),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Builder(
+                      builder: (context) {
+                        final names = topTwo.map((p) => p.name.split('(').first.trim()).join(' + ');
+                        return Text(
+                          '$names generate ${crossSellShare.toStringAsFixed(1)}% of gross retail profits across all branches.',
+                          style: AppTextStyles.bodyMd,
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

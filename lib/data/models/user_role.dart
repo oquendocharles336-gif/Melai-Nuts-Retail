@@ -5,6 +5,21 @@ import '../../core/theme/app_colors.dart';
 enum UserRole { customer, staff, owner, delivery }
 
 extension UserRoleX on UserRole {
+  /// Parses the role string stored in a Firestore user document (e.g.
+  /// `'staff'`, matching [UserRole.staff.name]). Throws a [FormatException]
+  /// if the value is missing or doesn't match a known role, so a corrupt or
+  /// incomplete profile fails loudly instead of silently granting some
+  /// default role.
+  static UserRole fromName(String? value) {
+    if (value == null) {
+      throw const FormatException('User profile is missing a role.');
+    }
+    for (final role in UserRole.values) {
+      if (role.name == value) return role;
+    }
+    throw FormatException('Unknown user role "$value".');
+  }
+
   String get label {
     switch (this) {
       case UserRole.customer:

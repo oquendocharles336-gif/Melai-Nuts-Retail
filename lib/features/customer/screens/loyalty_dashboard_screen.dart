@@ -15,9 +15,9 @@ import '../widgets/reward_card.dart';
 class LoyaltyDashboardScreen extends StatelessWidget {
   const LoyaltyDashboardScreen({super.key});
 
-  static const int _availablePoints = 250;
-  static const int _lifetimeEarned = 1450;
-  static const int _pointsSpent = 1200;
+  static const int _availablePoints = 0;
+  static const int _lifetimeEarned = 0;
+  static const int _pointsSpent = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -79,22 +79,20 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            Text('Juan Dela Cruz', style: AppTextStyles.titleMd),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.verified, size: 14, color: AppColors.success),
+                            Text('Customer Account', style: AppTextStyles.titleMd),
                           ],
                         ),
-                        Text('Branch: Santa Cruz Main', style: AppTextStyles.bodySm),
+                        Text('No branch linked', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.warningBg,
+                      color: AppColors.border,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text('VIP Kernel', style: AppTextStyles.labelSm.copyWith(color: AppColors.warning)),
+                    child: Text('New Member', style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted)),
                   ),
                 ],
               ),
@@ -102,7 +100,7 @@ class LoyaltyDashboardScreen extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             const LoyaltyPointsCard(
               points: _availablePoints,
-              status: 'Golden Kernel Member',
+              status: 'Kernel Member',
             ),
             const SizedBox(height: AppSpacing.md),
             InkWell(
@@ -161,27 +159,25 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                 _LedgerTile(
                   label: 'AVAILABLE BALANCE',
                   value: '$_availablePoints pts',
-                  footer: '↗ Ready to redeem',
-                  footerColor: AppColors.success,
+                  footer: 'Start earning points',
                   icon: Icons.savings_outlined,
                 ),
                 _LedgerTile(
                   label: 'LIFETIME EARNED',
                   value: '+$_lifetimeEarned pts',
-                  footer: 'Tier multiplier 1.2x',
+                  footer: 'Earn points to level up',
                   icon: Icons.workspace_premium_outlined,
                 ),
                 _LedgerTile(
                   label: 'POINTS SPENT',
                   value: '$_pointsSpent pts',
-                  footer: '₱360 savings applied',
+                  footer: 'Vouchers will appear here',
                   icon: Icons.shopping_bag_outlined,
                 ),
                 _LedgerTile(
                   label: 'ACTIVE PERKS',
-                  value: '4 ready',
-                  footer: 'Valid at all registers',
-                  footerColor: AppColors.success,
+                  value: '0 ready',
+                  footer: 'Earn points to unlock',
                   icon: Icons.local_offer_outlined,
                 ),
               ],
@@ -198,19 +194,25 @@ class LoyaltyDashboardScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.sm),
-            for (final reward in claimableRewards.take(2))
+            if (claimableRewards.isEmpty)
               Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: RewardCard(
-                  reward: reward,
-                  canRedeem: reward.pointsRequired <= _availablePoints,
-                  onRedeem: () => Navigator.pushNamed(
-                    context,
-                    '/customer/loyalty/redemption-success',
-                    arguments: reward,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text('No rewards available yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
+              )
+            else
+              for (final reward in claimableRewards.take(2))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: RewardCard(
+                    reward: reward,
+                    canRedeem: reward.pointsRequired <= _availablePoints,
+                    onRedeem: () => Navigator.pushNamed(
+                      context,
+                      '/customer/loyalty/redemption-success',
+                      arguments: reward,
+                    ),
                   ),
                 ),
-              ),
             const SizedBox(height: AppSpacing.md),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -229,12 +231,17 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
               ),
-              child: Column(
-                children: [
-                  for (final tx in dummyLoyaltyTransactions.take(3))
-                    _ActivityRow(tx: tx, isLast: tx == dummyLoyaltyTransactions.take(3).last),
-                ],
-              ),
+              child: dummyLoyaltyTransactions.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(child: Text('No activity yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
+                    )
+                  : Column(
+                      children: [
+                        for (final tx in dummyLoyaltyTransactions.take(3))
+                          _ActivityRow(tx: tx, isLast: tx == dummyLoyaltyTransactions.take(3).last),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -247,7 +254,6 @@ class _LedgerTile extends StatelessWidget {
   final String label;
   final String value;
   final String footer;
-  final Color? footerColor;
   final IconData icon;
 
   const _LedgerTile({
@@ -255,7 +261,6 @@ class _LedgerTile extends StatelessWidget {
     required this.value,
     required this.footer,
     required this.icon,
-    this.footerColor,
   });
 
   @override
@@ -280,7 +285,7 @@ class _LedgerTile extends StatelessWidget {
           ),
           const Spacer(),
           Text(value, style: AppTextStyles.headlineSm.copyWith(color: AppColors.darkBrown)),
-          Text(footer, style: AppTextStyles.bodySm.copyWith(color: footerColor)),
+          Text(footer, style: AppTextStyles.bodySm),
         ],
       ),
     );

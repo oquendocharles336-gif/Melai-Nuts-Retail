@@ -5,7 +5,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Rider-facing "Optimized Route" step — shows the same simulated
@@ -16,7 +15,7 @@ import '../../../data/models/delivery.dart';
 class DeliveryRouteScreen extends StatelessWidget {
   final Delivery delivery;
 
-  DeliveryRouteScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const DeliveryRouteScreen({super.key, required this.delivery});
 
   void _startDelivery(BuildContext context) {
     delivery.status = DeliveryStatus.inTransit;

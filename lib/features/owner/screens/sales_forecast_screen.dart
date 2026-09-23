@@ -108,7 +108,7 @@ class _SalesForecastScreenState extends State<SalesForecastScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(20)),
-                        child: Text('R² = ${kForecastConfidenceR2.toStringAsFixed(2)} (High)', style: AppTextStyles.labelSm),
+                        child: Text('R² = ${kForecastConfidenceR2.toStringAsFixed(2)}', style: AppTextStyles.labelSm),
                       ),
                     ],
                   ),
@@ -131,7 +131,10 @@ class _SalesForecastScreenState extends State<SalesForecastScreen> {
                   const SizedBox(height: 14),
                   Text('SALES TRAJECTORY (HISTORY + PROJECTION)', style: AppTextStyles.labelSm),
                   const SizedBox(height: 8),
-                  SalesBarChart(points: [...kWeeklyRevenueSeries, ...kForecastTrajectory]),
+                  if (kWeeklyRevenueSeries.isEmpty && kForecastTrajectory.isEmpty)
+                    const SizedBox(height: 200, child: Center(child: Text('No trajectory data available.')))
+                  else
+                    SalesBarChart(points: [...kWeeklyRevenueSeries, ...kForecastTrajectory]),
                   const SizedBox(height: 6),
                   Row(
                     children: [
@@ -157,7 +160,13 @@ class _SalesForecastScreenState extends State<SalesForecastScreen> {
             ),
             Text('Estimated demand — recommended batch allocations for Laguna hubs.', style: AppTextStyles.bodySm),
             const SizedBox(height: AppSpacing.sm),
-            for (final insight in kRestockInsights)
+            if (kRestockInsights.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('No restocking insights available.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
+              )
+            else
+              for (final insight in kRestockInsights)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Container(

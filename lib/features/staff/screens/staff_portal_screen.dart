@@ -40,7 +40,7 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Staff Portal', style: AppTextStyles.labelLg),
-                Text('Calamba Highway Branch', style: AppTextStyles.bodySm),
+                Text('Branch Staff', style: AppTextStyles.bodySm),
               ],
             ),
           ],

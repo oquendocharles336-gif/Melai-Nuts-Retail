@@ -108,9 +108,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Juan Dela Cruz', style: AppTextStyles.titleMd),
-                        Text('+63 917 555 4321', style: AppTextStyles.bodySm),
-                        Text('juan.delacruz@email.com', style: AppTextStyles.bodySm),
+                        Text('Customer Account', style: AppTextStyles.titleMd),
+                        Text('No phone linked', style: AppTextStyles.bodySm),
+                        Text('No email linked', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),

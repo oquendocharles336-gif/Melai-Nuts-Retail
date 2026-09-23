@@ -3,10 +3,12 @@ import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/services/auth_service.dart';
 
 /// High-fidelity Account Registration screen.
 /// Matches the "Warm Harvest Modern" design system.
@@ -18,6 +20,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -26,6 +29,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _submitting = false;
 
   Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
+    
     if (!_agreed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please agree to the Terms & Conditions')),
@@ -34,17 +39,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     setState(() => _submitting = true);
-    // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() => _submitting = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Account created successfully! (Simulated)')),
-    );
-    
-    // Auto-login or go back to login
-    Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+    try {
+      final user = await AuthService.instance.registerCustomer(
+        name: _nameController.text,
+        email: _emailController.text,
+        phone: _phoneController.text,
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Welcome, ${user.name}! Your account is ready.')),
+      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(AppRoutes.homeFor(user.role), (r) => false);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Something went wrong. Please try again.')),
+      );
+    }
   }
 
   @override
@@ -82,63 +102,70 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 border: Border.all(color: AppColors.border),
                 boxShadow: AppShadows.md,
               ),
-              child: Column(
-                children: [
-                  AppTextField(
-                    label: 'Full Name',
-                    controller: _nameController,
-                    prefixIcon: Icons.person_outline_rounded,
-                    hint: 'Elena Santos',
-                  ),
-                  const SizedBox(height: 16),
-                  AppTextField(
-                    label: 'Email Address',
-                    controller: _emailController,
-                    prefixIcon: Icons.email_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    hint: 'elena@example.com',
-                  ),
-                  const SizedBox(height: 16),
-                  AppTextField(
-                    label: 'Mobile Number',
-                    controller: _phoneController,
-                    prefixIcon: Icons.phone_outlined,
-                    keyboardType: TextInputType.phone,
-                    hint: '+63 912 345 6789',
-                  ),
-                  const SizedBox(height: 16),
-                  AppTextField(
-                    label: 'Password',
-                    controller: _passwordController,
-                    prefixIcon: Icons.lock_outline_rounded,
-                    obscure: true,
-                    hint: '••••••••',
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Checkbox(
-                        value: _agreed,
-                        activeColor: AppColors.primary,
-                        onChanged: (v) => setState(() => _agreed = v ?? false),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'I agree to the Melai Nuts Laguna Terms of Service and Privacy Policy.',
-                          style: AppTextStyles.bodySm,
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    AppTextField(
+                      label: 'Full Name',
+                      controller: _nameController,
+                      prefixIcon: Icons.person_outline_rounded,
+                      hint: 'Elena Santos',
+                      validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
+                    ),
+                    const SizedBox(height: 16),
+                    AppTextField(
+                      label: 'Email Address',
+                      controller: _emailController,
+                      prefixIcon: Icons.email_outlined,
+                      keyboardType: TextInputType.emailAddress,
+                      hint: 'elena@example.com',
+                      validator: ValidationUtils.validateEmail,
+                    ),
+                    const SizedBox(height: 16),
+                    AppTextField(
+                      label: 'Mobile Number',
+                      controller: _phoneController,
+                      prefixIcon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                      hint: '09123456789',
+                      validator: ValidationUtils.validatePhone,
+                    ),
+                    const SizedBox(height: 16),
+                    AppTextField(
+                      label: 'Password',
+                      controller: _passwordController,
+                      prefixIcon: Icons.lock_outline_rounded,
+                      obscure: true,
+                      hint: '••••••••',
+                      validator: ValidationUtils.validatePassword,
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Checkbox(
+                          value: _agreed,
+                          activeColor: AppColors.primary,
+                          onChanged: (v) => setState(() => _agreed = v ?? false),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  PrimaryButton(
-                    label: 'Register Account',
-                    icon: Icons.person_add_alt_1_rounded,
-                    loading: _submitting,
-                    onPressed: _register,
-                  ),
-                ],
+                        Expanded(
+                          child: Text(
+                            'I agree to the Melai Nuts Laguna Terms of Service and Privacy Policy.',
+                            style: AppTextStyles.bodySm,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    PrimaryButton(
+                      label: 'Register Account',
+                      icon: Icons.person_add_alt_1_rounded,
+                      loading: _submitting,
+                      onPressed: _register,
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 24),

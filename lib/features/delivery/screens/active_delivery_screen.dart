@@ -3,141 +3,152 @@ import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// The rider's "control center" for a delivery that's already in
 /// progress — current status, next stop preview, and quick access into
 /// GPS Tracking, Next Stop, Route Details, and overall Progress.
-///
-/// Reached when a rider taps an already-started delivery from Assigned
-/// Deliveries (a not-yet-started delivery goes to Delivery Details →
-/// Optimized Route → Start Delivery instead).
 class ActiveDeliveryScreen extends StatelessWidget {
   final Delivery delivery;
 
-  ActiveDeliveryScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const ActiveDeliveryScreen({super.key, required this.delivery});
 
   @override
   Widget build(BuildContext context) {
-    final nextStop = delivery.stops.where((s) => s.status == StopStatus.pending || s.status == StopStatus.enRoute).toList();
+    final nextStop = delivery.stops.cast<DeliveryStop?>().firstWhere(
+          (s) => s!.status == StopStatus.pending || s.status == StopStatus.enRoute,
+      orElse: () => null,
+    );
     final progress = delivery.stops.isEmpty ? 0.0 : delivery.deliveredCount / delivery.stops.length;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: Text('Active: ${delivery.id}')),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('ACTIVE DISPATCH', style: AppTextStyles.labelSm),
+            Text(delivery.id, style: AppTextStyles.titleMd),
+          ],
+        ),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: AppColors.roleDelivery, borderRadius: BorderRadius.circular(20), boxShadow: AppShadows.md),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.local_shipping_rounded, color: AppColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(delivery.vehicle, style: AppTextStyles.labelLg),
+                            Text('Rider: ${delivery.riderName}', style: AppTextStyles.bodySm),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: delivery.status.color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          delivery.status.label,
+                          style: AppTextStyles.labelSm.copyWith(color: delivery.status.color),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(delivery.status.label.toUpperCase(), style: AppTextStyles.labelSm.copyWith(color: Colors.white70)),
-                      const Icon(Icons.local_shipping_rounded, color: Colors.white),
+                      Text('Overall Progress', style: AppTextStyles.labelMd),
+                      Text(
+                        '${delivery.deliveredCount}/${delivery.stops.length} Delivered',
+                        style: AppTextStyles.labelMd.copyWith(color: AppColors.primary),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text('${delivery.deliveredCount} of ${delivery.stops.length} stops delivered', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(value: progress, minHeight: 8, backgroundColor: Colors.white24, color: Colors.white),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 10,
+                      backgroundColor: AppColors.border,
+                      color: AppColors.primary,
+                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            if (nextStop.isNotEmpty) ...[
-              Text('Next Stop', style: AppTextStyles.headlineSm),
+            if (nextStop != null) ...[
+              Text('Up Next', style: AppTextStyles.headlineSm),
               const SizedBox(height: AppSpacing.sm),
               Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-                child: Row(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(color: AppColors.primaryContainer, shape: BoxShape.circle),
-                      child: const Icon(Icons.person, color: AppColors.primary),
+                    Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                          child: const Icon(Icons.person_pin_circle_rounded, color: Colors.white, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(nextStop.customerName, style: AppTextStyles.titleMd),
+                              Text(nextStop.address, style: AppTextStyles.bodySm, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(nextStop.first.customerName, style: AppTextStyles.labelLg, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          Text('${nextStop.first.distanceFromPreviousKm.toStringAsFixed(1)} km • ETA ${nextStop.first.eta}', style: AppTextStyles.bodySm),
-                        ],
-                      ),
+                    const Divider(height: 24),
+                    Row(
+                      children: [
+                        Expanded(child: _ActionTile(icon: Icons.navigation_rounded, label: 'GPS Track', onTap: () => Navigator.of(context).pushNamed(AppRoutes.gpsTracking, arguments: delivery))),
+                        const SizedBox(width: 10),
+                        Expanded(child: _ActionTile(icon: Icons.checklist_rounded, label: 'Handle Stop', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryNextStop, arguments: delivery))),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: AppSpacing.lg),
             ],
-            Text('Quick Actions', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.6,
-              children: [
-                _ActionTile(
-                  icon: Icons.gps_fixed_rounded,
-                  label: 'GPS Tracking',
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.gpsTracking, arguments: delivery),
-                ),
-                _ActionTile(
-                  icon: Icons.arrow_forward_rounded,
-                  label: 'Next Stop',
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryNextStop, arguments: delivery),
-                ),
-                _ActionTile(
-                  icon: Icons.alt_route_rounded,
-                  label: 'Route Details',
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryRouteDetails, arguments: delivery),
-                ),
-                _ActionTile(
-                  icon: Icons.checklist_rounded,
-                  label: 'Progress',
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryProgress, arguments: delivery),
-                ),
-              ],
-            ),
             const SizedBox(height: AppSpacing.lg),
-            Text('All Stops', style: AppTextStyles.headlineSm),
+            Text('Quick Links', style: AppTextStyles.headlineSm),
             const SizedBox(height: AppSpacing.sm),
-            for (int i = 0; i < delivery.stops.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border)),
-                  child: Row(
-                    children: [
-                      Icon(
-                        delivery.stops[i].status == StopStatus.delivered ? Icons.check_circle : Icons.radio_button_unchecked,
-                        size: 16,
-                        color: delivery.stops[i].status.color,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text('${i + 1}. ${delivery.stops[i].customerName}', style: AppTextStyles.bodyMd, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      Text(delivery.stops[i].status.label, style: AppTextStyles.labelSm.copyWith(color: delivery.stops[i].status.color)),
-                    ],
-                  ),
-                ),
-              ),
+            _LinkRow(icon: Icons.list_alt_rounded, label: 'View Full Progress', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryProgress, arguments: delivery)),
+            _LinkRow(icon: Icons.map_outlined, label: 'Detailed Route Info', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryRouteDetails, arguments: delivery)),
+            _LinkRow(icon: Icons.inventory_2_outlined, label: 'Loading Manifest', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryManifest, arguments: delivery)),
+            _LinkRow(icon: Icons.info_outline_rounded, label: 'General Details', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryDetails, arguments: delivery)),
           ],
         ),
       ),
@@ -156,18 +167,40 @@ class _ActionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border)),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.primary.withValues(alpha: 0.1))),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: AppColors.roleDelivery),
-            const Spacer(),
-            Text(label, style: AppTextStyles.labelLg),
+            Icon(icon, color: AppColors.primary),
+            const SizedBox(height: 4),
+            Text(label, style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LinkRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _LinkRow({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        onTap: onTap,
+        tileColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: AppColors.border)),
+        leading: Icon(icon, color: AppColors.textSecondary),
+        title: Text(label, style: AppTextStyles.labelLg),
+        trailing: const Icon(Icons.chevron_right_rounded),
       ),
     );
   }

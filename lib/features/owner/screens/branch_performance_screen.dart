@@ -15,7 +15,7 @@ import '../widgets/stat_card.dart';
 class BranchPerformanceScreen extends StatelessWidget {
   final String branch;
 
-  const BranchPerformanceScreen({super.key, this.branch = 'Calamba Highway Branch'});
+  const BranchPerformanceScreen({super.key, required this.branch});
 
   @override
   Widget build(BuildContext context) {

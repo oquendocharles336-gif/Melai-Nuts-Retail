@@ -5,7 +5,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Report a delay for a stop — pick a reason, see the simulated impact on
@@ -14,9 +13,7 @@ class DelayedDeliveryScreen extends StatefulWidget {
   final Delivery delivery;
   final DeliveryStop stop;
 
-  DelayedDeliveryScreen({super.key, Delivery? delivery, DeliveryStop? stop})
-      : delivery = delivery ?? kDeliveries.first,
-        stop = stop ?? (delivery ?? kDeliveries.first).stops.first;
+  const DelayedDeliveryScreen({super.key, required this.delivery, required this.stop});
 
   @override
   State<DelayedDeliveryScreen> createState() => _DelayedDeliveryScreenState();

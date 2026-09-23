@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../data/models/inventory_batch.dart';
 import '../../../data/dummy_data/dummy_inventory.dart';
 /// Options for adding new inventory. Frontend-only: each option either
 /// opens the shared adjustment form (pre-filled with a sample batch) or
@@ -36,10 +37,23 @@ class AddInventoryScreen extends StatelessWidget {
               icon: Icons.add_box_outlined,
               title: 'New Batch Entry',
               subtitle: 'Log a freshly roasted batch with its own expiry date.',
-              onTap: () => Navigator.of(context).pushNamed(
-                AppRoutes.inventoryAdjustment,
-                arguments: kInventoryBatches.first,
-              ),
+              onTap: () {
+                final batch = kInventoryBatches.isNotEmpty 
+                    ? kInventoryBatches.first 
+                    : InventoryBatch(
+                        id: 'new',
+                        productId: 'p1',
+                        batchCode: 'NEW-001',
+                        branch: 'Santa Cruz Flagship',
+                        receivedDate: DateTime.now(),
+                        expirationDate: DateTime.now().add(const Duration(days: 90)),
+                        quantity: 0,
+                      );
+                Navigator.of(context).pushNamed(
+                  AppRoutes.inventoryAdjustment,
+                  arguments: batch,
+                );
+              },
             ),
             const SizedBox(height: 12),
             _OptionCard(

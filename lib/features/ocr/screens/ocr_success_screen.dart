@@ -10,22 +10,20 @@ import '../../../data/dummy_data/dummy_inventory.dart';
 import '../ocr_scan_result.dart';
 
 /// "Stock Imported Successfully!" — confirms the (simulated) OCR-driven
-/// batch intake, with before/after stock numbers and an audit trail,
-/// matching the prototype's OCR Import Success screen.
+/// batch intake, with before/after stock numbers and an audit trail.
 class OcrSuccessScreen extends StatelessWidget {
   final OcrScanResult result;
 
-  OcrSuccessScreen({super.key, OcrScanResult? result}) : result = result ?? OcrScanResult.simulatedSample();
+  const OcrSuccessScreen({super.key, required this.result});
 
   @override
   Widget build(BuildContext context) {
-    // Try to match the scanned product against the real catalog so the
-    // "Previous / New Balance" numbers are grounded in existing data.
-    final matchedProduct = kProducts.firstWhere(
-      (p) => result.matchedSku.isNotEmpty && p.variants.any((v) => v.sku == result.matchedSku),
-      orElse: () => kProducts.first,
+    // Match scanned product against catalog so metrics are grounded in data.
+    final matchedProduct = kProducts.cast().firstWhere(
+          (p) => result.matchedSku.isNotEmpty && p!.variants.any((v) => v.sku == result.matchedSku),
+      orElse: () => null,
     );
-    final previousStock = totalStockFor(matchedProduct.id);
+    final previousStock = matchedProduct == null ? 0 : totalStockFor(matchedProduct.id);
     final newBalance = previousStock + result.quantity;
 
     return Scaffold(
@@ -36,7 +34,10 @@ class OcrSuccessScreen extends StatelessWidget {
           children: [
             Row(
               children: [
-                IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.of(context).pop()),
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,7 +57,9 @@ class OcrSuccessScreen extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
                 border: Border.all(color: AppColors.border),
-                boxShadow: AppShadows.sm,
+                boxShadow: const [
+                  BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
+                ],
               ),
               child: Column(
                 children: [
@@ -123,7 +126,7 @@ class OcrSuccessScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  Text(matchedProduct.name, style: AppTextStyles.titleMd),
+                  Text(matchedProduct?.name ?? result.productName, style: AppTextStyles.titleMd),
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -160,7 +163,7 @@ class OcrSuccessScreen extends StatelessWidget {
                     ],
                   ),
                   const Divider(height: 20),
-                  _AuditRow(label: 'Intake Method', value: 'OCR Smart Scan (Manual Verified)'),
+                  const _AuditRow(label: 'Intake Method', value: 'OCR Smart Scan (Manual Verified)'),
                   _AuditRow(label: 'Authorized Receiver', value: result.receivingStaff),
                   _AuditRow(label: 'Timestamp', value: 'Today, ${TimeOfDay.now().format(context)}'),
                 ],
@@ -170,13 +173,21 @@ class OcrSuccessScreen extends StatelessWidget {
             PrimaryButton(
               label: 'View Updated Product Inventory',
               icon: Icons.inventory_2_outlined,
-              onPressed: () => Navigator.of(context).pushNamed(AppRoutes.inventoryProductDetails, arguments: matchedProduct.id),
+              onPressed: matchedProduct == null
+                  ? null
+                  : () => Navigator.of(context).pushNamed(
+                AppRoutes.inventoryProductDetails,
+                arguments: matchedProduct.id,
+              ),
             ),
             const SizedBox(height: 10),
             SecondaryButton(
               label: 'Scan Another Batch Tag / Invoice',
               icon: Icons.qr_code_scanner_rounded,
-              onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.ocrCapture, (r) => r.settings.name == AppRoutes.staffHome),
+              onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
+                AppRoutes.ocrCapture,
+                    (r) => r.settings.name == AppRoutes.staffHome,
+              ),
             ),
             const SizedBox(height: 10),
             Center(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/dummy_data/dummy_products.dart';
@@ -59,11 +60,11 @@ class _PosCartScreenState extends State<PosCartScreen> {
 
     setState(() {
       _rfidDetected = true;
-      _customerName = 'Melai Santos';
+      _customerName = 'Verified Customer';
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Loyalty Card Detected: Melai Santos (1,250 pts)')),
+      const SnackBar(content: Text('Loyalty Card Detected: Verified Customer')),
     );
   }
 
@@ -87,7 +88,7 @@ class _PosCartScreenState extends State<PosCartScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('CUSTOMER: $_customerName', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
-                        Text('Loyalty Points: 1,250 • +${(_subtotal/10).toInt()} pending', style: AppTextStyles.bodySm),
+                        Text('Loyalty points will be added after checkout.', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
@@ -298,6 +299,7 @@ class PosCashInputScreen extends StatefulWidget {
 }
 
 class _PosCashInputScreenState extends State<PosCashInputScreen> {
+  final _formKey = GlobalKey<FormState>();
   final TextEditingController _controller = TextEditingController();
   double _received = 0;
 
@@ -324,58 +326,70 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(title: const Text('Cash Payment')),
-      body: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Total to Pay', style: AppTextStyles.bodyMd),
-            Text('₱${widget.amount.toStringAsFixed(2)}', style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: AppTextStyles.headlineMd,
-              autofocus: true,
-              decoration: InputDecoration(
-                labelText: 'Amount Received',
-                prefixText: '₱ ',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      body: Form(
+        key: _formKey,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Total to Pay', style: AppTextStyles.bodyMd),
+              Text('₱${widget.amount.toStringAsFixed(2)}', style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
+              const SizedBox(height: 24),
+              TextFormField(
+                controller: _controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: AppTextStyles.headlineMd,
+                autofocus: true,
+                validator: (v) {
+                  final requiredError = ValidationUtils.validateRequired(v, 'Amount Received');
+                  if (requiredError != null) return requiredError;
+                  final val = double.tryParse(v!) ?? 0;
+                  if (val < widget.amount) {
+                    return 'Amount must be at least ₱${widget.amount.toStringAsFixed(2)}';
+                  }
+                  return null;
+                },
+                decoration: InputDecoration(
+                  labelText: 'Amount Received',
+                  prefixText: '₱ ',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Change Due', style: AppTextStyles.labelLg),
+                    Text('₱${change.toStringAsFixed(2)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.success)),
+                  ],
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Change Due', style: AppTextStyles.labelLg),
-                  Text('₱${change.toStringAsFixed(2)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.success)),
-                ],
+              const Spacer(),
+              PrimaryButton(
+                label: 'Complete Payment',
+                onPressed: () {
+                  if (_formKey.currentState!.validate()) {
+                    Navigator.of(context).pushReplacementNamed(
+                      AppRoutes.staffPosReceipt,
+                      arguments: {
+                        'method': 'Cash',
+                        'amount': widget.amount,
+                        'cart': widget.cart,
+                        'cashReceived': _received,
+                      },
+                    );
+                  }
+                },
               ),
-            ),
-            const Spacer(),
-            PrimaryButton(
-              label: 'Complete Payment',
-              onPressed: _received >= widget.amount
-                  ? () {
-                      Navigator.of(context).pushReplacementNamed(
-                        AppRoutes.staffPosReceipt,
-                        arguments: {
-                          'method': 'Cash',
-                          'amount': widget.amount,
-                          'cart': widget.cart,
-                          'cashReceived': _received,
-                        },
-                      );
-                    }
-                  : null,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
