@@ -130,7 +130,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 label: 'Delivery Address',
                 controller: _addressController,
                 prefixIcon: Icons.location_on_outlined,
-                validator: (v) => ValidationUtils.validateRequired(v, 'Delivery Address'),
+                validator: (v) => ValidationUtils.validateAddress(v, 'Delivery Address'),
               ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(

@@ -241,7 +241,7 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
                         TextFormField(
                           controller: _stops[i].address,
                           decoration: const InputDecoration(labelText: 'Delivery address'),
-                          validator: (v) => ValidationUtils.validateRequired(v, 'Delivery address'),
+                          validator: (v) => ValidationUtils.validateAddress(v),
                         ),
                       ],
                     ),

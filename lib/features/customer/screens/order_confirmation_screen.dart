@@ -4,20 +4,20 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
+import '../../../data/models/order.dart';
 import 'customer_portal_screen.dart';
 import 'order_tracking_screen.dart';
 
 /// "Order Confirmed" success screen shown right after checkout.
 class OrderConfirmationScreen extends StatelessWidget {
+  final Order order;
   final int itemCount;
   final double total;
 
-  const OrderConfirmationScreen({super.key, this.itemCount = 4, this.total = 545});
+  const OrderConfirmationScreen({super.key, required this.order, required this.itemCount, required this.total});
 
   @override
   Widget build(BuildContext context) {
-    final order = kOrders.first; // demo "just placed" order reference
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: SafeArea(

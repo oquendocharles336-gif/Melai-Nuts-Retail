@@ -24,7 +24,9 @@ class _SalesTrendsScreenState extends State<SalesTrendsScreen> {
   @override
   Widget build(BuildContext context) {
     final series = _granularity == _Granularity.monthly ? kMonthlyRevenueSeries : kWeeklyRevenueSeries;
-    final current = kWeeklyBreakdown.first;
+    final current = kWeeklyBreakdown.isEmpty
+        ? const WeeklyBreakdown(label: '—', dateRange: 'No data yet', orders: 0, revenue: 0, growthPercent: 0)
+        : kWeeklyBreakdown.first;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -86,6 +88,13 @@ class _SalesTrendsScreenState extends State<SalesTrendsScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.sm),
+            if (kWeeklyBreakdown.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('No sales data yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
+                ),
+              ),
             for (final w in kWeeklyBreakdown)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),

@@ -35,14 +35,23 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   void _addToCart() {
-    CartController.instance.addProduct(
+    final added = CartController.instance.addProduct(
       widget.product,
       _selectedVariant,
       quantity: _quantity,
     );
+    if (added <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This item is out of stock.')),
+      );
+      return;
+    }
+    final message = added < _quantity
+        ? 'Only $added available — added $added to cart (stock limit reached).'
+        : 'Added ${widget.product.name} to cart';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Added ${widget.product.name} to cart'),
+        content: Text(message),
         action: SnackBarAction(
           label: 'View Cart',
           onPressed: () => Navigator.of(context).push(
@@ -139,7 +148,13 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 child: _VariantTile(
                   variant: variant,
                   selected: _selectedVariant.label == variant.label,
-                  onTap: () => setState(() => _selectedVariant = variant),
+                  onTap: () => setState(() {
+                    _selectedVariant = variant;
+                    final stock = variant.stockOnHand;
+                    if (stock != null && _quantity > stock) {
+                      _quantity = stock < 1 ? 1 : stock;
+                    }
+                  }),
                 ),
               ),
             if (product.spiceLevels.isNotEmpty) ...[
@@ -240,7 +255,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       Text('$_quantity', style: AppTextStyles.titleMd),
                       IconButton(
                         icon: const Icon(Icons.add_rounded),
-                        onPressed: () => setState(() => _quantity++),
+                        onPressed: () => setState(() {
+                          final stock = _selectedVariant.stockOnHand;
+                          if (stock == null || _quantity < stock) _quantity++;
+                        }),
                       ),
                     ],
                   ),
