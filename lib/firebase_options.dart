@@ -22,19 +22,19 @@ class DefaultFirebaseOptions {
       case TargetPlatform.iOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
+              'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.macOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
+              'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
         return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
+              'you can reconfigure this by running the FlutterFire CLI again.',
         );
       default:
         throw UnsupportedError(
@@ -52,8 +52,10 @@ class DefaultFirebaseOptions {
     storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
   );
 
+  // MUST match android/app/google-services.json (the native SDK initialises
+  // [DEFAULT] from that file; a different key here causes core/duplicate-app).
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBJBvp3_sPZ1-QoM35JojoHTrb3g7c9Ppo',
+    apiKey: 'AIzaSyBJcvp3_sPZ1-QoM35JojoHTrb3g7c9Ppo',
     appId: '1:865090291609:android:231a67991e6cea8e1db508',
     messagingSenderId: '865090291609',
     projectId: 'melai-nuts-app-2026',
