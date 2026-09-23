@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
+import 'route_guard.dart';
 import 'routes.dart';
 
 /// Root widget of the Melai Nuts Retailing Android app.
@@ -15,6 +16,10 @@ class MelaiNutsApp extends StatelessWidget {
       initialRoute: AppRoutes.splash,
       routes: AppRoutes.routes,
       onGenerateRoute: (settings) => AppRoutes.onGenerateRoute(settings),
+      onUnknownRoute: (settings) => MaterialPageRoute<dynamic>(
+        settings: settings,
+        builder: (_) => const UnavailableRouteScreen(),
+      ),
     );
   }
 }
