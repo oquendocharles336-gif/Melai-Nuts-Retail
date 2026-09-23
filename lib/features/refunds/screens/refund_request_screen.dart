@@ -1,3 +1,4 @@
+```dart
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -11,7 +12,10 @@ import 'refund_review_screen.dart';
 class RefundRequestScreen extends StatefulWidget {
   final Order order;
 
-  const RefundRequestScreen({super.key, required this.order});
+  const RefundRequestScreen({
+    super.key,
+    required this.order,
+  });
 
   @override
   State<RefundRequestScreen> createState() => _RefundRequestScreenState();
@@ -25,6 +29,7 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
   @override
   void initState() {
     super.initState();
+
     for (int i = 0; i < widget.order.items.length; i++) {
       _selected[i] = true;
     }
@@ -41,14 +46,19 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
           if (_selected[i] == true) widget.order.items[i],
       ];
 
-  double get _chosenAmount => _chosenItems.fold(0, (sum, i) => sum + i.total);
+  double get _chosenAmount =>
+      _chosenItems.fold(0, (sum, item) => sum + item.total);
 
   @override
   Widget build(BuildContext context) {
     final canContinue = _chosenItems.isNotEmpty;
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: const MelaiAppBar(title: 'Request a Refund', showBack: true),
+      appBar: const MelaiAppBar(
+        title: 'Request a Refund',
+        showBack: true,
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -62,14 +72,23 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.receipt_long_rounded, color: AppColors.darkBrown),
+                  const Icon(
+                    Icons.receipt_long_rounded,
+                    color: AppColors.darkBrown,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Order ${widget.order.id}', style: AppTextStyles.titleMd),
-                        Text('${widget.order.branch} • ₱${widget.order.total.toStringAsFixed(0)}', style: AppTextStyles.bodySm),
+                        Text(
+                          'Order ${widget.order.id}',
+                          style: AppTextStyles.titleMd,
+                        ),
+                        Text(
+                          '${widget.order.branch} • ₱${widget.order.total.toStringAsFixed(0)}',
+                          style: AppTextStyles.bodySm,
+                        ),
                       ],
                     ),
                   ),
@@ -77,23 +96,39 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            Text('Select Item(s) to Refund', style: AppTextStyles.titleMd),
+            Text(
+              'Select Item(s) to Refund',
+              style: AppTextStyles.titleMd,
+            ),
             const SizedBox(height: AppSpacing.sm),
             for (int i = 0; i < widget.order.items.length; i++)
               CheckboxListTile(
                 value: _selected[i] ?? false,
-                onChanged: (v) => setState(() => _selected[i] = v ?? false),
+                onChanged: (value) {
+                  setState(() {
+                    _selected[i] = value ?? false;
+                  });
+                },
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
-                title: Text(widget.order.items[i].productName, style: AppTextStyles.labelLg),
+                title: Text(
+                  widget.order.items[i].productName,
+                  style: AppTextStyles.labelLg,
+                ),
                 subtitle: Text(
                   '${widget.order.items[i].variantLabel} • ${widget.order.items[i].quantity}x',
                   style: AppTextStyles.bodySm,
                 ),
-                secondary: Text('₱${widget.order.items[i].total.toStringAsFixed(0)}', style: AppTextStyles.labelLg),
+                secondary: Text(
+                  '₱${widget.order.items[i].total.toStringAsFixed(0)}',
+                  style: AppTextStyles.labelLg,
+                ),
               ),
             const SizedBox(height: AppSpacing.md),
-            Text('Reason for Refund', style: AppTextStyles.titleMd),
+            Text(
+              'Reason for Refund',
+              style: AppTextStyles.titleMd,
+            ),
             const SizedBox(height: AppSpacing.sm),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -107,14 +142,25 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
                   value: _reason,
                   isExpanded: true,
                   items: [
-                    for (final r in kRefundReasons) DropdownMenuItem(value: r, child: Text(r)),
+                    for (final reason in kRefundReasons)
+                      DropdownMenuItem(
+                        value: reason,
+                        child: Text(reason),
+                      ),
                   ],
-                  onChanged: (v) => setState(() => _reason = v ?? _reason),
+                  onChanged: (value) {
+                    setState(() {
+                      _reason = value ?? _reason;
+                    });
+                  },
                 ),
               ),
             ),
             const SizedBox(height: AppSpacing.md),
-            Text('Additional Notes (optional)', style: AppTextStyles.titleMd),
+            Text(
+              'Additional Notes (optional)',
+              style: AppTextStyles.titleMd,
+            ),
             const SizedBox(height: AppSpacing.sm),
             TextField(
               controller: _notesController,
@@ -151,3 +197,4 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
     );
   }
 }
+```

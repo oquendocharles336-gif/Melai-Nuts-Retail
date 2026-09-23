@@ -1,3 +1,4 @@
+```dart
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -36,7 +37,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   void _processPayment() {
-    if (_method == PaymentMethod.card && !_formKey.currentState!.validate()) return;
+    if (_method == PaymentMethod.card &&
+        !_formKey.currentState!.validate()) {
+      return;
+    }
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -53,7 +57,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: const MelaiAppBar(title: 'Pay for Order', showBack: true),
+      appBar: const MelaiAppBar(
+        title: 'Pay for Order',
+        showBack: true,
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -69,19 +76,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 ),
                 child: Column(
                   children: [
-                    Text('Amount Due', style: AppTextStyles.labelMd),
+                    Text(
+                      'Amount Due',
+                      style: AppTextStyles.labelMd,
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       '₱${widget.amount.toStringAsFixed(0)}',
-                      style: AppTextStyles.headlineLg.copyWith(color: AppColors.primaryDark),
+                      style: AppTextStyles.headlineLg.copyWith(
+                        color: AppColors.primaryDark,
+                      ),
                     ),
                     const SizedBox(height: 4),
-                    Text('Order ${widget.orderId}', style: AppTextStyles.bodySm),
+                    Text(
+                      'Order ${widget.orderId}',
+                      style: AppTextStyles.bodySm,
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              Text('Choose Payment Method', style: AppTextStyles.titleMd),
+              Text(
+                'Choose Payment Method',
+                style: AppTextStyles.titleMd,
+              ),
               const SizedBox(height: AppSpacing.sm),
               for (final m in PaymentMethod.values) ...[
                 _MethodTile(
@@ -92,19 +110,31 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 const SizedBox(height: 8),
               ],
               const SizedBox(height: AppSpacing.sm),
-              if (_method == PaymentMethod.gcash || _method == PaymentMethod.maya)
+              if (_method == PaymentMethod.gcash ||
+                  _method == PaymentMethod.maya)
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(
+                      AppSpacing.radiusMd,
+                    ),
+                    border: Border.all(
+                      color: AppColors.border,
+                    ),
                   ),
                   child: Column(
                     children: [
-                      Icon(Icons.qr_code_2_rounded, size: 96, color: AppColors.darkBrown),
+                      Icon(
+                        Icons.qr_code_2_rounded,
+                        size: 96,
+                        color: AppColors.darkBrown,
+                      ),
                       const SizedBox(height: 8),
-                      Text('Scan with ${_method.label}', style: AppTextStyles.bodySm),
+                      Text(
+                        'Scan with ${_method.label}',
+                        style: AppTextStyles.bodySm,
+                      ),
                     ],
                   ),
                 )
@@ -115,15 +145,27 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       controller: _refController,
                       keyboardType: TextInputType.number,
                       validator: (v) {
-                        final req = ValidationUtils.validateRequired(v, 'Card Number');
-                        if (req != null) return req;
-                        if (v!.replaceAll(' ', '').length < 16) return 'Please enter a valid card number.';
+                        final req = ValidationUtils.validateRequired(
+                          v,
+                          'Card Number',
+                        );
+
+                        if (req != null) {
+                          return req;
+                        }
+
+                        if (v!.replaceAll(' ', '').length < 16) {
+                          return 'Please enter a valid card number.';
+                        }
+
                         return null;
                       },
                       decoration: const InputDecoration(
                         labelText: 'Card Number',
                         hintText: '4242 4242 4242 4242',
-                        prefixIcon: Icon(Icons.credit_card_rounded),
+                        prefixIcon: Icon(
+                          Icons.credit_card_rounded,
+                        ),
                       ),
                     ),
                   ],
@@ -133,11 +175,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: AppColors.warningBg,
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    borderRadius: BorderRadius.circular(
+                      AppSpacing.radiusMd,
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline_rounded, color: AppColors.warning),
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: AppColors.warning,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -171,7 +218,11 @@ class _MethodTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _MethodTile({required this.method, required this.selected, required this.onTap});
+  const _MethodTile({
+    required this.method,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -183,23 +234,41 @@ class _MethodTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
+          border: Border.all(
+            color: selected
+                ? AppColors.primary
+                : AppColors.border,
+            width: selected ? 1.6 : 1,
+          ),
         ),
         child: Row(
           children: [
             Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              color: selected
+                  ? AppColors.primary
+                  : AppColors.textSecondary,
             ),
             const SizedBox(width: 10),
-            Icon(method.icon, color: AppColors.darkBrown),
+            Icon(
+              method.icon,
+              color: AppColors.darkBrown,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(method.label, style: AppTextStyles.labelLg),
-                  Text(method.subtitle, style: AppTextStyles.bodySm),
+                  Text(
+                    method.label,
+                    style: AppTextStyles.labelLg,
+                  ),
+                  Text(
+                    method.subtitle,
+                    style: AppTextStyles.bodySm,
+                  ),
                 ],
               ),
             ),
@@ -209,3 +278,4 @@ class _MethodTile extends StatelessWidget {
     );
   }
 }
+```
