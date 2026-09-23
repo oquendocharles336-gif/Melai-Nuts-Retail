@@ -427,8 +427,12 @@ class AuthService {
   }
 
   String _messageFor(FirebaseAuthException e) {
-    // Log only the error *code* (never the message, email or credentials).
-    if (kDebugMode) debugPrint('FirebaseAuthException code: ${e.code}');
+    // Debug builds only: log the code and Firebase's error text (which names
+    // console/config problems such as CONFIGURATION_NOT_FOUND). Never logged
+    // in release, and never includes the email or password.
+    if (kDebugMode) {
+      debugPrint('FirebaseAuthException code: ${e.code} | ${e.message}');
+    }
     switch (e.code) {
       case 'invalid-email':
         return 'Please enter a valid email address.';
@@ -449,6 +453,9 @@ class AuthService {
       case 'user-token-expired':
       case 'requires-recent-login':
         return 'Your session has expired. Please sign in again.';
+      case 'internal-error':
+      case 'operation-not-allowed':
+        return 'This sign-in method is not available right now. Please try again later.';
       default:
       // Never surface raw SDK messages: they can contain internal details.
         return 'Something went wrong. Please try again.';
