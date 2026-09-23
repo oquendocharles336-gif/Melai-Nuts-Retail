@@ -180,31 +180,47 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
             Expanded(
               child: ListenableBuilder(
                 listenable: cart,
-                builder: (context, _) => GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.md,
-                    0,
-                    AppSpacing.md,
-                    AppSpacing.md,
-                  ),
-                  itemCount: products.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.68,
-                  ),
-                  itemBuilder: (context, i) {
-                    final product = products[i];
-                    final defaultVariant = product.variants.first;
-                    return ProductCard(
-                      product: product,
-                      quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
-                      onTap: () => _openProduct(product),
-                      onAdd: () => cart.addProduct(product, defaultVariant),
+                builder: (context, _) {
+                  if (products.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.inventory_2_outlined, size: 64, color: AppColors.textMuted.withValues(alpha: 0.5)),
+                          const SizedBox(height: 16),
+                          Text('No products yet.', style: AppTextStyles.headlineSm.copyWith(color: AppColors.textMuted)),
+                          const SizedBox(height: 8),
+                          Text('Check back soon for artisanal nut batches.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
+                        ],
+                      ),
                     );
-                  },
-                ),
+                  }
+                  return GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md,
+                      0,
+                      AppSpacing.md,
+                      AppSpacing.md,
+                    ),
+                    itemCount: products.length,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 0.68,
+                    ),
+                    itemBuilder: (context, i) {
+                      final product = products[i];
+                      final defaultVariant = product.variants.first;
+                      return ProductCard(
+                        product: product,
+                        quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
+                        onTap: () => _openProduct(product),
+                        onAdd: () => cart.addProduct(product, defaultVariant),
+                      );
+                    },
+                  );
+                },
               ),
             ),
             ListenableBuilder(

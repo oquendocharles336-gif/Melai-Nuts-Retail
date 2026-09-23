@@ -5,7 +5,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Proof-of-delivery confirmation — a simulated signature/photo capture
@@ -14,9 +13,7 @@ class DeliveryConfirmationScreen extends StatefulWidget {
   final Delivery delivery;
   final DeliveryStop stop;
 
-  DeliveryConfirmationScreen({super.key, Delivery? delivery, DeliveryStop? stop})
-      : delivery = delivery ?? kDeliveries.first,
-        stop = stop ?? (delivery ?? kDeliveries.first).stops.first;
+  const DeliveryConfirmationScreen({super.key, required this.delivery, required this.stop});
 
   @override
   State<DeliveryConfirmationScreen> createState() => _DeliveryConfirmationScreenState();

@@ -34,7 +34,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('MELAI NUTS LAGUNA', style: AppTextStyles.labelSm.copyWith(color: AppColors.primary)),
-            Text('Mabuhay, Elena!', style: AppTextStyles.headlineSm),
+            Text('Mabuhay!', style: AppTextStyles.headlineSm),
           ],
         ),
         actions: [
@@ -75,7 +75,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Melai Nuts Branch', style: AppTextStyles.bodySm),
-                      Text('Fulfilling from Calamba', style: AppTextStyles.bodySm),
+                      Text('Select a branch to see inventory', style: AppTextStyles.bodySm),
                     ],
                   ),
                   Text('Change', style: AppTextStyles.labelLg),
@@ -97,15 +97,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 height: 160,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                     colors: [AppColors.primary, AppColors.secondaryBrown],
                   ),
                   borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
                   boxShadow: AppShadows.md,
-                  image: const DecorationImage(
-                    image: NetworkImage('https://images.unsplash.com/photo-1599590984817-024560721868?q=80&w=600'),
-                    fit: BoxFit.cover,
-                    opacity: 0.3,
-                  ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(20),
@@ -222,34 +219,35 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
               // RFID Rewards Teaser
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryContainer.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-                  boxShadow: AppShadows.sm,
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.workspace_premium_rounded, color: AppColors.primary, size: 32),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Golden Kernel Rewards', style: AppTextStyles.labelLg),
-                          Text('You have 250 points to redeem!', style: AppTextStyles.bodySm),
-                        ],
+              if (false) // Hidden until loyalty points are connected
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryContainer.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                    boxShadow: AppShadows.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.workspace_premium_rounded, color: AppColors.primary, size: 32),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Golden Kernel Rewards', style: AppTextStyles.labelLg),
+                            Text('Earn points for every purchase!', style: AppTextStyles.bodySm),
+                          ],
+                        ),
                       ),
-                    ),
-                    OutlinedButton(
-                      onPressed: () => Navigator.pushNamed(context, '/customer/loyalty'),
-                      child: const Text('Redeem'),
-                    ),
-                  ],
+                      OutlinedButton(
+                        onPressed: () => Navigator.pushNamed(context, '/customer/loyalty'),
+                        child: const Text('View'),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ],
           );
         },

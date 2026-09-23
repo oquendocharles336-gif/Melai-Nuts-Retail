@@ -27,7 +27,7 @@ class BusinessOverviewScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            Text('Laguna Network • 3 Branches Synced', style: AppTextStyles.bodySm),
+            Text('Laguna Branch Network', style: AppTextStyles.bodySm),
             const SizedBox(height: AppSpacing.sm),
             GridView.count(
               crossAxisCount: 2,

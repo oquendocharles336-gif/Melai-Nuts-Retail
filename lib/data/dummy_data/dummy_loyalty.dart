@@ -1,72 +1,79 @@
 import 'package:flutter/material.dart';
+
+import '../../core/theme/app_colors.dart';
 import '../models/loyalty.dart';
 
-final List<LoyaltyPointTransaction> dummyLoyaltyTransactions = [
-  LoyaltyPointTransaction(
-    id: 'tx1',
-    date: DateTime.now().subtract(const Duration(days: 2)),
-    points: 35,
-    type: LoyaltyTransactionType.earn,
-    description: 'Purchase: 500g Adobo Nuts',
-  ),
-  LoyaltyPointTransaction(
-    id: 'tx2',
-    date: DateTime.now().subtract(const Duration(days: 5)),
-    points: 100,
-    type: LoyaltyTransactionType.redeem,
-    description: 'RFID Tap Redemption: ₱25 Cash Voucher',
-  ),
-  LoyaltyPointTransaction(
-    id: 'tx3',
-    date: DateTime.now().subtract(const Duration(days: 10)),
-    points: 150,
-    type: LoyaltyTransactionType.earn,
-    description: 'VIP Kernel Anniversary Bonus',
-  ),
-  LoyaltyPointTransaction(
-    id: 'tx4',
-    date: DateTime.now().subtract(const Duration(days: 15)),
-    points: 50,
-    type: LoyaltyTransactionType.earn,
-    description: 'Daily Check-in Bonus',
-  ),
-];
+/// TEMPORARY PLACEHOLDER DATA — see dummy_products.dart for context.
+/// Replace with real loyalty data from a backend before shipping.
+
+final DateTime _now = DateTime.now();
 
 final List<RewardItem> dummyRewards = [
   RewardItem(
-    id: 'r1',
-    title: '₱10 Branch Discount',
-    description: 'Valid on any snack tub or garlic pouch.',
-    pointsRequired: 50,
+    id: 'r-1',
+    title: '₱50 Off Voucher',
+    description: 'Use on any order of ₱300 or more.',
+    pointsRequired: 200,
     badgeLabel: 'Instant Voucher',
-    icon: Icons.confirmation_number_outlined,
-    color: const Color(0xFFA06235),
+    icon: Icons.confirmation_number_rounded,
+    color: AppColors.primary,
   ),
   RewardItem(
-    id: 'r2',
-    title: '₱25 Counter Discount',
-    description: 'Min. purchase of ₱150 at POS.',
-    pointsRequired: 100,
+    id: 'r-2',
+    title: 'Free 100g Classic Roasted Peanuts',
+    description: 'Redeem for a free bag on your next visit.',
+    pointsRequired: 150,
     badgeLabel: 'Most Popular',
-    icon: Icons.percent_rounded,
-    color: const Color(0xFFD9822B),
+    icon: Icons.redeem_rounded,
+    color: AppColors.warning,
   ),
   RewardItem(
-    id: 'r3',
-    title: '₱75 Premium Discount',
-    description: 'Applicable on wholesale & bulk jars.',
-    pointsRequired: 250,
-    badgeLabel: 'Best Value',
+    id: 'r-3',
+    title: 'Free Delivery Voucher',
+    description: 'Waive the delivery fee on your next order.',
+    pointsRequired: 80,
+    badgeLabel: 'Instant Voucher',
+    icon: Icons.local_shipping_rounded,
+    color: AppColors.success,
+  ),
+  RewardItem(
+    id: 'r-4',
+    title: '₱150 Off Voucher',
+    description: 'Use on any order of ₱800 or more.',
+    pointsRequired: 500,
+    badgeLabel: 'Big Saver',
     icon: Icons.card_giftcard_rounded,
-    color: const Color(0xFF7B563F),
+    color: AppColors.error,
   ),
-  RewardItem(
-    id: 'r4',
-    title: 'Free 100g Garlic Pouch',
-    description: 'Freshly roasted Melai Laguna batch.',
-    pointsRequired: 250,
-    badgeLabel: 'Free Item',
-    icon: Icons.eco_rounded,
-    color: const Color(0xFF387B44),
+];
+
+final List<LoyaltyPointTransaction> dummyLoyaltyTransactions = [
+  LoyaltyPointTransaction(
+    id: 'tx-1',
+    date: _now.subtract(const Duration(minutes: 45)),
+    points: 33,
+    type: LoyaltyTransactionType.earn,
+    description: 'Earned from order ORD-1005',
+  ),
+  LoyaltyPointTransaction(
+    id: 'tx-2',
+    date: _now.subtract(const Duration(days: 1)),
+    points: 21,
+    type: LoyaltyTransactionType.earn,
+    description: 'Earned from order ORD-1004',
+  ),
+  LoyaltyPointTransaction(
+    id: 'tx-3',
+    date: _now.subtract(const Duration(days: 5)),
+    points: 80,
+    type: LoyaltyTransactionType.redeem,
+    description: 'Redeemed: Free Delivery Voucher',
+  ),
+  LoyaltyPointTransaction(
+    id: 'tx-4',
+    date: _now.subtract(const Duration(days: 9)),
+    points: 38,
+    type: LoyaltyTransactionType.earn,
+    description: 'Earned from order ORD-1003',
   ),
 ];

@@ -1,122 +1,115 @@
 import '../models/delivery.dart';
 
-/// Static, dummy delivery dispatches. No backend, no real routing/courier
-/// API — [DeliveryStop.distanceFromPreviousKm] / travel times / ETAs are
-/// simulated values only.
+/// TEMPORARY PLACEHOLDER DATA — see dummy_products.dart for context.
+/// Replace with real delivery data from a backend before shipping.
+
 final DateTime _now = DateTime.now();
 
 final List<Delivery> kDeliveries = [
-  // The primary worked example: Branch → Customer A → Customer C →
-  // Customer B. Originally requested in input order A, B, C; the
-  // simulated optimizer reorders to A → C → B for a shorter simulated
-  // route (see CreateDeliveryScreen for how this reorder is produced).
   Delivery(
-    id: 'DEL-2026-0091',
-    branch: 'Calamba Highway Branch',
-    vehicle: 'Laguna Van #04',
+    id: 'DEL-2041',
+    branch: 'Santa Cruz Main',
+    vehicle: 'Motorcycle - SCM-01',
     riderName: 'Juan Rider',
     createdAt: _now.subtract(const Duration(hours: 1)),
     status: DeliveryStatus.inTransit,
     stops: [
       DeliveryStop(
-        id: 'stop-a',
-        customerName: 'Customer A — Elena Dimaculangan',
-        address: 'Unit 4B, Lakeside Residences, Calamba, Laguna',
-        orderId: '#MLN-ORD-9284',
-        items: const ['2x Garlic Peanuts 250g', '1x Spicy Skinless 250g'],
+        id: 'stop-1',
+        customerName: 'Ana Reyes',
+        address: 'Purok 3, Brgy. Poblacion, Santa Cruz',
+        orderId: 'ORD-1005',
+        items: const ['Garlic Peanuts x2', 'Classic Roasted Peanuts x1'],
         sequenceIndex: 0,
-        distanceFromPreviousKm: 3.2,
-        travelMinutesFromPrevious: 9,
-        eta: '1:15 PM',
-        status: StopStatus.delivered,
-      ),
-      DeliveryStop(
-        id: 'stop-c',
-        customerName: 'Customer C — Ramon Cruz',
-        address: 'Blk 12 Lot 4, Greenfields Subd., Calamba, Laguna',
-        orderId: '#MLN-ORD-9301',
-        items: const ['1x Family Pasalubong Box'],
-        sequenceIndex: 1,
-        distanceFromPreviousKm: 2.1,
+        distanceFromPreviousKm: 1.8,
         travelMinutesFromPrevious: 7,
-        eta: '1:32 PM',
+        eta: '2:50 PM',
         status: StopStatus.enRoute,
       ),
       DeliveryStop(
-        id: 'stop-b',
-        customerName: 'Customer B — Ana Bautista',
-        address: '88 Rizal St., Poblacion, Calamba, Laguna',
-        orderId: '#MLN-ORD-9312',
-        items: const ['3x Native Panutsa Sweet Peanuts'],
-        sequenceIndex: 2,
-        distanceFromPreviousKm: 4.6,
-        travelMinutesFromPrevious: 13,
-        eta: '1:55 PM',
+        id: 'stop-2',
+        customerName: 'Marco Dela Cruz',
+        address: 'Brgy. San Jose, Santa Cruz',
+        orderId: 'ORD-0998',
+        items: const ['Honey Glazed Peanuts x1'],
+        sequenceIndex: 1,
+        distanceFromPreviousKm: 2.4,
+        travelMinutesFromPrevious: 9,
+        eta: '3:05 PM',
         status: StopStatus.pending,
       ),
     ],
   ),
   Delivery(
-    id: 'DEL-2026-0088',
-    branch: 'Los Baños Hub',
-    vehicle: 'Laguna Van #02',
-    riderName: 'Mica Santos',
-    createdAt: _now.subtract(const Duration(days: 1, hours: 2)),
+    id: 'DEL-2038',
+    branch: 'Calamba Branch',
+    vehicle: 'Motorcycle - CAL-02',
+    riderName: 'Pia Santos',
+    createdAt: _now.subtract(const Duration(hours: 3)),
+    status: DeliveryStatus.dispatched,
+    stops: [
+      DeliveryStop(
+        id: 'stop-3',
+        customerName: 'Liza Fernandez',
+        address: 'Brgy. Real, Calamba',
+        orderId: 'ORD-0991',
+        items: const ['Honey Cashews x1'],
+        sequenceIndex: 0,
+        distanceFromPreviousKm: 3.1,
+        travelMinutesFromPrevious: 11,
+        eta: '4:10 PM',
+        status: StopStatus.pending,
+      ),
+    ],
+  ),
+  Delivery(
+    id: 'DEL-2020',
+    branch: 'Santa Cruz Main',
+    vehicle: 'Motorcycle - SCM-01',
+    riderName: 'Juan Rider',
+    createdAt: _now.subtract(const Duration(days: 1)),
     status: DeliveryStatus.completed,
     stops: [
       DeliveryStop(
-        id: 'stop-d',
-        customerName: 'UPLB Faculty Co-op',
-        address: 'UPLB Campus, Los Baños, Laguna',
-        orderId: '#MLN-ORD-9260',
-        items: const ['5x Spicy Skinless Peanuts 250g'],
+        id: 'stop-4',
+        customerName: 'Carlo Villanueva',
+        address: 'Brgy. Bubukal, Santa Cruz',
+        orderId: 'ORD-1004',
+        items: const ['Honey Glazed Peanuts x3'],
         sequenceIndex: 0,
-        distanceFromPreviousKm: 1.8,
-        travelMinutesFromPrevious: 6,
-        eta: 'Yesterday, 3:10 PM',
-        status: StopStatus.delivered,
-      ),
-      DeliveryStop(
-        id: 'stop-e',
-        customerName: 'Grace Manalo',
-        address: 'Bayog, Los Baños, Laguna',
-        orderId: '#MLN-ORD-9261',
-        items: const ['2x Native Panutsa Sweet Peanuts'],
-        sequenceIndex: 1,
-        distanceFromPreviousKm: 3.5,
-        travelMinutesFromPrevious: 10,
-        eta: 'Yesterday, 3:32 PM',
+        distanceFromPreviousKm: 2.0,
+        travelMinutesFromPrevious: 8,
+        eta: '11:20 AM',
         status: StopStatus.delivered,
       ),
     ],
   ),
   Delivery(
-    id: 'DEL-2026-0075',
-    branch: 'Santa Cruz Flagship',
-    vehicle: 'Laguna Van #01',
-    riderName: 'Mario Santos',
+    id: 'DEL-2015',
+    branch: 'Los Baños Hub',
+    vehicle: 'Motorcycle - LB-01',
+    riderName: 'Ella Ramos',
     createdAt: _now.subtract(const Duration(days: 3)),
-    status: DeliveryStatus.cancelled,
+    status: DeliveryStatus.completed,
     stops: [
       DeliveryStop(
-        id: 'stop-f',
-        customerName: 'Golden Kernel Wholesale Buyer',
-        address: 'Poblacion Main Roaster, Santa Cruz, Laguna',
-        orderId: '#MLN-ORD-9199',
-        items: const ['10x Family Pasalubong Box'],
+        id: 'stop-5',
+        customerName: 'Noel Aquino',
+        address: 'Brgy. Batong Malake, Los Baños',
+        orderId: 'ORD-1003',
+        items: const ['Chili Garlic Peanuts x2', 'Classic Roasted Peanuts x1'],
         sequenceIndex: 0,
-        distanceFromPreviousKm: 0.9,
-        travelMinutesFromPrevious: 4,
-        eta: '3 days ago',
-        status: StopStatus.skipped,
+        distanceFromPreviousKm: 1.5,
+        travelMinutesFromPrevious: 6,
+        eta: '1:05 PM',
+        status: StopStatus.delivered,
       ),
     ],
   ),
 ];
 
-Delivery findDeliveryById(String id) =>
-    kDeliveries.firstWhere((d) => d.id == id, orElse: () => kDeliveries.first);
+List<Delivery> get activeDeliveries =>
+    kDeliveries.where((d) => d.status.isActive).toList();
 
-List<Delivery> get activeDeliveries => kDeliveries.where((d) => d.status.isActive).toList();
-
-List<Delivery> get pastDeliveries => kDeliveries.where((d) => !d.status.isActive).toList();
+List<Delivery> get pastDeliveries =>
+    kDeliveries.where((d) => !d.status.isActive).toList();

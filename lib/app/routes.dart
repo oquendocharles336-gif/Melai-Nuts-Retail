@@ -315,7 +315,6 @@ class AppRoutes {
     customerCheckout: (_) => const CheckoutScreen(),
     customerOrderConfirmation: (_) => const OrderConfirmationScreen(),
     customerOrderHistory: (_) => const OrderHistoryScreen(),
-    customerOrderTracking: (_) => OrderTrackingScreen(),
     customerProfile: (_) => const CustomerProfileScreen(),
     customerEditProfile: (_) => const EditProfileScreen(),
 
@@ -386,22 +385,27 @@ class AppRoutes {
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
       case customerProductDetails:
-        final product = settings.arguments as Product?;
+        final product = settings.arguments as Product;
         return MaterialPageRoute(
           builder: (_) => ProductDetailsScreen(product: product),
         );
-      case customerProductList:
-        final categoryId = settings.arguments as String?;
+      case customerOrderTracking:
+        final order = settings.arguments as Order;
         return MaterialPageRoute(
-          builder: (_) => ProductListScreen(categoryId: categoryId ?? 'garlic'),
+          builder: (_) => OrderTrackingScreen(order: order),
+        );
+      case customerProductList:
+        final categoryId = settings.arguments as String;
+        return MaterialPageRoute(
+          builder: (_) => ProductListScreen(categoryId: categoryId),
         );
       case customerOrderDetails:
-        final order = settings.arguments as Order?;
+        final order = settings.arguments as Order;
         return MaterialPageRoute(
           builder: (_) => OrderDetailsScreen(order: order),
         );
       case customerRepeatOrder:
-        final order = settings.arguments as Order?;
+        final order = settings.arguments as Order;
         return MaterialPageRoute(
           builder: (_) => RepeatOrderScreen(order: order),
         );
@@ -432,7 +436,7 @@ class AppRoutes {
           ),
         );
       case customerRefundRequest:
-        final order = settings.arguments as Order?;
+        final order = settings.arguments as Order;
         return MaterialPageRoute(
           builder: (_) => RefundRequestScreen(order: order),
         );
@@ -492,14 +496,14 @@ class AppRoutes {
           builder: (_) => TransactionDetailsScreen(order: order),
         );
       case inventoryBranch:
-        final branch = settings.arguments as String?;
+        final branch = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => BranchInventoryScreen(branch: branch ?? 'Calamba Highway Branch'),
+          builder: (_) => BranchInventoryScreen(branch: branch),
         );
       case inventoryProductDetails:
-        final productId = settings.arguments as String?;
+        final productId = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => InventoryProductDetailsScreen(productId: productId ?? 'p1'),
+          builder: (_) => InventoryProductDetailsScreen(productId: productId),
         );
       case inventoryFefo:
         final priority = settings.arguments as FefoPriority?;
@@ -507,12 +511,12 @@ class AppRoutes {
           builder: (_) => FefoScreen(initialFilter: priority),
         );
       case inventoryBatchDetails:
-        final batch = settings.arguments as InventoryBatch?;
+        final batch = settings.arguments as InventoryBatch;
         return MaterialPageRoute(
           builder: (_) => BatchDetailsScreen(batch: batch),
         );
       case inventoryAdjustment:
-        final batch = settings.arguments as InventoryBatch?;
+        final batch = settings.arguments as InventoryBatch;
         return MaterialPageRoute(
           builder: (_) => InventoryAdjustmentScreen(batch: batch),
         );
@@ -527,24 +531,24 @@ class AppRoutes {
           ),
         );
       case productDetails:
-        final productId = settings.arguments as String?;
+        final productId = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => pm.ProductDetailsScreen(productId: productId ?? 'p1'),
+          builder: (_) => pm.ProductDetailsScreen(productId: productId),
         );
       case productEdit:
-        final productId = settings.arguments as String?;
+        final productId = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => EditProductScreen(productId: productId ?? 'p1'),
+          builder: (_) => EditProductScreen(productId: productId),
         );
       case productVariants:
-        final productId = settings.arguments as String?;
+        final productId = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => ProductVariantsScreen(productId: productId ?? 'p1'),
+          builder: (_) => ProductVariantsScreen(productId: productId),
         );
       case productPricing:
-        final productId = settings.arguments as String?;
+        final productId = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => ProductPricingScreen(productId: productId ?? 'p1'),
+          builder: (_) => ProductPricingScreen(productId: productId),
         );
       case ocrProcessing:
         final simulateFailure = settings.arguments as bool? ?? false;
@@ -552,97 +556,97 @@ class AppRoutes {
           builder: (_) => OcrProcessingScreen(simulateFailure: simulateFailure),
         );
       case ocrVerify:
-        final result = settings.arguments as OcrScanResult?;
+        final result = settings.arguments as OcrScanResult;
         return MaterialPageRoute(
           builder: (_) => OcrVerifyScreen(result: result),
         );
       case ocrSuccess:
-        final result = settings.arguments as OcrScanResult?;
+        final result = settings.arguments as OcrScanResult;
         return MaterialPageRoute(
           builder: (_) => OcrSuccessScreen(result: result),
         );
       case ownerBranchPerformance:
-        final branch = settings.arguments as String?;
+        final branch = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => BranchPerformanceScreen(branch: branch ?? 'Calamba Highway Branch'),
+          builder: (_) => BranchPerformanceScreen(branch: branch),
         );
       case routeOptimization:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => RouteOptimizationScreen(delivery: delivery),
         );
       case routeMap:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => RouteMapScreen(delivery: delivery),
         );
       case deliveryManifest:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => DeliveryManifestScreen(delivery: delivery),
         );
       case deliveryDetails:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => DeliveryDetailsScreen(delivery: delivery),
         );
       case deliveryActive:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => ActiveDeliveryScreen(delivery: delivery),
         );
       case deliveryRoute:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => DeliveryRouteScreen(delivery: delivery),
         );
       case gpsTracking:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => GpsTrackingScreen(delivery: delivery),
         );
       case deliveryRouteDetails:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => RouteDetailsScreen(delivery: delivery),
         );
       case deliveryProgress:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => DeliveryProgressScreen(delivery: delivery),
         );
       case deliveryNextStop:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => NextStopScreen(delivery: delivery),
         );
       case deliveryConfirmation:
-        final args = settings.arguments as Map<String, dynamic>?;
+        final args = settings.arguments as Map<String, dynamic>;
         return MaterialPageRoute(
           builder: (_) => DeliveryConfirmationScreen(
-            delivery: args?['delivery'] as Delivery?,
-            stop: args?['stop'] as DeliveryStop?,
+            delivery: args['delivery'] as Delivery,
+            stop: args['stop'] as DeliveryStop,
           ),
         );
       case deliveryCompleted:
-        final delivery = settings.arguments as Delivery?;
+        final delivery = settings.arguments as Delivery;
         return MaterialPageRoute(
           builder: (_) => CompletedDeliveryScreen(delivery: delivery),
         );
       case deliveryDelayed:
-        final args = settings.arguments as Map<String, dynamic>?;
+        final args = settings.arguments as Map<String, dynamic>;
         return MaterialPageRoute(
           builder: (_) => DelayedDeliveryScreen(
-            delivery: args?['delivery'] as Delivery?,
-            stop: args?['stop'] as DeliveryStop?,
+            delivery: args['delivery'] as Delivery,
+            stop: args['stop'] as DeliveryStop,
           ),
         );
       case deliveryCancelled:
-        final args = settings.arguments as Map<String, dynamic>?;
+        final args = settings.arguments as Map<String, dynamic>;
         return MaterialPageRoute(
           builder: (_) => CancelledDeliveryScreen(
-            delivery: args?['delivery'] as Delivery?,
-            stop: args?['stop'] as DeliveryStop?,
+            delivery: args['delivery'] as Delivery,
+            stop: args['stop'] as DeliveryStop,
           ),
         );
       default:

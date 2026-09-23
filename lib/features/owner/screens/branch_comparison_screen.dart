@@ -13,22 +13,10 @@ import '../widgets/branch_performance_card.dart';
 class BranchComparisonScreen extends StatelessWidget {
   const BranchComparisonScreen({super.key});
 
-  // Dummy operational benchmarks — no backend/POS telemetry exists yet.
-  static const _txnSpeedSeconds = {
-    'Calamba Highway Branch': 38,
-    'Los Baños Hub': 42,
-    'Santa Cruz Flagship': 49,
-  };
-  static const _stockoutIncidents = {
-    'Calamba Highway Branch': 1,
-    'Los Baños Hub': 4,
-    'Santa Cruz Flagship': 0,
-  };
-  static const _loyaltyTapRate = {
-    'Calamba Highway Branch': 71.0,
-    'Los Baños Hub': 62.0,
-    'Santa Cruz Flagship': 59.0,
-  };
+  // Operational benchmarks — to be populated by real telemetry.
+  static const _txnSpeedSeconds = <String, int>{};
+  static const _stockoutIncidents = <String, int>{};
+  static const _loyaltyTapRate = <String, double>{};
 
   @override
   Widget build(BuildContext context) {
@@ -39,108 +27,135 @@ class BranchComparisonScreen extends StatelessWidget {
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Branch Comparison', showBack: true),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            Text('Comparative audit & operations analytics • This Week (Mon–Sun)', style: AppTextStyles.bodySm),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Branch Comparison Matrix', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            for (int i = 0; i < ranked.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: BranchPerformanceCard(
-                  sales: ranked[i],
-                  rank: i + 1,
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: ranked[i].branch),
+        child: kBranchSalesList.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.compare_arrows_rounded, size: 64, color: AppColors.textMuted.withValues(alpha: 0.5)),
+                    const SizedBox(height: 16),
+                    Text('No comparison data yet.', style: AppTextStyles.headlineSm.copyWith(color: AppColors.textMuted)),
+                    const SizedBox(height: 8),
+                    Text('Add branches to compare their performance.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
+                  ],
                 ),
-              ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Performance Benchmark', style: AppTextStyles.headlineSm),
-            Text('Comparative share across ${kBranchSalesList.length} branches', style: AppTextStyles.bodySm),
-            const SizedBox(height: AppSpacing.sm),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              )
+            : ListView(
+                padding: const EdgeInsets.all(AppSpacing.md),
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Total Revenue Distribution', style: AppTextStyles.labelLg),
-                      Text('₱${totalRevenue.toStringAsFixed(0)} aggregate', style: AppTextStyles.bodySm),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: SizedBox(
-                      height: 12,
-                      child: Row(
-                        children: [
-                          for (final b in kBranchSalesList)
-                            Expanded(
-                              flex: (b.weekRevenue / totalRevenue * 1000).round(),
-                              child: Container(color: _branchColor(b.branch)),
-                            ),
-                        ],
+                  Text('Comparative audit & operations analytics • This Week (Mon–Sun)', style: AppTextStyles.bodySm),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Branch Comparison Matrix', style: AppTextStyles.headlineSm),
+                  const SizedBox(height: AppSpacing.sm),
+                  for (int i = 0; i < ranked.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: BranchPerformanceCard(
+                        sales: ranked[i],
+                        rank: i + 1,
+                        onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: ranked[i].branch),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 12,
-                    children: [
-                      for (final b in kBranchSalesList)
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Performance Benchmark', style: AppTextStyles.headlineSm),
+                  Text('Comparative share across ${kBranchSalesList.length} branches', style: AppTextStyles.bodySm),
+                  const SizedBox(height: AppSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Row(
-                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Container(width: 10, height: 10, decoration: BoxDecoration(color: _branchColor(b.branch), shape: BoxShape.circle)),
-                            const SizedBox(width: 4),
-                            Text('${b.branch.split(' ').first} (${(b.weekRevenue / totalRevenue * 100).toStringAsFixed(0)}%)', style: AppTextStyles.bodySm),
+                            Text('Total Revenue Distribution', style: AppTextStyles.labelLg),
+                            Text('₱${totalRevenue.toStringAsFixed(0)} aggregate', style: AppTextStyles.bodySm),
                           ],
                         ),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  Text('Transaction Speed (Sec / Checkout) • Optimal: < 45s', style: AppTextStyles.labelLg),
-                  const SizedBox(height: 8),
-                  for (final b in kBranchSalesList) _BenchmarkBar(label: b.branch.split(' ').first, value: _txnSpeedSeconds[b.branch]!.toDouble(), max: 60, suffix: 's', good: _txnSpeedSeconds[b.branch]! < 45),
-                  const Divider(height: 24),
-                  Text('Stock-Out Frequency (Weekly Incidents) • Lower is better', style: AppTextStyles.labelLg),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      for (final b in kBranchSalesList)
-                        Expanded(
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(10)),
-                            child: Column(
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: SizedBox(
+                            height: 12,
+                            child: Row(
                               children: [
-                                Text(b.branch.split(' ').first, style: AppTextStyles.bodySm),
-                                Text(
-                                  '${_stockoutIncidents[b.branch]}',
-                                  style: AppTextStyles.headlineSm.copyWith(color: _stockoutIncidents[b.branch] == 0 ? AppColors.success : AppColors.error),
-                                ),
-                                Text('incidents', style: AppTextStyles.bodySm),
+                                for (final b in kBranchSalesList)
+                                  Expanded(
+                                    flex: (totalRevenue == 0 ? 0 : b.weekRevenue / totalRevenue * 1000).round(),
+                                    child: Container(color: _branchColor(b.branch)),
+                                  ),
                               ],
                             ),
                           ),
                         ),
-                    ],
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 12,
+                          children: [
+                            for (final b in kBranchSalesList)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(width: 10, height: 10, decoration: BoxDecoration(color: _branchColor(b.branch), shape: BoxShape.circle)),
+                                  const SizedBox(width: 4),
+                                  Text('${b.branch.split(' ').first} (${totalRevenue == 0 ? 0 : (b.weekRevenue / totalRevenue * 100).toStringAsFixed(0)}%)', style: AppTextStyles.bodySm),
+                                ],
+                              ),
+                          ],
+                        ),
+                        const Divider(height: 24),
+                        Text('Transaction Speed (Sec / Checkout) • Optimal: < 45s', style: AppTextStyles.labelLg),
+                        const SizedBox(height: 8),
+                        for (final b in kBranchSalesList)
+                          _BenchmarkBar(
+                            label: b.branch.split(' ').first,
+                            value: (_txnSpeedSeconds[b.branch] ?? 0).toDouble(),
+                            max: 60,
+                            suffix: 's',
+                            good: (_txnSpeedSeconds[b.branch] ?? 0) < 45,
+                          ),
+                        const Divider(height: 24),
+                        Text('Stock-Out Frequency (Weekly Incidents) • Lower is better', style: AppTextStyles.labelLg),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            for (final b in kBranchSalesList)
+                              Expanded(
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(10)),
+                                  child: Column(
+                                    children: [
+                                      Text(b.branch.split(' ').first, style: AppTextStyles.bodySm),
+                                      Text(
+                                        '${_stockoutIncidents[b.branch] ?? 0}',
+                                        style: AppTextStyles.headlineSm.copyWith(color: (_stockoutIncidents[b.branch] ?? 0) == 0 ? AppColors.success : AppColors.error),
+                                      ),
+                                      Text('incidents', style: AppTextStyles.bodySm),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const Divider(height: 24),
+                        Text('Customer Loyalty Tap Rate (Golden Kernel)', style: AppTextStyles.labelLg),
+                        const SizedBox(height: 8),
+                        for (final b in kBranchSalesList)
+                          _BenchmarkBar(
+                            label: b.branch.split(' ').first,
+                            value: _loyaltyTapRate[b.branch] ?? 0,
+                            max: 100,
+                            suffix: '%',
+                            good: true,
+                          ),
+                      ],
+                    ),
                   ),
-                  const Divider(height: 24),
-                  Text('Customer Loyalty Tap Rate (Golden Kernel)', style: AppTextStyles.labelLg),
-                  const SizedBox(height: 8),
-                  for (final b in kBranchSalesList) _BenchmarkBar(label: b.branch.split(' ').first, value: _loyaltyTapRate[b.branch]!, max: 100, suffix: '%', good: true),
                 ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

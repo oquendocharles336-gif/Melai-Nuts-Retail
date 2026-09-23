@@ -5,7 +5,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Route Optimization — shows the simulated optimized stop sequence:
@@ -23,7 +22,7 @@ import '../../../data/models/delivery.dart';
 class RouteOptimizationScreen extends StatelessWidget {
   final Delivery delivery;
 
-  RouteOptimizationScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const RouteOptimizationScreen({super.key, required this.delivery});
 
   @override
   Widget build(BuildContext context) {

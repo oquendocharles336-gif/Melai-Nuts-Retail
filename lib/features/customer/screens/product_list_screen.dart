@@ -13,7 +13,7 @@ import 'product_details_screen.dart';
 class ProductListScreen extends StatelessWidget {
   final String categoryId;
 
-  const ProductListScreen({super.key, this.categoryId = 'garlic'});
+  const ProductListScreen({super.key, required this.categoryId});
 
   @override
   Widget build(BuildContext context) {

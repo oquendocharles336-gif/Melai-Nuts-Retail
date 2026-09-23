@@ -12,7 +12,7 @@ import '../widgets/inventory_card.dart';
 class BranchInventoryScreen extends StatelessWidget {
   final String branch;
 
-  const BranchInventoryScreen({super.key, this.branch = 'Calamba Highway Branch'});
+  const BranchInventoryScreen({super.key, required this.branch});
 
   @override
   Widget build(BuildContext context) {

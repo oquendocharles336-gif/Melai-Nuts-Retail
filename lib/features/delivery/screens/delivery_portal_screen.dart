@@ -39,7 +39,7 @@ class _DeliveryPortalScreenState extends State<DeliveryPortalScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Rider Portal', style: AppTextStyles.labelLg),
-                Text('Juan Rider • Laguna Van #04', style: AppTextStyles.bodySm),
+                Text('Delivery Rider', style: AppTextStyles.bodySm),
               ],
             ),
           ],
@@ -96,9 +96,8 @@ class _MyRouteTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // In this frontend-only demo the rider is always "Juan Rider" — filter
-    // to deliveries assigned to them that are still active.
-    final myDeliveries = activeDeliveries.where((d) => d.riderName == 'Juan Rider').toList();
+    // Filter to deliveries assigned to the current rider.
+    final myDeliveries = activeDeliveries;
     final nextStop = myDeliveries.isEmpty
         ? null
         : myDeliveries.first.stops.firstWhere(
@@ -252,7 +251,7 @@ class _RiderHistoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final completed = pastDeliveries.where((d) => d.riderName == 'Juan Rider' || d.status == DeliveryStatus.completed).toList();
+    final completed = pastDeliveries;
 
     if (completed.isEmpty) {
       return Center(child: Text('No completed deliveries yet.', style: AppTextStyles.bodyMd));

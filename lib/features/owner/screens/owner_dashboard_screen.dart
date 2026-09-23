@@ -90,7 +90,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text("Today's Performance", style: AppTextStyles.headlineSm),
-              Text('Updated 2m ago', style: AppTextStyles.bodySm),
+              if (todaysGrossSales > 0) Text('Updated just now', style: AppTextStyles.bodySm),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -109,11 +109,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   children: [
                     Text("TODAY'S GROSS SALES", style: AppTextStyles.labelSm),
                     const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(20)),
-                      child: Text('↗ +14.2% vs y\'day', style: AppTextStyles.labelSm.copyWith(color: AppColors.success)),
-                    ),
+                    if (todaysGrossSales > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: AppColors.successBg, borderRadius: BorderRadius.circular(20)),
+                        child: Text('↗ Tracking above avg', style: AppTextStyles.labelSm.copyWith(color: AppColors.success)),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -192,7 +193,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-            child: SalesBarChart(points: kWeeklyRevenueSeries),
+            child: kWeeklyRevenueSeries.isEmpty
+                ? const SizedBox(
+                    height: 200,
+                    child: Center(child: Text('No sales data yet.')),
+                  )
+                : SalesBarChart(points: kWeeklyRevenueSeries),
           ),
           const SizedBox(height: AppSpacing.lg),
           Row(
@@ -206,14 +212,22 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          for (final sales in kBranchSalesList)
+          if (kBranchSalesList.isEmpty)
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: BranchPerformanceCard(
-                sales: sales,
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: sales.branch),
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text('No branch performance data available.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
               ),
-            ),
+            )
+          else
+            for (final sales in kBranchSalesList)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: BranchPerformanceCard(
+                  sales: sales,
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: sales.branch),
+                ),
+              ),
           const SizedBox(height: AppSpacing.sm),
           Text('Quick Links', style: AppTextStyles.headlineSm),
           const SizedBox(height: AppSpacing.sm),

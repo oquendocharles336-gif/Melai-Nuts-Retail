@@ -70,7 +70,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(
-                        'ED',
+                        'U',
                         style: AppTextStyles.headlineSm.copyWith(color: Colors.white),
                       ),
                     ),
@@ -80,18 +80,18 @@ class CustomerProfileScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Elena Dimaculangan', style: AppTextStyles.titleMd),
-                        Text('Golden Kernel Member', style: AppTextStyles.bodySm),
+                        Text('User Profile', style: AppTextStyles.titleMd),
+                        Text('Kernel Member', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: AppColors.warningBg,
+                      color: AppColors.border,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text('Silver Tier', style: AppTextStyles.labelMd.copyWith(color: AppColors.warning)),
+                    child: Text('New Tier', style: AppTextStyles.labelMd.copyWith(color: AppColors.textMuted)),
                   ),
                 ],
               ),
@@ -113,7 +113,7 @@ class CustomerProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Golden Kernel Rewards', style: AppTextStyles.titleMd),
-                        Text('250 pts • Earn 1 pt per ₱10 spent', style: AppTextStyles.bodySm),
+                        Text('0 pts • Earn 1 pt per ₱10 spent', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
@@ -151,12 +151,12 @@ class CustomerProfileScreen extends StatelessWidget {
                     ],
                   ),
                   const Divider(height: 20),
-                  const _FieldRow(label: 'FULL NAME', value: 'Elena Dimaculangan'),
-                  const _FieldRow(label: 'EMAIL', value: 'elena.dimaculangan@gmail.com'),
-                  const _FieldRow(label: 'MOBILE NUMBER', value: '+63 917 536 1288'),
+                  const _FieldRow(label: 'FULL NAME', value: 'Not set'),
+                  const _FieldRow(label: 'EMAIL', value: 'Not set'),
+                  const _FieldRow(label: 'MOBILE NUMBER', value: 'Not set'),
                   const _FieldRow(
                     label: 'DELIVERY ADDRESS',
-                    value: 'Unit 4B, Lakeside Residences, Calamba, Laguna',
+                    value: 'Not set',
                   ),
                   const SizedBox(height: 10),
                   SecondaryButton(
@@ -205,7 +205,7 @@ class CustomerProfileScreen extends StatelessWidget {
                   _SettingsTile(
                     icon: Icons.location_on_outlined,
                     title: 'Saved Addresses',
-                    subtitle: '1 address saved',
+                    subtitle: 'No address saved',
                     onTap: () => ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Saved addresses coming soon')),
                     ),

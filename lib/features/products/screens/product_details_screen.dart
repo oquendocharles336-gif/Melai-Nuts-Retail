@@ -15,7 +15,7 @@ import '../../../data/dummy_data/dummy_products.dart';
 class ProductDetailsScreen extends StatelessWidget {
   final String productId;
 
-  const ProductDetailsScreen({super.key, this.productId = 'p1'});
+  const ProductDetailsScreen({super.key, required this.productId});
 
   @override
   Widget build(BuildContext context) {

@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/models/product.dart';
@@ -13,7 +14,7 @@ import '../../../data/models/product.dart';
 class ProductPricingScreen extends StatefulWidget {
   final String productId;
 
-  const ProductPricingScreen({super.key, this.productId = 'p1'});
+  const ProductPricingScreen({super.key, required this.productId});
 
   @override
   State<ProductPricingScreen> createState() => _ProductPricingScreenState();
@@ -39,6 +40,7 @@ class _VariantPricingControllers {
 }
 
 class _ProductPricingScreenState extends State<ProductPricingScreen> {
+  final _formKey = GlobalKey<FormState>();
   late final Product _product = findProductById(widget.productId);
   late final List<_VariantPricingControllers> _rows =
       [for (final v in _product.variants) _VariantPricingControllers(v)];
@@ -53,6 +55,8 @@ class _ProductPricingScreenState extends State<ProductPricingScreen> {
   }
 
   Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _saving = true);
     await Future.delayed(const Duration(milliseconds: 700));
     if (!mounted) return;
@@ -69,38 +73,41 @@ class _ProductPricingScreenState extends State<ProductPricingScreen> {
       backgroundColor: AppColors.canvas,
       appBar: MelaiAppBar(title: 'Edit Pricing • ${_product.name}', showBack: true),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Price changes sync to all connected POS registers and the customer storefront within 30 seconds.',
-                      style: AppTextStyles.bodyMd,
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: AppColors.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Price changes sync to all connected POS registers and the customer storefront within 30 seconds.',
+                        style: AppTextStyles.bodyMd,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            for (final row in _rows)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: _PricingRowCard(row: row, onChanged: () => setState(() {})),
-              ),
-            const SizedBox(height: AppSpacing.md),
-            PrimaryButton(label: 'Save Pricing', icon: Icons.check_rounded, loading: _saving, onPressed: _save),
-          ],
+              const SizedBox(height: AppSpacing.lg),
+              for (final row in _rows)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _PricingRowCard(row: row, onChanged: () => setState(() {})),
+                ),
+              const SizedBox(height: AppSpacing.md),
+              PrimaryButton(label: 'Save Pricing', icon: Icons.check_rounded, loading: _saving, onPressed: _save),
+            ],
+          ),
         ),
       ),
     );
@@ -132,19 +139,21 @@ class _PricingRowCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: TextField(
+                child: TextFormField(
                   controller: row.cogs,
                   keyboardType: TextInputType.number,
                   onChanged: (_) => onChanged(),
+                  validator: (v) => ValidationUtils.validateRequired(v, 'COGS'),
                   decoration: const InputDecoration(labelText: 'COGS (₱)', prefixIcon: Icon(Icons.receipt_long_outlined, size: 18)),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: TextField(
+                child: TextFormField(
                   controller: row.srp,
                   keyboardType: TextInputType.number,
                   onChanged: (_) => onChanged(),
+                  validator: (v) => ValidationUtils.validateRequired(v, 'SRP'),
                   decoration: const InputDecoration(labelText: 'SRP (₱)', prefixIcon: Icon(Icons.sell_outlined, size: 18)),
                 ),
               ),

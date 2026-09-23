@@ -4,7 +4,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Packing manifest for a dispatch — every stop's order items grouped for
@@ -13,7 +12,7 @@ import '../../../data/models/delivery.dart';
 class DeliveryManifestScreen extends StatefulWidget {
   final Delivery delivery;
 
-  DeliveryManifestScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const DeliveryManifestScreen({super.key, required this.delivery});
 
   @override
   State<DeliveryManifestScreen> createState() => _DeliveryManifestScreenState();

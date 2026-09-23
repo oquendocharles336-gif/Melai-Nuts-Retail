@@ -107,16 +107,16 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'UPDATED ACCOUNT IDENTITY',
+                                'ACCOUNT RECOVERED',
                                 style: AppTextStyles.labelSm,
                               ),
                               Text(
-                                'staff.santacruz@melainuts.ph',
+                                'Your account is ready',
                                 style: AppTextStyles.labelLg,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Santa Cruz Main Branch • Laguna',
+                                'Laguna Branch Network',
                                 style: AppTextStyles.bodySm,
                               ),
                             ],

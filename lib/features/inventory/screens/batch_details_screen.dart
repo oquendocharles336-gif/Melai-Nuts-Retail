@@ -17,7 +17,7 @@ import '../widgets/stock_status_badge.dart';
 class BatchDetailsScreen extends StatelessWidget {
   final InventoryBatch batch;
 
-  BatchDetailsScreen({super.key, InventoryBatch? batch}) : batch = batch ?? kInventoryBatches.first;
+  const BatchDetailsScreen({super.key, required this.batch});
 
   @override
   Widget build(BuildContext context) {

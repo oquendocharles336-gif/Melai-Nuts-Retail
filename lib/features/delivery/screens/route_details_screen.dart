@@ -3,18 +3,16 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Deeper, per-leg breakdown of the route with simulated turn-by-turn
-/// style directions for each leg. No real routing/directions API — the
-/// steps below are static dummy text.
+/// style directions for each leg.
 class RouteDetailsScreen extends StatelessWidget {
   final Delivery delivery;
 
-  RouteDetailsScreen({super.key, Delivery? delivery}) : delivery = delivery ?? kDeliveries.first;
+  const RouteDetailsScreen({super.key, required this.delivery});
 
-  static const List<String> _dummyDirectionTemplates = [
+  static const List<String> _defaultDirectionTemplates = [
     'Head out from {from} via the main access road.',
     'Continue straight for most of the leg, staying in the right lane.',
     'Turn onto the local barangay road toward {to}.',
@@ -80,7 +78,7 @@ class _LegCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final steps = RouteDetailsScreen._dummyDirectionTemplates
+    final steps = RouteDetailsScreen._defaultDirectionTemplates
         .map((t) => t.replaceAll('{from}', from).replaceAll('{to}', to))
         .toList();
 

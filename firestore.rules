@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for security and role authorization
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+    }
+
+    function isStaff() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['staff', 'owner'];
+    }
+
+    function isDelivery() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['delivery', 'owner'];
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Users Collection Security Rules
+    match /users/{userId} {
+      // Anyone signed in can read their own profile; Owners can read all managed profiles
+      allow read: if isSelf(userId) || isOwner();
+
+      // Self-service registration for customers; Owners can create/update staff accounts
+      allow create: if isSignedIn() && (
+        (isSelf(userId) && request.resource.data.role == 'customer') || isOwner()
+      );
+
+      // Updates allowed by owner or by self for non-role fields
+      allow update: if isOwner() || (
+        isSelf(userId) && request.resource.data.role == resource.data.role
+      );
+
+      // Hard deletion restricted to Owner role
+      allow delete: if isOwner();
+    }
+
+    // Products & Pricing Catalog Security Rules
+    match /products/{productId} {
+      // Public / Customer read access to product catalog
+      allow read: if true;
+
+      // Only Staff or Owner can create, edit, or archive products and pricing
+      allow write: if isStaff();
+    }
+
+    // Inventory & FEFO Batches Security Rules
+    match /inventory/{batchId} {
+      // Staff, Delivery, and Owners can read inventory batches
+      allow read: if isStaff() || isDelivery();
+
+      // Only Staff and Owners can log new batches, adjust stock, or record OCR intake
+      allow write: if isStaff();
+    }
+
+    // Orders Collection Security Rules
+    match /orders/{orderId} {
+      // Customers can read their own orders; Staff, Delivery, and Owners can read all branch orders
+      allow read: if isStaff() || isDelivery() || (
+        isSignedIn() && resource.data.customerId == request.auth.uid
+      );
+
+      // Signed-in customers can place orders; Staff can process counter POS orders
+      allow create: if isSignedIn();
+
+      // Staff, Delivery, and Owners can update order status (e.g. preparing, out_for_delivery, completed)
+      allow update: if isStaff() || isDelivery();
+
+      allow delete: if isOwner();
+    }
+
+    // Deliveries Collection Security Rules
+    match /deliveries/{deliveryId} {
+      allow read: if isStaff() || isDelivery() || (
+        isSignedIn() && resource.data.customerId == request.auth.uid
+      );
+      allow write: if isStaff() || isDelivery();
+    }
+
+    // Refunds Collection Security Rules
+    match /refunds/{refundId} {
+      allow read: if isStaff() || (
+        isSignedIn() && resource.data.customerId == request.auth.uid
+      );
+      allow create: if isSignedIn();
+      allow update, delete: if isOwner();
+    }
+  }
+}

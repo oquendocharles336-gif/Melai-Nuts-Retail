@@ -52,7 +52,7 @@ class _OcrProcessingScreenState extends State<OcrProcessingScreen> {
     } else {
       Navigator.of(context).pushReplacementNamed(
         AppRoutes.ocrVerify,
-        arguments: OcrScanResult.simulatedSample(),
+        arguments: OcrScanResult.blank(),
       );
     }
   }

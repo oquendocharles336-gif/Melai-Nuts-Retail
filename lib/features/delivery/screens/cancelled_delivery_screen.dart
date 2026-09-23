@@ -5,7 +5,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/secondary_button.dart';
-import '../../../data/dummy_data/dummy_deliveries.dart';
 import '../../../data/models/delivery.dart';
 
 /// Cancel a stop — pick a reason and confirm. The stop is marked
@@ -14,9 +13,7 @@ class CancelledDeliveryScreen extends StatefulWidget {
   final Delivery delivery;
   final DeliveryStop stop;
 
-  CancelledDeliveryScreen({super.key, Delivery? delivery, DeliveryStop? stop})
-      : delivery = delivery ?? kDeliveries.first,
-        stop = stop ?? (delivery ?? kDeliveries.first).stops.first;
+  const CancelledDeliveryScreen({super.key, required this.delivery, required this.stop});
 
   @override
   State<CancelledDeliveryScreen> createState() => _CancelledDeliveryScreenState();

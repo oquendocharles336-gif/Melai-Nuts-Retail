@@ -1,157 +1,79 @@
 import '../models/order.dart';
 
-/// Static, dummy order history for the signed-in demo customer.
+/// TEMPORARY PLACEHOLDER DATA — see dummy_products.dart for context.
+/// Replace `kOrders` with real order data from a backend before shipping.
+
 final List<Order> kOrders = [
   Order(
-    id: '#MLN-ORD-9284',
-    date: DateTime(2024, 10, 26, 13, 25),
+    id: 'ORD-1005',
+    date: DateTime.now().subtract(const Duration(minutes: 40)),
     status: OrderStatus.outForDelivery,
-    branch: 'Los Baños Hub',
-    isDelivery: true,
-    riderName: 'Rider Kuya Mark',
-    etaLabel: '15–20 mins',
-    items: const [
-      OrderItem(
-        productName: 'Garlic Peanuts',
-        variantLabel: '250g Standup Pouch',
-        quantity: 2,
-        unitPrice: 140,
-      ),
-      OrderItem(
-        productName: 'Spicy Skinless Peanuts',
-        variantLabel: '250g Jar Pack',
-        quantity: 1,
-        unitPrice: 65,
-      ),
-      OrderItem(
-        productName: 'Family Pasalubong Box',
-        variantLabel: 'Gift Set Assorted',
-        quantity: 1,
-        unitPrice: 205,
-      ),
-    ],
-    discount: 5,
-    deliveryFee: 45,
-    paymentMethod: 'GCash',
-    pointsEarned: 54,
-    timeline: const [
-      OrderTimelineStep(
-        label: 'Pending',
-        description: 'Order received at central desk',
-        time: '12:45 PM',
-        done: true,
-      ),
-      OrderTimelineStep(
-        label: 'Confirmed',
-        description: 'Payment settled via GCash POS',
-        time: '12:48 PM',
-        done: true,
-      ),
-      OrderTimelineStep(
-        label: 'Preparing & Packed',
-        description: 'Freshly vacuum sealed & packed',
-        time: '1:05 PM',
-        done: true,
-      ),
-      OrderTimelineStep(
-        label: 'Out for Delivery',
-        description: 'Dispatched in temperature-controlled bin',
-        time: '1:25 PM',
-        current: true,
-      ),
-      OrderTimelineStep(
-        label: 'Completed',
-        description: 'Handover & digital signature',
-        time: 'Est. 1:45 PM',
-      ),
-    ],
-  ),
-  Order(
-    id: '#MLN-ORD-8841',
-    date: DateTime(2024, 10, 18, 10, 42),
-    status: OrderStatus.completed,
-    branch: 'Calamba Highway Branch',
-    isDelivery: false,
-    items: const [
-      OrderItem(
-        productName: 'Garlic Peanuts',
-        variantLabel: '250g Standup Pouch',
-        quantity: 2,
-        unitPrice: 140,
-      ),
-      OrderItem(
-        productName: 'Spicy Skinless Peanuts',
-        variantLabel: '250g Jar Pack',
-        quantity: 1,
-        unitPrice: 65,
-      ),
-    ],
-    deliveryFee: 0,
-    paymentMethod: 'Cash Counter',
-    pointsEarned: 34,
-  ),
-  Order(
-    id: '#MLN-ORD-8210',
-    date: DateTime(2024, 10, 4, 15, 10),
-    status: OrderStatus.completed,
-    branch: 'Santa Cruz Flagship',
+    branch: 'Santa Cruz Main',
     isDelivery: true,
     items: const [
-      OrderItem(
-        productName: 'Family Pasalubong Box',
-        variantLabel: 'Gift Set Assorted',
-        quantity: 2,
-        unitPrice: 220,
-      ),
+      OrderItem(productName: 'Garlic Peanuts', variantLabel: '250g Standup Pouch', quantity: 2, unitPrice: 140),
+      OrderItem(productName: 'Classic Roasted Peanuts', variantLabel: '100g Retail Foil', quantity: 1, unitPrice: 55),
     ],
-    deliveryFee: 0,
-    paymentMethod: 'GCash',
-    pointsEarned: 44,
+    deliveryFee: 49,
+    paymentMethod: 'GCash E-Wallet',
+    pointsEarned: 33,
+    riderName: 'Juan Rider',
+    etaLabel: '15-20 min',
+    timeline: [
+      OrderTimelineStep(label: 'Order Placed', description: 'We received your order.', time: '2:10 PM', done: true),
+      OrderTimelineStep(label: 'Confirmed', description: 'Branch confirmed your order.', time: '2:12 PM', done: true),
+      OrderTimelineStep(label: 'Preparing', description: 'Packing your items.', time: '2:20 PM', done: true),
+      OrderTimelineStep(label: 'Out for Delivery', description: 'Juan is on the way.', time: '2:35 PM', done: true, current: true),
+      const OrderTimelineStep(label: 'Delivered', description: 'Awaiting delivery confirmation.', time: ''),
+    ],
   ),
   Order(
-    id: '#MLN-ORD-7692',
-    date: DateTime(2024, 9, 22, 9, 5),
+    id: 'ORD-1004',
+    date: DateTime.now().subtract(const Duration(days: 1, hours: 3)),
     status: OrderStatus.completed,
-    branch: 'Los Baños Hub',
+    branch: 'Calamba Branch',
     isDelivery: false,
     items: const [
-      OrderItem(
-        productName: 'Native Panutsa Sweet Peanuts',
-        variantLabel: '120g Pouch',
-        quantity: 3,
-        unitPrice: 60,
-      ),
+      OrderItem(productName: 'Honey Glazed Peanuts', variantLabel: '100g Retail Foil', quantity: 3, unitPrice: 70),
     ],
     deliveryFee: 0,
-    paymentMethod: 'Cash Counter',
-    pointsEarned: 18,
+    paymentMethod: 'Cash on Pickup',
+    pointsEarned: 21,
   ),
   Order(
-    id: '#MLN-ORD-7310',
-    date: DateTime(2024, 9, 2, 11, 30),
+    id: 'ORD-1003',
+    date: DateTime.now().subtract(const Duration(days: 3)),
+    status: OrderStatus.completed,
+    branch: 'Los Baños Hub',
+    isDelivery: true,
+    items: const [
+      OrderItem(productName: 'Chili Garlic Peanuts', variantLabel: '100g Retail Foil', quantity: 2, unitPrice: 68),
+      OrderItem(productName: 'Classic Roasted Peanuts', variantLabel: '500g Family Pack', quantity: 1, unitPrice: 250),
+    ],
+    discount: 20,
+    deliveryFee: 49,
+    paymentMethod: 'Maya Wallet',
+    pointsEarned: 38,
+  ),
+  Order(
+    id: 'ORD-1002',
+    date: DateTime.now().subtract(const Duration(days: 6)),
     status: OrderStatus.cancelled,
-    branch: 'Calamba Highway Branch',
+    branch: 'Santa Cruz Main',
     isDelivery: true,
     items: const [
-      OrderItem(
-        productName: 'Sweet Peanuts (Panutsa Glazed)',
-        variantLabel: '120g Pouch',
-        quantity: 1,
-        unitPrice: 60,
-      ),
+      OrderItem(productName: 'Honey Cashews', variantLabel: '100g Retail Foil', quantity: 1, unitPrice: 120),
     ],
-    deliveryFee: 45,
-    paymentMethod: 'GCash',
+    deliveryFee: 49,
+    paymentMethod: 'GCash E-Wallet',
     pointsEarned: 0,
   ),
 ];
 
-Order findOrderById(String id) =>
-    kOrders.firstWhere((o) => o.id == id, orElse: () => kOrders.first);
-
+/// The customer's current in-progress order, or null if none is active.
 Order? get activeOrder {
-  for (final o in kOrders) {
-    if (o.status.isActive) return o;
+  for (final order in kOrders) {
+    if (order.status.isActive) return order;
   }
   return null;
 }

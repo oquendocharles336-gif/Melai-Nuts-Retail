@@ -1,47 +1,53 @@
 import '../models/payment.dart';
-import 'dummy_orders.dart';
 
-final List<PaymentTransaction> kPaymentTransactions = [
+/// TEMPORARY PLACEHOLDER DATA — see dummy_products.dart for context.
+/// Replace with real payment data from a backend before shipping.
+
+final DateTime _now = DateTime.now();
+
+final List<PaymentTransaction> kPayments = [
   PaymentTransaction(
-    id: 'PAY-91284',
-    orderId: kOrders[0].id,
-    date: DateTime(2024, 10, 26, 12, 48),
+    id: 'PAY-5005',
+    orderId: 'ORD-1005',
+    date: _now.subtract(const Duration(minutes: 42)),
     method: PaymentMethod.gcash,
     status: PaymentStatus.success,
-    amount: kOrders[0].total,
-    referenceNumber: 'GC-88213321',
+    amount: 329,
+    referenceNumber: 'GC-88213456',
   ),
   PaymentTransaction(
-    id: 'PAY-88841',
-    orderId: kOrders[1].id,
-    date: DateTime(2024, 10, 18, 10, 43),
+    id: 'PAY-5004',
+    orderId: 'ORD-1004',
+    date: _now.subtract(const Duration(days: 1, hours: 3)),
     method: PaymentMethod.cash,
     status: PaymentStatus.success,
-    amount: kOrders[1].total,
-    referenceNumber: 'CASH-COUNTER',
+    amount: 210,
+    referenceNumber: 'CASH-POS-4021',
   ),
   PaymentTransaction(
-    id: 'PAY-88210',
-    orderId: kOrders[2].id,
-    date: DateTime(2024, 10, 4, 15, 11),
-    method: PaymentMethod.gcash,
-    status: PaymentStatus.refunded,
-    amount: kOrders[2].total,
-    referenceNumber: 'GC-77104432',
+    id: 'PAY-5003',
+    orderId: 'ORD-1003',
+    date: _now.subtract(const Duration(days: 3)),
+    method: PaymentMethod.maya,
+    status: PaymentStatus.success,
+    amount: 435,
+    referenceNumber: 'MY-77102938',
   ),
   PaymentTransaction(
-    id: 'PAY-87310',
-    orderId: kOrders[4].id,
-    date: DateTime(2024, 9, 2, 11, 31),
+    id: 'PAY-5002',
+    orderId: 'ORD-1002',
+    date: _now.subtract(const Duration(days: 6)),
     method: PaymentMethod.gcash,
     status: PaymentStatus.failed,
-    amount: kOrders[4].total,
-    referenceNumber: 'GC-70099123',
+    amount: 169,
+    referenceNumber: 'GC-88198221',
   ),
 ];
 
+/// Returns the payment transaction for [orderId], or null if none exists
+/// (matches how a real backend lookup would behave).
 PaymentTransaction? findPaymentByOrderId(String orderId) {
-  for (final p in kPaymentTransactions) {
+  for (final p in kPayments) {
     if (p.orderId == orderId) return p;
   }
   return null;

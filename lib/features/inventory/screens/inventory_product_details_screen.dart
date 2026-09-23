@@ -14,7 +14,7 @@ import '../widgets/inventory_card.dart';
 class InventoryProductDetailsScreen extends StatelessWidget {
   final String productId;
 
-  const InventoryProductDetailsScreen({super.key, this.productId = 'p1'});
+  const InventoryProductDetailsScreen({super.key, required this.productId});
 
   @override
   Widget build(BuildContext context) {

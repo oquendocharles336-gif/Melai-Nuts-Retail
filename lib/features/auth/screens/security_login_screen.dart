@@ -38,17 +38,11 @@ class _SecurityLoginScreenState extends State<SecurityLoginScreen> {
 
   final List<_ActiveSession> _sessions = [
     _ActiveSession(
-      device: 'Samsung Galaxy Tab Active 4',
-      location: 'Santa Cruz Main POS #02',
+      device: 'Current Device',
+      location: 'Laguna Branch Network',
       status: 'Active now',
-      icon: Icons.tablet_mac_rounded,
+      icon: Icons.smartphone_rounded,
       isThisDevice: true,
-    ),
-    _ActiveSession(
-      device: 'iPhone 14 Pro',
-      location: 'Laguna Mobile Roastery Dispatch',
-      status: 'Active 2h ago',
-      icon: Icons.phone_iphone_rounded,
     ),
   ];
 
