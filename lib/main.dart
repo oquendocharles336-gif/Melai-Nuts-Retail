@@ -6,7 +6,14 @@ import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  } on FirebaseException catch (e) {
+    // On Android the native SDK may already have created [DEFAULT] from
+    // google-services.json; that instance is fine to use. Anything else is a
+    // real failure and must not be swallowed.
+    if (e.code != 'duplicate-app') rethrow;
+  }
   await DataSyncService.instance.initializeLocalDatabase();
   runApp(const MelaiNutsApp());
 }

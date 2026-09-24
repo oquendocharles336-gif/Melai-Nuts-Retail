@@ -20,21 +20,15 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return macos;
       case TargetPlatform.windows:
         return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
+              'you can reconfigure this by running the FlutterFire CLI again.',
         );
       default:
         throw UnsupportedError(
@@ -51,9 +45,11 @@ class DefaultFirebaseOptions {
     authDomain: 'melai-nuts-app-2026.firebaseapp.com',
     storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
   );
+  // MUST match android/app/google-services.json (the native SDK initialises
+  // [DEFAULT] from that file; a different key here causes core/duplicate-app).
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBJBvp3_sPZ1-QoM35JojoHTrb3g7c9Ppo',
+    apiKey: 'AIzaSyBJcvp3_sPZ1-QoM35JojoHTrb3g7c9Ppo',
     appId: '1:865090291609:android:231a67991e6cea8e1db508',
     messagingSenderId: '865090291609',
     projectId: 'melai-nuts-app-2026',
@@ -67,5 +63,22 @@ class DefaultFirebaseOptions {
     projectId: 'melai-nuts-app-2026',
     authDomain: 'melai-nuts-app-2026.firebaseapp.com',
     storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+  );
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyCuyPZIJ3mirP82PfWgo9iG6O3nwEVZCD8',
+    appId: '1:865090291609:ios:860e86831b6af8691db508',
+    messagingSenderId: '865090291609',
+    projectId: 'melai-nuts-app-2026',
+    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+    iosBundleId: 'com.example.melaiNuts',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyCuyPZIJ3mirP82PfWgo9iG6O3nwEVZCD8',
+    appId: '1:865090291609:ios:860e86831b6af8691db508',
+    messagingSenderId: '865090291609',
+    projectId: 'melai-nuts-app-2026',
+    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+    iosBundleId: 'com.example.melaiNuts',
   );
 }

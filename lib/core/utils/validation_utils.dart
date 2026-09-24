@@ -1,3 +1,5 @@
+import 'dart:math' show min;
+
 class ValidationUtils {
   /// Required field check. Cannot be blank or empty spaces.
   static String? validateRequired(String? value, [String fieldName = 'Field']) {
@@ -59,21 +61,111 @@ class ValidationUtils {
     return null;
   }
 
-  /// Email validation: standard RFC 5322 regex format.
-  static String? validateEmail(String? value) {
+  // Popular mailbox providers. Used ONLY to catch typos such as `gmai.com`.
+  static const List<String> _commonEmailDomains = [
+    'gmail.com',
+    'yahoo.com',
+    'yahoo.com.ph',
+    'outlook.com',
+    'hotmail.com',
+    'icloud.com',
+    'live.com',
+    'msn.com',
+    'aol.com',
+    'proton.me',
+    'protonmail.com',
+  ];
+
+  // Local part: dot-separated atoms of allowed characters (no leading,
+  // trailing or consecutive dots).
+  static final RegExp _emailLocalPattern = RegExp(
+    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$",
+  );
+  // Domain label: letters/digits/hyphens, 1-63 chars, no leading/trailing hyphen.
+  static final RegExp _emailDomainLabel = RegExp(
+    r'^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$',
+  );
+  static final RegExp _emailTld = RegExp(r'^[A-Za-z]{2,24}$');
+
+  /// Email FORMAT validation only (structure, lengths, allowed characters,
+  /// well-formed domain with a real-looking TLD). Use this where an existing
+  /// account may already be on file (sign-in, forgot password) so a legacy or
+  /// unusual address is never blocked.
+  static String? validateEmailFormat(String? value) {
     final requiredError = validateRequired(value, 'Email address');
     if (requiredError != null) return requiredError;
 
-    final trimmedValue = value!.trim();
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
+    const invalid = 'Please enter a valid email address (e.g. user@example.com).';
+    final email = value!.trim();
+    if (email.length > 254) return invalid;
 
-    if (!emailRegex.hasMatch(trimmedValue)) {
-      return 'Please enter a valid email address (e.g. user@example.com).';
+    final at = email.indexOf('@');
+    if (at <= 0 || at != email.lastIndexOf('@')) return invalid;
+
+    final local = email.substring(0, at);
+    final domain = email.substring(at + 1);
+    if (local.length > 64 || !_emailLocalPattern.hasMatch(local)) return invalid;
+
+    final labels = domain.split('.');
+    if (labels.length < 2) return invalid;
+    for (final label in labels) {
+      if (!_emailDomainLabel.hasMatch(label)) return invalid;
     }
+    if (!_emailTld.hasMatch(labels.last)) return invalid;
 
     return null;
+  }
+
+  /// Email validation for NEW addresses (registration, adding a user, editing
+  /// a profile): everything in [validateEmailFormat], plus it rejects
+  /// near-misses of popular providers (e.g. `gmai.com`, `gmial.com`,
+  /// `yahoo.con`) with a "Did you mean ...?" hint.
+  ///
+  /// Note: no client-side check can prove an inbox exists. Only sending a
+  /// verification email and having the person click it proves ownership.
+  static String? validateEmail(String? value) {
+    final formatError = validateEmailFormat(value);
+    if (formatError != null) return formatError;
+
+    final email = value!.trim();
+    final at = email.indexOf('@');
+    final local = email.substring(0, at);
+    final domain = email.substring(at + 1).toLowerCase();
+
+    if (!_commonEmailDomains.contains(domain)) {
+      for (final known in _commonEmailDomains) {
+        if (_editDistance(domain, known) == 1) {
+          return 'Did you mean $local@$known? Please check the spelling.';
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Edit distance where an insertion, deletion, substitution or swap of two
+  /// adjacent characters each count as 1. Returns 2 for anything further apart.
+  static int _editDistance(String a, String b) {
+    final n = a.length;
+    final m = b.length;
+    if ((n - m).abs() > 1) return 2;
+    final d = List.generate(n + 1, (_) => List<int>.filled(m + 1, 0));
+    for (var i = 0; i <= n; i++) {
+      d[i][0] = i;
+    }
+    for (var j = 0; j <= m; j++) {
+      d[0][j] = j;
+    }
+    for (var i = 1; i <= n; i++) {
+      for (var j = 1; j <= m; j++) {
+        final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+        var v = min(min(d[i - 1][j] + 1, d[i][j - 1] + 1), d[i - 1][j - 1] + cost);
+        if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) {
+          v = min(v, d[i - 2][j - 2] + 1);
+        }
+        d[i][j] = v;
+      }
+    }
+    return d[n][m];
   }
 
   /// Password validation:
@@ -103,7 +195,7 @@ class ValidationUtils {
       return 'Password must contain at least one number (0-9).';
     }
 
-    if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(trimmedValue)) {
+    if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>_]').hasMatch(trimmedValue)) {
       return 'Password must contain at least one special character (!@#\$...).';
     }
 
@@ -150,12 +242,12 @@ class ValidationUtils {
 
   /// Numeric range & format validation (for prices, costs, amounts).
   static String? validateNumber(
-    String? value, {
-    String fieldName = 'Amount',
-    double? min,
-    double? max,
-    bool allowEmpty = false,
-  }) {
+      String? value, {
+        String fieldName = 'Amount',
+        double? min,
+        double? max,
+        bool allowEmpty = false,
+      }) {
     if (allowEmpty && (value == null || value.trim().isEmpty)) return null;
 
     final requiredError = validateRequired(value, fieldName);
@@ -180,12 +272,12 @@ class ValidationUtils {
 
   /// Positive price / currency validator (e.g. retail price, COGS).
   static String? validatePrice(
-    String? value, {
-    String fieldName = 'Price',
-    double min = 0.01,
-    double max = 100000.0,
-    bool allowZero = false,
-  }) {
+      String? value, {
+        String fieldName = 'Price',
+        double min = 0.01,
+        double max = 100000.0,
+        bool allowZero = false,
+      }) {
     final requiredError = validateRequired(value, fieldName);
     if (requiredError != null) return requiredError;
 
@@ -210,11 +302,11 @@ class ValidationUtils {
 
   /// Integer / quantity validator (e.g. stock count, items).
   static String? validateQuantity(
-    String? value, {
-    String fieldName = 'Quantity',
-    int min = 1,
-    int max = 99999,
-  }) {
+      String? value, {
+        String fieldName = 'Quantity',
+        int min = 1,
+        int max = 99999,
+      }) {
     final requiredError = validateRequired(value, fieldName);
     if (requiredError != null) return requiredError;
 
@@ -237,11 +329,11 @@ class ValidationUtils {
 
   /// Date string validation (YYYY-MM-DD or MM/DD/YYYY).
   static String? validateDate(
-    String? value, {
-    String fieldName = 'Date',
-    bool allowPast = true,
-    bool allowFuture = true,
-  }) {
+      String? value, {
+        String fieldName = 'Date',
+        bool allowPast = true,
+        bool allowFuture = true,
+      }) {
     final requiredError = validateRequired(value, fieldName);
     if (requiredError != null) return requiredError;
 
