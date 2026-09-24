@@ -31,15 +31,27 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules.
      give it its **own** key restricted by **API** only (Identity Toolkit,
      Token Service, Firestore).
    - On every key use *API restrictions*: only the Firebase APIs you use.
-3. **Two different Android API keys are committed**: one in
-   `android/app/google-services.json`, another (previously base64-encoded) in
-   `lib/firebase_options.dart`. Confirm which is live, delete the other, and run
-   `flutterfire configure` so both files agree.
-4. **Treat all committed keys as exposed.** They are in Git history and the old
-   code comment says the base64 was added to avoid public leak alerts. Client
-   keys are not secrets, but if Google/GitHub flagged them, create replacement
-   restricted keys, ship them, then delete the old ones. (Rewriting history does
-   not un-leak a key; restriction/rotation does.)
+3. **API keys are injected at build time, not committed.**
+   `lib/firebase_options.dart` reads keys via `--dart-define`, and
+   `android/app/google-services.json` is git-ignored. Local setup:
+   ```
+   cp env/firebase.example.json env/firebase.json                       # fill in keys
+   cp android/app/google-services.json.example android/app/google-services.json
+   flutter run --dart-define-from-file=env/firebase.json
+   ```
+   The Android key in `env/firebase.json` and in `google-services.json` **must be
+   the same key** (otherwise `core/duplicate-app`). Use one dedicated key per
+   platform (web, android, ios, macos, windows).
+4. **Treat every previously committed key as exposed and rotate it.** The old
+   keys are still in Git history and GitHub secret scanning flagged them.
+   Rewriting history does not un-leak a key; restriction/rotation does:
+   1. Create *new* keys (Google Cloud Console → Credentials → Create API key),
+      restricted as in step 2.
+   2. Put them in `env/firebase.json` / `google-services.json` and ship a build.
+   3. Delete the old keys in Google Cloud Console.
+   4. In GitHub → Security → Secret scanning, close each alert as *Revoked*.
+   For CI, store the JSON as a repository secret and write it to
+   `env/firebase.json` before `flutter build`.
 5. **Enable Firebase App Check** (Play Integrity for Android, reCAPTCHA for web)
    and *enforce* it for Authentication and Cloud Firestore. This is the main
    defence against abuse from clones/scripts using the public API key. It needs

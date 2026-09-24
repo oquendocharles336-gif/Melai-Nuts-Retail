@@ -49,9 +49,15 @@ app.*.map.json
 
 # ---------------------------------------------------------------------------
 # Secrets / private credentials — NEVER commit these.
-# (Firebase *client* config — google-services.json, lib/firebase_options.dart —
-# is intentionally tracked; it contains identifiers, not secrets. See SECURITY.md.)
+# Firebase API keys are injected at build time (env/firebase.json via
+# --dart-define-from-file) and google-services.json is kept local. Only the
+# *.example templates are tracked. See SECURITY.md.
 # ---------------------------------------------------------------------------
+/env/*
+!/env/*.example.json
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
 .env
 .env.*
 !.env.example
