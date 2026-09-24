@@ -107,11 +107,16 @@ service cloud.firestore {
       allow read: if isSelf(userId) || isOwner();
 
       // Self-registration: ONLY a customer profile, bound to the caller's own
-      // Firebase identity and email, no branch, active. Nobody can register
+      // Firebase identity and email, no branch, active — and ONLY once Firebase
+      // reports that email as VERIFIED. A client cannot set email_verified: it
+      // is set by Firebase (verification link) or by the backend via the Admin
+      // SDK after it checks the emailed code. This is what makes "only a real
+      // email can register" enforceable server-side. Nobody can register
       // themselves as staff / owner / delivery.
       // Owner: may provision staff / owner / delivery (and customer) profiles.
       allow create: if newProfileOk(request.resource.data) && (
         (isSelf(userId) &&
+          request.auth.token.email_verified == true &&
           request.resource.data.role == 'customer' &&
           request.resource.data.get('branch', null) == null &&
           request.resource.data.email.lower() == request.auth.token.email.lower())

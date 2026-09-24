@@ -47,6 +47,9 @@ dependencies:
   firebase_auth: ^6.7.0
   cloud_firestore: ^6.10.0
 
+  # Calls the email-verification API (6-digit code mode).
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

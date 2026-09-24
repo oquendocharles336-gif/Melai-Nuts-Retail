@@ -56,6 +56,47 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules.
    release keystore (kept out of Git — `.gitignore` covers `*.jks`, `key.properties`).
    Build releases with `--obfuscate --split-debug-info=...`.
 
+## Email verification (only real emails can register)
+
+Registration is two steps: (1) create the Firebase account (no profile, no
+access yet), (2) prove the email, then the customer profile is created.
+**Enforcement is server-side:** `firestore.rules` refuses the customer profile
+unless the caller's token has `email_verified == true`. A client cannot set that
+flag, so a modified app cannot skip verification. Unverified accounts have no
+profile and therefore no access to anything.
+
+Two modes (`lib/core/services/email_verification_service.dart`):
+
+| Mode | When | How |
+|---|---|---|
+| Link | `EMAIL_API_BASE_URL` not set (works today) | Firebase emails a verification link |
+| Code | `--dart-define=EMAIL_API_BASE_URL=https://your-api/auth` | Your API emails a 6-digit code |
+
+**Your API contract** (both calls send `Authorization: Bearer <Firebase ID token>`):
+
+- `POST {base}/send-code`, body `{}` -> 200 sent, 429 rate-limited.
+- `POST {base}/verify-code`, body `{"code":"123456"}` -> 200 correct, 400/401/403
+  wrong/expired, 429 too many attempts.
+
+**The API MUST:**
+1. Verify the ID token with the Admin SDK (`verifyIdToken`) and take the **uid and
+   email from the token, never from the request body** (otherwise anyone can make
+   your API email arbitrary addresses).
+2. On a correct code call `admin.auth().updateUser(uid, { emailVerified: true })`.
+   Without this step the Firestore rule blocks every registration.
+3. Store only a **hash** of the code; expire it in ~10 minutes; allow ~5 wrong
+   attempts then invalidate; single use.
+4. Rate-limit send-code per uid/email/IP (e.g. 1 per 60s, ~5 per hour) and
+   verify-code per uid. Consider App Check on these endpoints.
+5. Be HTTPS only (the app refuses non-HTTPS URLs outside debug builds).
+6. Keep the Admin SDK key on the server only — never in Flutter.
+
+**Housekeeping:** abandoned unverified accounts keep their email address tied up.
+The app deletes them when the person taps "Use a different email", but run a
+scheduled job that deletes Auth users with `emailVerified == false` and no
+`users/{uid}` document older than ~24h. Existing customers who registered before
+this change already have profiles and are unaffected.
+
 ## Known limits (cannot be fully fixed from the Flutter client)
 
 - **Order/price integrity**: rules can require ownership and `pending` status but

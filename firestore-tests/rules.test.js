@@ -37,21 +37,29 @@ beforeEach(async () => {
   });
 });
 const as = (uid, email) => env.authenticatedContext(uid, email ? { email } : {}).firestore();
+// A user whose email Firebase has verified (link or Admin SDK).
+const asVerified = (uid, email) => env.authenticatedContext(uid, { email, email_verified: true }).firestore();
 
 // ---- users / roles -------------------------------------------------------
-test('customer can self-register only as customer, active, with own email', async () => {
-  const db = as('new1', 'new1@x.com');
+test('self-registration is denied until the email is verified', async () => {
+  const unverified = as('newU', 'newU@x.com');
+  await assertFails(setDoc(doc(unverified, 'users/newU'), { email: 'newU@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() }));
+  const explicitlyFalse = env.authenticatedContext('newF', { email: 'newF@x.com', email_verified: false }).firestore();
+  await assertFails(setDoc(doc(explicitlyFalse, 'users/newF'), { email: 'newF@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() }));
+});
+test('customer can self-register only as customer, active, verified, with own email', async () => {
+  const db = asVerified('new1', 'new1@x.com');
   const base = { email: 'new1@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() };
   await assertSucceeds(setDoc(doc(db, 'users/new1'), base));
 });
 test('self-registration as owner/staff is denied', async () => {
-  const db = as('new2', 'new2@x.com');
+  const db = asVerified('new2', 'new2@x.com');
   const base = { email: 'new2@x.com', name: 'N', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() };
   await assertFails(setDoc(doc(db, 'users/new2'), { ...base, role: 'owner' }));
   await assertFails(setDoc(doc(db, 'users/new2'), { ...base, role: 'staff' }));
 });
 test('self-registration with someone else\'s email is denied', async () => {
-  const db = as('new3', 'new3@x.com');
+  const db = asVerified('new3', 'new3@x.com');
   await assertFails(setDoc(doc(db, 'users/new3'), { email: 'ceo@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() }));
 });
 test('user cannot change own role, branch or reactivate self', async () => {

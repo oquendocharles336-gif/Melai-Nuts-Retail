@@ -9,6 +9,7 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
+import 'email_verification_screen.dart';
 
 /// High-fidelity Account Registration screen.
 /// Matches the "Warm Harvest Modern" design system.
@@ -51,7 +52,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _submitting = true);
     try {
-      final user = await AuthService.instance.registerCustomer(
+      // Step 1: create the account. Step 2 (email verification, then profile
+      // creation) happens on the verification screen.
+      await AuthService.instance.startCustomerRegistration(
         name: _nameController.text,
         email: _emailController.text,
         phone: _phoneController.text,
@@ -59,12 +62,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
       setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Welcome, ${user.name}! Your account is ready.')),
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
+        (r) => r.settings.name == AppRoutes.splash,
       );
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(AppRoutes.homeFor(user.role), (r) => false);
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);

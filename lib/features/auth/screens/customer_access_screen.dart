@@ -10,6 +10,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/models/user_role.dart';
+import 'email_verification_screen.dart';
 
 /// Customer sign-in / create-account screen (RFID loyalty ordering portal).
 class CustomerAccessScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
 
   Future<void> _continue() async {
     if (!_formKey.currentState!.validate()) return;
-
+    
     if (!_isSignIn && !_agreed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please agree to the Terms of Service')),
@@ -41,16 +42,24 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
 
     setState(() => _submitting = true);
     try {
-      final user = _isSignIn
-          ? await AuthService.instance.signIn(
+      if (!_isSignIn) {
+        // Step 1 of sign-up; the verification screen completes it.
+        await AuthService.instance.startCustomerRegistration(
+          name: _nameController.text,
+          email: _emailController.text,
+          phone: _phoneController.text,
+          password: _passwordController.text,
+        );
+        if (!mounted) return;
+        setState(() => _submitting = false);
+        _openVerification();
+        return;
+      }
+
+      final user = await AuthService.instance.signIn(
         email: _emailController.text,
         password: _passwordController.text,
-      )
-          : await AuthService.instance.registerCustomer(
-        name: _nameController.text,
-        email: _emailController.text,
-        phone: _phoneController.text,
-        password: _passwordController.text,
+        allowVerificationResume: true,
       );
 
       if (user.role != UserRole.customer) {
@@ -62,7 +71,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
           const SnackBar(
             content: Text(
               'This account is not a customer account. Use the staff/owner/'
-                  'delivery sign-in instead.',
+              'delivery sign-in instead.',
             ),
           ),
         );
@@ -77,6 +86,11 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
       Navigator.of(
         context,
       ).pushNamedAndRemoveUntil(AppRoutes.homeFor(UserRole.customer), (r) => false);
+    } on EmailVerificationRequiredException {
+      // Signed up earlier but never finished verifying: resume.
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _openVerification();
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -88,6 +102,13 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
         const SnackBar(content: Text('Something went wrong. Please try again.')),
       );
     }
+  }
+
+  void _openVerification() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
+      (r) => r.settings.name == AppRoutes.splash,
+    );
   }
 
   Future<void> _guestAccess() async {
@@ -216,7 +237,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       icon: Icons.contactless_rounded,
                       title: 'Physical RFID Member Card Support',
                       text:
-                      'Have a Melai Nuts RFID Loyalty Card from Calamba, Los Baños, or Santa Cruz branches? You can link your physical card number during checkout or via in-store tap.',
+                          'Have a Melai Nuts RFID Loyalty Card from Calamba, Los Baños, or Santa Cruz branches? You can link your physical card number during checkout or via in-store tap.',
                     ),
                     const SizedBox(height: 14),
                     if (!_isSignIn)
@@ -301,12 +322,12 @@ class _ToggleTab extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           boxShadow: selected
               ? [
-            BoxShadow(
-              color: AppColors.darkBrown.withValues(alpha: 0.06),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ]
+                  BoxShadow(
+                    color: AppColors.darkBrown.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
               : null,
         ),
         child: Row(

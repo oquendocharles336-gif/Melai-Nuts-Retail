@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../data/models/user_role.dart';
+import 'email_verification_screen.dart';
 
 /// First screen shown on launch. Runs a short "connecting to branch
 /// network" animation while, in parallel, checking whether someone is
@@ -50,7 +51,9 @@ class _SplashScreenState extends State<SplashScreen> {
     if (_resolving) return;
     setState(() => _resolving = true);
     try {
-      final profile = await AuthService.instance.loadCurrentProfile();
+      final profile = await AuthService.instance.loadCurrentProfile(
+        allowVerificationResume: true,
+      );
       if (!mounted) return;
       if (profile != null) {
         final destination = profile.role == UserRole.customer
@@ -59,6 +62,12 @@ class _SplashScreenState extends State<SplashScreen> {
         Navigator.of(context).pushReplacementNamed(destination);
         return;
       }
+    } on EmailVerificationRequiredException {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
+      );
+      return;
     } on AuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));

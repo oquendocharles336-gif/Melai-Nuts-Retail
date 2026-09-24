@@ -8,6 +8,7 @@ import '../../data/models/user_role.dart';
 import '../../features/customer/cart_controller.dart';
 import '../constants/app_constants.dart';
 import 'data_sync_service.dart';
+import 'email_verification_service.dart';
 
 /// A user-facing authentication failure. The [message] is already written
 /// to be shown directly in a SnackBar/dialog — no FirebaseAuthException
@@ -18,6 +19,14 @@ class AuthException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Thrown at sign-in / session restore when a customer's Firebase account
+/// exists but its email has not been verified yet (sign-up unfinished). The
+/// person stays signed in so they can finish verifying.
+class EmailVerificationRequiredException extends AuthException {
+  const EmailVerificationRequiredException()
+      : super('Please verify your email address to finish creating your account.');
 }
 
 /// In-memory brake on repeated failures (exponential back-off after a few
@@ -99,6 +108,10 @@ class AuthService {
 
   AppUser? _currentProfile;
 
+  // Sign-up details held only in memory until the email is verified.
+  String? _pendingName;
+  String? _pendingPhone;
+
   /// True once the *user* has chosen to sign out, until the next sign-in.
   /// Route guards use it to avoid hijacking the logout flow's own navigation.
   bool _userInitiatedSignOut = false;
@@ -119,15 +132,20 @@ class AuthService {
   /// or `null` if nobody is signed in. Throws [AuthException] if the
   /// account is signed in but has no matching/active profile (and signs it
   /// out), so callers never route a "ghost" session into a portal.
-  Future<AppUser?> loadCurrentProfile() async {
+  ///
+  /// With [allowVerificationResume] a signed-in customer whose email is not
+  /// verified yet gets [EmailVerificationRequiredException] (and stays signed
+  /// in) instead of being signed out, so they can finish sign-up.
+  Future<AppUser?> loadCurrentProfile({bool allowVerificationResume = false}) async {
     final user = _auth.currentUser;
     if (user == null) return null;
-    return _loadAndValidateProfile(user.uid);
+    return _loadAndValidateProfile(user.uid, allowVerificationResume: allowVerificationResume);
   }
 
   Future<AppUser> signIn({
     required String email,
     required String password,
+    bool allowVerificationResume = false,
   }) async {
     _throwIfBraked(_signInBrake);
     try {
@@ -139,7 +157,10 @@ class AuthService {
       if (uid == null) {
         throw const AuthException('Sign-in failed. Please try again.');
       }
-      final profile = await _loadAndValidateProfile(uid);
+      final profile = await _loadAndValidateProfile(
+        uid,
+        allowVerificationResume: allowVerificationResume,
+      );
       _signInBrake.reset();
       _userInitiatedSignOut = false;
       return profile;
@@ -149,11 +170,13 @@ class AuthService {
     }
   }
 
-  /// Self-service registration — customers only. Staff, owner, and delivery
-  /// accounts are provisioned by an owner via [createManagedAccount].
-  /// The role is fixed to `customer` here and again by Firestore rules; a
-  /// modified client cannot self-register as anything else.
-  Future<AppUser> registerCustomer({
+  /// Self-service registration — customers only — STEP 1 of 2.
+  ///
+  /// Creates the Firebase Auth account and leaves the person signed in so they
+  /// can verify their email. NO customer profile exists yet, so the account
+  /// has no access to anything. Continue with [sendVerification] and
+  /// [completeCustomerRegistration].
+  Future<void> startCustomerRegistration({
     required String name,
     required String email,
     required String phone,
@@ -168,38 +191,106 @@ class AuthService {
       if (user == null) {
         throw const AuthException('Account creation failed. Please try again.');
       }
+      _pendingName = name.trim();
+      _pendingPhone = phone.trim();
+      _userInitiatedSignOut = false;
       try {
         await user.updateDisplayName(name.trim());
-
-        final appUser = AppUser(
-          uid: user.uid,
-          // Use the identity Firebase actually recorded (it normalises case);
-          // Firestore rules require the profile email to match it.
-          email: user.email ?? email.trim(),
-          name: name.trim(),
-          role: UserRole.customer,
-          phone: phone.trim(),
-          isActive: true,
-        );
-        await _firestore
-            .collection(_usersCollection)
-            .doc(user.uid)
-            .set(appUser.toFirestore(serverTimestamp: true));
-        _currentProfile = appUser;
-        _userInitiatedSignOut = false;
-        return appUser;
-      } on FirebaseException {
-        // Roll back so no sign-in exists without a profile.
-        try {
-          await user.delete();
-        } catch (_) {}
-        throw const AuthException(
-          'We could not finish creating your account. Please try again.',
-        );
+      } catch (_) {
+        // Not critical; the name is also kept in memory and written to the profile.
       }
     } on FirebaseAuthException catch (e) {
       throw AuthException(_messageFor(e));
     }
+  }
+
+  /// Emails the verification code (or Firebase link) to the signed-in
+  /// account's own address. Safe to call again to resend.
+  Future<void> sendVerification() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw const AuthException('Your sign-up session expired. Please register again.');
+    }
+    try {
+      await EmailVerificationService.instance.sendCode(user);
+    } on EmailVerificationException catch (e) {
+      throw AuthException(e.message);
+    }
+  }
+
+  /// STEP 2 of 2: checks the code (or that the link was tapped), refreshes the
+  /// session so Firebase's `email_verified` claim is current, then creates the
+  /// customer profile. Firestore rules independently require
+  /// `email_verified == true` for this write.
+  Future<AppUser> completeCustomerRegistration({String? code}) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw const AuthException('Your sign-up session expired. Please register again.');
+    }
+    try {
+      await EmailVerificationService.instance.verify(user, code: code);
+    } on EmailVerificationException catch (e) {
+      throw AuthException(e.message);
+    }
+
+    try {
+      await user.reload();
+      final fresh = _auth.currentUser;
+      if (fresh == null || !fresh.emailVerified) {
+        throw const AuthException(
+          'Your email is not verified yet. Please finish verifying and try again.',
+        );
+      }
+      await fresh.getIdToken(true); // pick up email_verified in the token
+
+      final name = (_pendingName != null && _pendingName!.isNotEmpty)
+          ? _pendingName!
+          : ((fresh.displayName ?? '').trim().isNotEmpty ? fresh.displayName!.trim() : 'Customer');
+      final appUser = AppUser(
+        uid: fresh.uid,
+        // The identity Firebase recorded; rules require the profile email to match it.
+        email: fresh.email ?? '',
+        name: name,
+        role: UserRole.customer,
+        phone: _pendingPhone ?? '',
+        isActive: true,
+      );
+      try {
+        await _firestore
+            .collection(_usersCollection)
+            .doc(fresh.uid)
+            .set(appUser.toFirestore(serverTimestamp: true));
+      } on FirebaseException {
+        throw const AuthException(
+          'We could not finish creating your account. Please try again.',
+        );
+      }
+      _pendingName = null;
+      _pendingPhone = null;
+      _currentProfile = appUser;
+      _userInitiatedSignOut = false;
+      return appUser;
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_messageFor(e));
+    }
+  }
+
+  /// Abandons an unfinished sign-up: deletes the never-verified account so the
+  /// address is not left tied up, and signs out.
+  Future<void> cancelCustomerRegistration() async {
+    final user = _auth.currentUser;
+    _pendingName = null;
+    _pendingPhone = null;
+    _userInitiatedSignOut = true;
+    if (user != null && !user.emailVerified) {
+      try {
+        await user.delete();
+        return;
+      } catch (_) {
+        // Fall through to a plain sign-out.
+      }
+    }
+    await _auth.signOut();
   }
 
   /// Owner-only: creates a staff / owner / delivery account.
@@ -366,7 +457,10 @@ class AuthService {
     await _auth.signOut();
   }
 
-  Future<AppUser> _loadAndValidateProfile(String uid) async {
+  Future<AppUser> _loadAndValidateProfile(
+    String uid, {
+    bool allowVerificationResume = false,
+  }) async {
     final DocumentSnapshot<Map<String, dynamic>> doc;
     try {
       doc = await _firestore.collection(_usersCollection).doc(uid).get();
@@ -384,6 +478,14 @@ class AuthService {
     }
 
     if (!doc.exists) {
+      final fbUser = _auth.currentUser;
+      if (allowVerificationResume &&
+          fbUser != null &&
+          fbUser.uid == uid &&
+          !fbUser.emailVerified) {
+        // Unfinished customer sign-up: keep the session so it can be completed.
+        throw const EmailVerificationRequiredException();
+      }
       await signOut();
       throw const AuthException(
         'No account profile found. Please contact your administrator.',
@@ -457,7 +559,7 @@ class AuthService {
       case 'operation-not-allowed':
         return 'This sign-in method is not available right now. Please try again later.';
       default:
-      // Never surface raw SDK messages: they can contain internal details.
+        // Never surface raw SDK messages: they can contain internal details.
         return 'Something went wrong. Please try again.';
     }
   }
