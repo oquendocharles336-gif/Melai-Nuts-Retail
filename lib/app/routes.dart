@@ -6,8 +6,6 @@ import '../data/models/product.dart';
 import '../data/models/order.dart';
 import '../features/auth/screens/splash_screen.dart';
 import '../features/auth/screens/login_screen.dart';
-import '../features/auth/screens/register_screen.dart';
-import '../features/auth/screens/customer_access_screen.dart';
 import '../features/auth/screens/forgot_password_screen.dart';
 import '../features/auth/screens/reset_password_screen.dart';
 import '../features/auth/screens/password_reset_success_screen.dart';
@@ -119,9 +117,10 @@ class AppRoutes {
   AppRoutes._();
 
   static const String splash = '/';
+  // Single sign-in / create-account screen shared by every role (customer,
+  // staff, owner, delivery). Kept as one route so there's exactly one login
+  // destination in the app.
   static const String login = '/login';
-  static const String register = '/register';
-  static const String customerAccess = '/customer-access';
   static const String forgotPassword = '/forgot-password';
   static const String resetPassword = '/reset-password';
   static const String resetSuccess = '/reset-success';
@@ -298,8 +297,6 @@ class AppRoutes {
   static const Map<String, _Access> _policy = {
     splash: _public,
     login: _public,
-    register: _public,
-    customerAccess: _public,
     forgotPassword: _public,
     logoutSuccess: _public,
     resetPassword: _anySignedIn,
@@ -452,8 +449,6 @@ class AppRoutes {
   static Map<String, WidgetBuilder> get _rawRoutes => {
     splash: (_) => const SplashScreen(),
     login: (_) => const LoginScreen(),
-    register: (_) => const RegisterScreen(),
-    customerAccess: (_) => const CustomerAccessScreen(),
     forgotPassword: (_) => const ForgotPasswordScreen(),
     resetPassword: (_) => const ResetPasswordScreen(),
     resetSuccess: (_) => const PasswordResetSuccessScreen(),
