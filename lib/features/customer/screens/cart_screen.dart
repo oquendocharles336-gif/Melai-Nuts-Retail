@@ -214,7 +214,7 @@ class _CartScreenState extends State<CartScreen> {
                               content: Text('Please sign in to place your order.'),
                             ),
                           );
-                          Navigator.of(context).pushNamed(AppRoutes.customerAccess);
+                          Navigator.of(context).pushNamed(AppRoutes.login);
                           return;
                         }
                         Navigator.of(context).push(
