@@ -47,7 +47,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       // Nothing to verify (e.g. opened while signed out).
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.customerAccess, (r) => false);
+          Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (r) => false);
         }
       });
       return;
@@ -134,7 +134,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     if (confirmed != true) return;
     await AuthService.instance.cancelCustomerRegistration();
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.customerAccess, (r) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (r) => false);
   }
 
   @override
