@@ -71,7 +71,7 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
                   content: Text('Please sign in to view your orders and account.'),
                 ),
               );
-              Navigator.of(context).pushNamed(AppRoutes.customerAccess);
+              Navigator.of(context).pushNamed(AppRoutes.login);
               return;
             }
             setState(() => _index = i);
