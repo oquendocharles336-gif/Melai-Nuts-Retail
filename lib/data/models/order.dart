@@ -120,7 +120,7 @@ class OrderTimelineStep {
   }
 }
 
-/// A dummy/static customer order.
+/// A real customer order, backed 1:1 by a row in `public.orders`.
 class Order {
   final String id;
   final DateTime date;
@@ -136,6 +136,28 @@ class Order {
   final String? etaLabel;
   final List<OrderTimelineStep> timeline;
 
+  /// Special instructions the customer typed at checkout (pasalubong /
+  /// packing notes). Empty string, never null, since the column defaults
+  /// to `''` — matches how `place_order` stores it.
+  final String customerNotes;
+
+  /// The contact number staff should call to fulfil this order — the
+  /// delivery address's phone for a delivery order, or the customer's
+  /// profile phone for a pickup order. Captured once, at order time, by
+  /// `place_order` so it can't silently go stale if the address/profile is
+  /// edited afterwards.
+  final String contactPhone;
+
+  /// Formatted delivery address as it existed when the order was placed,
+  /// or null for a pickup order. Same "snapshot, not a live FK" reasoning
+  /// as [contactPhone].
+  final String? deliveryAddressText;
+
+  /// Status of this order's linked `payments` row ('pending' until a real
+  /// payment-gateway integration/staff action confirms it), or null if the
+  /// payment row hasn't loaded yet.
+  final String? paymentStatus;
+
   const Order({
     required this.id,
     required this.date,
@@ -150,6 +172,10 @@ class Order {
     this.riderName,
     this.etaLabel,
     this.timeline = const [],
+    this.customerNotes = '',
+    this.contactPhone = '',
+    this.deliveryAddressText,
+    this.paymentStatus,
   });
 
   double get subtotal => items.fold(0, (sum, i) => sum + i.total);
@@ -160,6 +186,7 @@ class Order {
     Map<String, dynamic> row, {
     required List<Map<String, dynamic>> itemRows,
     List<Map<String, dynamic>> eventRows = const [],
+    Map<String, dynamic>? paymentRow,
   }) {
     return Order(
       id: row['id'] as String,
@@ -175,6 +202,10 @@ class Order {
       riderName: row['rider_name'] as String?,
       etaLabel: row['eta_label'] as String?,
       timeline: OrderTimelineStep.fromEventRows(eventRows),
+      customerNotes: (row['customer_notes'] as String?) ?? '',
+      contactPhone: (row['contact_phone'] as String?) ?? '',
+      deliveryAddressText: row['delivery_address_text'] as String?,
+      paymentStatus: paymentRow?['status'] as String?,
     );
   }
 }
