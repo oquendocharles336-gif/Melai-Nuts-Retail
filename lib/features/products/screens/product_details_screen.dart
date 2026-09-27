@@ -1,234 +1,516 @@
 import 'package:flutter/material.dart';
-import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
+import '../../../data/models/product.dart';
+import '../../../data/models/promotion.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../cart_controller.dart';
+import '../widgets/product_card.dart';
+import 'cart_screen.dart';
+import 'checkout_screen.dart';
 
-/// Management-facing product detail: financial metrics, per-variant
-/// pricing matrix, and branch distribution — matches the prototype's
-/// owner/staff "Product Details" screen (distinct from the customer-facing
-/// storefront details screen in lib/features/customer/).
-class ProductDetailsScreen extends StatelessWidget {
-  final String productId;
+/// Customer-facing product details: variant/size picker, spice level,
+/// branch availability, Add to Cart and Buy Now (matches the prototype's
+/// "Product Details" screen with variant selection).
+class ProductDetailsScreen extends StatefulWidget {
+  final Product product;
 
-  const ProductDetailsScreen({super.key, required this.productId});
+  const ProductDetailsScreen({super.key, required this.product});
+
+  @override
+  State<ProductDetailsScreen> createState() => _ProductDetailsScreenState();
+}
+
+class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
+  late ProductVariant _selectedVariant = widget.product.variants.first;
+  String? _selectedSpiceLevel;
+  int _quantity = 1;
+  bool _busy = false;
+
+  List<Promotion> _promotions = const [];
+  bool _loadingPromotions = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.product.spiceLevels.isNotEmpty) {
+      _selectedSpiceLevel = widget.product.spiceLevels.first;
+    }
+    _loadPromotions();
+  }
+
+  Future<void> _loadPromotions() async {
+    final promos = await ProductsRepository.instance.fetchApplicablePromotions(
+      productId: widget.product.id,
+      categoryId: widget.product.categoryId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _promotions = promos;
+      _loadingPromotions = false;
+    });
+  }
+
+  /// Re-checks live stock and adds to cart. Returns the quantity actually
+  /// added (see [CartController.addProductWithLiveCheck]) so callers can
+  /// decide what to do next (show a message, or also jump to checkout for
+  /// "Buy Now").
+  Future<int> _addToCart() async {
+    setState(() => _busy = true);
+    final added = await CartController.instance.addProductWithLiveCheck(
+      widget.product,
+      _selectedVariant,
+      quantity: _quantity,
+    );
+    if (mounted) setState(() => _busy = false);
+    return added;
+  }
+
+  Future<void> _handleAddToCart() async {
+    final added = await _addToCart();
+    if (!mounted) return;
+    if (added <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This item is out of stock.')),
+      );
+      return;
+    }
+    final message = added < _quantity
+        ? 'Only $added available — added $added to cart (stock limit reached).'
+        : 'Added ${widget.product.name} to cart';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: 'View Cart',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const CartScreen()),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Adds the current selection to the cart (re-checking live stock, same
+  /// as [_handleAddToCart]) and, only if that actually succeeded, goes
+  /// straight to Checkout — it never forwards the customer to checkout for
+  /// an item that just turned out to be unavailable.
+  Future<void> _handleBuyNow() async {
+    final added = await _addToCart();
+    if (!mounted) return;
+    if (added <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This item is out of stock.')),
+      );
+      return;
+    }
+    if (added < _quantity) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Only $added available — added $added to cart.')),
+      );
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CheckoutScreen()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final product = findProductById(productId);
-    final minPrice = product.variants.isEmpty
-        ? 0.0
-        : product.variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
-    final maxPrice = product.variants.isEmpty
-        ? 0.0
-        : product.variants.map((v) => v.price).reduce((a, b) => a > b ? a : b);
-
+    final product = widget.product;
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: MelaiAppBar(
-        title: product.name,
-        showBack: true,
-        actions: [
-          TextButton.icon(
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productEdit, arguments: product.id),
-            icon: const Icon(Icons.edit_outlined, size: 16),
-            label: const Text('Edit'),
-          ),
-        ],
-      ),
+      appBar: const MelaiAppBar(title: 'Product Details', showBack: true),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(color: product.color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
-                  child: Icon(product.icon, color: product.color, size: 28),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 6,
-                        children: [
-                          for (final tag in product.tags)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(20)),
-                              child: Text(tag, style: AppTextStyles.labelSm),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text('SKU: ${product.sku}', style: AppTextStyles.bodySm),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: product.isActive ? AppColors.successBg : AppColors.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    product.isActive ? 'Active' : 'Inactive',
-                    style: AppTextStyles.labelMd.copyWith(color: product.isActive ? AppColors.success : AppColors.textSecondary),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Key Financial Metrics', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: _MetricRow(label: 'Retail Price Range', value: '₱${minPrice.toStringAsFixed(0)} – ₱${maxPrice.toStringAsFixed(0)}', sub: 'Across all ${product.variants.length} packaging tiers'),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: _MetricRow(label: 'Base Unit Cost (COGS)', value: '₱${product.costPrice.toStringAsFixed(2)}', sub: 'Includes raw kernel, garlic & foil'),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: _MetricRow(
-                label: 'Average Margin',
-                value: '${product.marginPercent.toStringAsFixed(1)}%',
-                sub: product.marginPercent >= 55 ? 'Healthy' : 'Below 55% target',
-                valueColor: product.marginPercent >= 55 ? AppColors.success : AppColors.error,
+            AspectRatio(
+              aspectRatio: 1.4,
+              child: ProductThumbnail(
+                product: product,
+                size: double.infinity,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
               ),
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: _MetricRow(
-                label: '30-Day Sales Volume',
-                value: '${product.unitsSoldLast30Days} units',
-                sub: '₱${product.monthlyRevenue.toStringAsFixed(0)} gross',
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
               children: [
-                Text('Product Variants & Packaging', style: AppTextStyles.headlineSm),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productVariants, arguments: product.id),
-                  child: const Text('Manage Variants'),
-                ),
+                if (product.badge != null)
+                  _Pill(label: product.badge!, color: AppColors.primaryContainer, textColor: AppColors.primaryDark),
+                _Pill(label: product.stockLabel, color: product.stockLabelBg, textColor: product.stockLabelColor),
               ],
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Container(
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border)),
-              child: Column(
+            const SizedBox(height: 8),
+            Text(product.name, style: AppTextStyles.headlineMd),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  '₱${_selectedVariant.price.toStringAsFixed(0)}',
+                  style: AppTextStyles.headlineMd.copyWith(color: AppColors.primary),
+                ),
+                if (product.originalPrice != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '₱${product.originalPrice!.toStringAsFixed(0)}',
+                    style: AppTextStyles.bodyMd.copyWith(
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            // Only shown once real reviews exist — no fabricated rating.
+            if (product.reviewCount > 0) ...[
+              const SizedBox(height: 4),
+              Row(
                 children: [
-                  for (int i = 0; i < product.variants.length; i++) ...[
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(product.variants[i].label, style: AppTextStyles.bodyMd)),
-                          Text('SKU: ${product.variants[i].sku ?? '—'}', style: AppTextStyles.bodySm),
-                          const SizedBox(width: 10),
-                          Text('₱${product.variants[i].price.toStringAsFixed(0)}', style: AppTextStyles.labelLg),
-                        ],
+                  const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${product.rating.toStringAsFixed(1)} · ${product.reviewCount} verified Laguna customer reviews',
+                    style: AppTextStyles.bodySm,
+                  ),
+                ],
+              ),
+            ],
+            if (!product.isActive) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.errorBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: AppColors.error, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This product has been taken off the menu and can no longer be ordered.',
+                        style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
                       ),
                     ),
-                    if (i != product.variants.length - 1) const Divider(height: 1),
                   ],
+                ),
+              ),
+            ],
+            // Real merchandising tags from `products.tags` — never invented.
+            if (product.tags.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final tag in product.tags)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        tag,
+                        style: AppTextStyles.labelSm.copyWith(color: AppColors.textSecondary),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('LAGUNA ROASTERY PROFILE', style: AppTextStyles.labelSm),
+                  const SizedBox(height: 6),
+                  Text(product.description, style: AppTextStyles.bodyMd),
                 ],
               ),
             ),
+            // Applicable Promotions — real, staff-configured rows targeting
+            // this product or its category (`promotions.product_id` /
+            // `category_id`). Hidden entirely while loading or when none
+            // apply, rather than showing a placeholder offer.
+            if (!_loadingPromotions && _promotions.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text('Applicable Promotions', style: AppTextStyles.titleMd),
+              const SizedBox(height: AppSpacing.sm),
+              for (final promo in _promotions)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryContainer.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(promo.icon, color: AppColors.primaryDark, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(promo.badgeLabel, style: AppTextStyles.labelSm.copyWith(color: AppColors.primaryDark)),
+                              Text(promo.title, style: AppTextStyles.labelLg),
+                              if (promo.subtitle.isNotEmpty)
+                                Text(promo.subtitle, style: AppTextStyles.bodySm),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
             const SizedBox(height: AppSpacing.lg),
-            Text('Branch Distribution & Availability', style: AppTextStyles.headlineSm),
+            Text('Select Size & Packaging', style: AppTextStyles.titleMd),
             const SizedBox(height: AppSpacing.sm),
+            for (final variant in product.variants)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _VariantTile(
+                  variant: variant,
+                  selected: _selectedVariant.label == variant.label,
+                  onTap: () => setState(() {
+                    _selectedVariant = variant;
+                    final stock = variant.stockOnHand;
+                    if (stock != null && _quantity > stock) {
+                      _quantity = stock < 1 ? 1 : stock;
+                    }
+                  }),
+                ),
+              ),
+            if (product.spiceLevels.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text('Spice Level Profile', style: AppTextStyles.titleMd),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final level in product.spiceLevels)
+                    ChoiceChip(
+                      label: Text(level),
+                      selected: _selectedSpiceLevel == level,
+                      onSelected: (_) => setState(() => _selectedSpiceLevel = level),
+                      selectedColor: AppColors.primaryContainer,
+                      labelStyle: AppTextStyles.labelLg.copyWith(
+                        color: _selectedSpiceLevel == level
+                            ? AppColors.primaryDark
+                            : AppColors.textMuted,
+                      ),
+                      side: BorderSide(
+                        color: _selectedSpiceLevel == level
+                            ? AppColors.primary
+                            : AppColors.border,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
             Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border)),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
+              ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.storefront_outlined, size: 18, color: AppColors.darkBrown),
+                      const SizedBox(width: 8),
+                      Text('Laguna Branch Inventory', style: AppTextStyles.titleMd),
+                      const Spacer(),
+                      Text('● Live Sync', style: AppTextStyles.bodySm.copyWith(color: AppColors.success)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
                   for (final branch in product.branchAvailability)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
                         children: [
-                          const Icon(Icons.storefront_outlined, size: 16, color: AppColors.textSecondary),
-                          const SizedBox(width: 8),
                           Expanded(child: Text(branch, style: AppTextStyles.bodyMd)),
-                          Text('Enabled', style: AppTextStyles.bodySm.copyWith(color: AppColors.success)),
+                          Text('In Stock', style: AppTextStyles.bodySm.copyWith(color: AppColors.success)),
                         ],
                       ),
                     ),
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Row(
+          ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Row(
               children: [
-                Expanded(
-                  child: SecondaryButton(
-                    label: product.isActive ? 'Deactivate Product' : 'Activate Product',
-                    icon: product.isActive ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Simulated: product ${product.isActive ? 'deactivated' : 'activated'}.')),
-                    ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.remove_rounded),
+                        onPressed: () => setState(() {
+                          if (_quantity > 1) _quantity--;
+                        }),
+                      ),
+                      Text('$_quantity', style: AppTextStyles.titleMd),
+                      IconButton(
+                        icon: const Icon(Icons.add_rounded),
+                        onPressed: () => setState(() {
+                          final stock = _selectedVariant.stockOnHand;
+                          if (stock == null || _quantity < stock) _quantity++;
+                        }),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: PrimaryButton(
-                    label: 'Edit Product & Pricing',
-                    icon: Icons.edit_outlined,
-                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productEdit, arguments: product.id),
-                  ),
+                  child: Builder(builder: (context) {
+                    final unavailable = !product.isActive ||
+                        (_selectedVariant.stockOnHand ?? 1) <= 0;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PrimaryButton(
+                          label: !product.isActive
+                              ? 'Unavailable'
+                              : unavailable
+                                  ? 'Out of Stock'
+                                  : 'Add to Cart • ₱${(_selectedVariant.price * _quantity).toStringAsFixed(0)}',
+                          icon: Icons.shopping_cart_outlined,
+                          loading: _busy,
+                          onPressed: unavailable ? null : _handleAddToCart,
+                        ),
+                        const SizedBox(height: 8),
+                        SecondaryButton(
+                          label: 'Buy Now',
+                          icon: Icons.bolt_rounded,
+                          onPressed: (unavailable || _busy) ? null : _handleBuyNow,
+                        ),
+                      ],
+                    );
+                  }),
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _MetricRow extends StatelessWidget {
+class _Pill extends StatelessWidget {
   final String label;
-  final String value;
-  final String sub;
-  final Color? valueColor;
+  final Color color;
+  final Color textColor;
 
-  const _MetricRow({required this.label, required this.value, required this.sub, this.valueColor});
+  const _Pill({required this.label, required this.color, required this.textColor});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: AppTextStyles.labelMd.copyWith(color: textColor)),
+    );
+  }
+}
+
+class _VariantTile extends StatelessWidget {
+  final ProductVariant variant;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _VariantTile({required this.variant, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primaryContainer.withValues(alpha: 0.35) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
+        ),
+        child: Row(
           children: [
-            Text(label, style: AppTextStyles.bodySm),
-            Text(sub, style: AppTextStyles.bodySm.copyWith(color: valueColor)),
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: selected ? AppColors.primary : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Row(
+                children: [
+                  Text(variant.label, style: AppTextStyles.labelLg),
+                  if (variant.badge != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBrown,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        variant.badge!,
+                        style: AppTextStyles.labelSm.copyWith(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Text('₱${variant.price.toStringAsFixed(0)}', style: AppTextStyles.titleMd),
           ],
         ),
-        Text(value, style: AppTextStyles.headlineSm.copyWith(color: valueColor)),
-      ],
+      ),
     );
   }
 }
