@@ -622,7 +622,7 @@ class CartController extends ChangeNotifier {
       'icon_font_family': product.icon.fontFamily,
       'icon_font_package': product.icon.fontPackage,
       'icon_match_text_direction': product.icon.matchTextDirection,
-      'color_value': product.color.value,
+      'color_value': product.color.toARGB32(),
       'images': product.images,
       'sku': product.sku,
       'cost_price': product.costPrice,
@@ -679,13 +679,16 @@ class CartController extends ChangeNotifier {
         branchAvailability: List<String>.from(map['branch_availability'] as List? ?? const []),
         variants: variants,
         spiceLevels: List<String>.from(map['spice_levels'] as List? ?? const []),
+        // ignore: non_const_argument_for_const_parameter
         icon: IconData(
           (map['icon_code_point'] as num?)?.toInt() ?? Icons.inventory_2_outlined.codePoint,
+          // ignore: non_const_argument_for_const_parameter
           fontFamily: map['icon_font_family'] as String?,
+          // ignore: non_const_argument_for_const_parameter
           fontPackage: map['icon_font_package'] as String?,
           matchTextDirection: map['icon_match_text_direction'] as bool? ?? false,
         ),
-        color: Color((map['color_value'] as num?)?.toInt() ?? Colors.grey.value),
+        color: Color((map['color_value'] as num?)?.toInt() ?? Colors.grey.toARGB32()),
         images: List<String>.from(map['images'] as List? ?? const []),
         sku: map['sku'] as String? ?? '',
         costPrice: (map['cost_price'] as num?)?.toDouble() ?? 0,

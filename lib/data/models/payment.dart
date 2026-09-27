@@ -1,321 +1,110 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_text_styles.dart';
-import '../../../core/services/auth_service.dart';
-import '../../../core/utils/validation_utils.dart';
-import '../../../core/widgets/melai_app_bar.dart';
-import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_payments.dart';
-import '../../../data/models/payment.dart';
-import '../../../data/repositories/payments_repository.dart';
-import 'payment_status_screen.dart';
+import '../../core/theme/app_colors.dart';
 
-class PaymentScreen extends StatefulWidget {
+enum PaymentMethod { gcash, maya, card, cash }
+
+extension PaymentMethodX on PaymentMethod {
+  String get label {
+    switch (this) {
+      case PaymentMethod.gcash:
+        return 'GCash E-Wallet';
+      case PaymentMethod.maya:
+        return 'Maya Wallet';
+      case PaymentMethod.card:
+        return 'Debit / Credit Card';
+      case PaymentMethod.cash:
+        return 'Cash on Pickup';
+    }
+  }
+
+  String get subtitle {
+    switch (this) {
+      case PaymentMethod.gcash:
+        return 'Instant QR scan / mobile pay';
+      case PaymentMethod.maya:
+        return 'Maya QR / linked bank';
+      case PaymentMethod.card:
+        return 'Visa, Mastercard';
+      case PaymentMethod.cash:
+        return 'Pay at store or on delivery';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case PaymentMethod.gcash:
+        return Icons.account_balance_wallet_rounded;
+      case PaymentMethod.maya:
+        return Icons.qr_code_2_rounded;
+      case PaymentMethod.card:
+        return Icons.credit_card_rounded;
+      case PaymentMethod.cash:
+        return Icons.payments_rounded;
+    }
+  }
+}
+
+enum PaymentStatus { pending, processing, success, failed, refunded }
+
+extension PaymentStatusX on PaymentStatus {
+  String get label {
+    switch (this) {
+      case PaymentStatus.pending:
+        return 'Pending';
+      case PaymentStatus.processing:
+        return 'Processing';
+      case PaymentStatus.success:
+        return 'Paid';
+      case PaymentStatus.failed:
+        return 'Failed';
+      case PaymentStatus.refunded:
+        return 'Refunded';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case PaymentStatus.pending:
+      case PaymentStatus.processing:
+        return AppColors.warning;
+      case PaymentStatus.success:
+        return AppColors.success;
+      case PaymentStatus.failed:
+        return AppColors.error;
+      case PaymentStatus.refunded:
+        return AppColors.textSecondary;
+    }
+  }
+}
+
+class PaymentTransaction {
+  final String id;
   final String orderId;
-  final double amount;
-  final PaymentMethod initialMethod;
-
-  const PaymentScreen({
-    super.key,
-    required this.orderId,
-    required this.amount,
-    this.initialMethod = PaymentMethod.gcash,
-  });
-
-  @override
-  State<PaymentScreen> createState() => _PaymentScreenState();
-}
-
-class _PaymentScreenState extends State<PaymentScreen> {
-  final _formKey = GlobalKey<FormState>();
-  late PaymentMethod _method = widget.initialMethod;
-  final _refController = TextEditingController();
-  bool _submitting = false;
-
-  @override
-  void dispose() {
-    _refController.dispose();
-    super.dispose();
-  }
-
-  String _maskedCardReference() {
-    final digits = _refController.text.replaceAll(' ', '');
-    final last4 = digits.length >= 4 ? digits.substring(digits.length - 4) : digits;
-    return '**** $last4';
-  }
-
-  Future<void> _processPayment() async {
-    if (_method == PaymentMethod.card &&
-        !_formKey.currentState!.validate()) {
-      return;
-    }
-    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
-    if (firebaseUid == null) return;
-
-    setState(() => _submitting = true);
-    try {
-      // There is no live payment-gateway integration wired up yet (that
-      // needs a real provider — e.g. PayMongo/GCash for Business — plus
-      // API keys and webhook handling this project doesn't have). So this
-      // records exactly what really happened: a payment intent, pending
-      // confirmation, rather than faking an instant charge result.
-      //
-      // `place_order` already created this order's payment record
-      // atomically at checkout, so retrying here updates that same row
-      // (via `retryPayment`) instead of inserting a second, duplicate one.
-      final txn = await PaymentsRepository.instance.retryPayment(
-        orderId: widget.orderId,
-        firebaseUid: firebaseUid,
-        method: _method,
-        amount: widget.amount,
-        referenceNumber: _method == PaymentMethod.card ? _maskedCardReference() : widget.orderId,
-      );
-      // Mirror the authoritative row Supabase just returned into the shared
-      // cache, replacing any stale entry for this order rather than
-      // inserting a duplicate — the list stays a 1:1 reflection of the
-      // `payments` table, never a client-fabricated copy.
-      kPayments.removeWhere((p) => p.orderId == widget.orderId);
-      kPayments.insert(0, txn);
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => PaymentStatusScreen(orderId: widget.orderId, amount: widget.amount),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not record payment: ${e.toString()}')),
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: const MelaiAppBar(
-        title: 'Pay for Order',
-        showBack: true,
-      ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryContainer.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'Amount Due',
-                      style: AppTextStyles.labelMd,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '₱${widget.amount.toStringAsFixed(0)}',
-                      style: AppTextStyles.headlineLg.copyWith(
-                        color: AppColors.primaryDark,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Order ${widget.orderId}',
-                      style: AppTextStyles.bodySm,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Choose Payment Method',
-                style: AppTextStyles.titleMd,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              for (final m in PaymentMethod.values) ...[
-                _MethodTile(
-                  method: m,
-                  selected: _method == m,
-                  onTap: () => setState(() => _method = m),
-                ),
-                const SizedBox(height: 8),
-              ],
-              const SizedBox(height: AppSpacing.sm),
-              if (_method == PaymentMethod.gcash ||
-                  _method == PaymentMethod.maya)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(
-                      AppSpacing.radiusMd,
-                    ),
-                    border: Border.all(
-                      color: AppColors.border,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.qr_code_2_rounded,
-                        size: 96,
-                        color: AppColors.darkBrown,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Scan with ${_method.label}',
-                        style: AppTextStyles.bodySm,
-                      ),
-                    ],
-                  ),
-                )
-              else if (_method == PaymentMethod.card)
-                Column(
-                  children: [
-                    TextFormField(
-                      controller: _refController,
-                      keyboardType: TextInputType.number,
-                      validator: (v) {
-                        final req = ValidationUtils.validateRequired(
-                          v,
-                          'Card Number',
-                        );
-
-                        if (req != null) {
-                          return req;
-                        }
-
-                        if (v!.replaceAll(' ', '').length < 16) {
-                          return 'Please enter a valid card number.';
-                        }
-
-                        return null;
-                      },
-                      decoration: const InputDecoration(
-                        labelText: 'Card Number',
-                        hintText: '4242 4242 4242 4242',
-                        prefixIcon: Icon(
-                          Icons.credit_card_rounded,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.warningBg,
-                    borderRadius: BorderRadius.circular(
-                      AppSpacing.radiusMd,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.info_outline_rounded,
-                        color: AppColors.warning,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Pay the exact amount at the branch counter or to the rider upon arrival.',
-                          style: AppTextStyles.bodySm,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: PrimaryButton(
-            label: 'Pay ₱${widget.amount.toStringAsFixed(0)} Now',
-            icon: Icons.lock_rounded,
-            loading: _submitting,
-            onPressed: _submitting ? null : _processPayment,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MethodTile extends StatelessWidget {
+  final DateTime date;
   final PaymentMethod method;
-  final bool selected;
-  final VoidCallback onTap;
+  final PaymentStatus status;
+  final double amount;
+  final String referenceNumber;
 
-  const _MethodTile({
+  const PaymentTransaction({
+    required this.id,
+    required this.orderId,
+    required this.date,
     required this.method,
-    required this.selected,
-    required this.onTap,
+    required this.status,
+    required this.amount,
+    required this.referenceNumber,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? AppColors.primary
-                : AppColors.border,
-            width: selected ? 1.6 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_off,
-              color: selected
-                  ? AppColors.primary
-                  : AppColors.textSecondary,
-            ),
-            const SizedBox(width: 10),
-            Icon(
-              method.icon,
-              color: AppColors.darkBrown,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    method.label,
-                    style: AppTextStyles.labelLg,
-                  ),
-                  Text(
-                    method.subtitle,
-                    style: AppTextStyles.bodySm,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+  factory PaymentTransaction.fromRow(Map<String, dynamic> row) {
+    return PaymentTransaction(
+      id: row['id'] as String,
+      orderId: row['order_id'] as String,
+      date: DateTime.parse(row['created_at'] as String).toLocal(),
+      method: PaymentMethod.values.byName(row['method'] as String),
+      status: PaymentStatus.values.byName(row['status'] as String),
+      amount: (row['amount'] as num).toDouble(),
+      referenceNumber: row['reference_number'] as String,
     );
   }
 }

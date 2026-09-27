@@ -121,7 +121,8 @@ class _CartScreenState extends State<CartScreen> {
                           ? null
                           : (v) async {
                               final error = await cart.setRedeemPoints(v);
-                              if (!mounted || error == null) return;
+                              if (!mounted) return;
+                              if (error == null) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text(error)),
                               );
@@ -158,7 +159,8 @@ class _CartScreenState extends State<CartScreen> {
                         ? null
                         : () async {
                             final error = await cart.applyVoucher(_voucherController.text);
-                            if (!mounted || error == null) return;
+                            if (!mounted) return;
+                            if (error == null) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(error)),
                             );
