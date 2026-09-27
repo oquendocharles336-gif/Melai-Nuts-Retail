@@ -302,6 +302,21 @@ create table if not exists public.orders (
 create trigger orders_set_updated_at before update on public.orders
   for each row execute function public.set_updated_at();
 
+-- Widen the lifecycle to also cover pickup orders (`readyForPickup` is
+-- distinct from delivery's `outForDelivery` — a pickup order is never
+-- "out for delivery") and the two refund-driven terminal states a
+-- completed order can move into. Kept as one shared `status` column
+-- rather than a separate "fulfillment status" enum since an order only
+-- ever needs one authoritative lifecycle state at a time. Values keep the
+-- existing camelCase spelling (`outForDelivery`) for consistency, since
+-- that's what `OrderStatus.name` in Dart already serializes as.
+alter table public.orders drop constraint if exists orders_status_check;
+alter table public.orders add constraint orders_status_check
+  check (status in (
+    'pending', 'confirmed', 'preparing', 'readyForPickup', 'outForDelivery',
+    'completed', 'cancelled', 'refundRequested', 'refunded'
+  ));
+
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
   order_id text not null references public.orders(id) on delete cascade,
@@ -433,6 +448,35 @@ $$;
 create trigger refund_requests_log_status_event
   after insert or update of status on public.refund_requests
   for each row execute function public.log_refund_status_event();
+
+-- Reflects a refund's lifecycle onto its order's own status, so Order
+-- History/Details/Tracking (which only ever read `orders.status`) show
+-- "Refund Requested"/"Refunded" without duplicating refund logic there.
+-- A rejected refund returns the order to 'completed' — the only state a
+-- refund can be requested from — rather than leaving it stuck as
+-- 'refundRequested' with no real refund in progress.
+create or replace function public.sync_order_status_from_refund()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    update public.orders set status = 'refundRequested' where id = new.order_id;
+  elsif new.status is distinct from old.status then
+    if new.status = 'completed' then
+      update public.orders set status = 'refunded' where id = new.order_id;
+    elsif new.status = 'rejected' then
+      update public.orders set status = 'completed' where id = new.order_id;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger refund_requests_sync_order_status
+  after insert or update of status on public.refund_requests
+  for each row execute function public.sync_order_status_from_refund();
 
 -- -----------------------------------------------------------------------------
 -- Loyalty
@@ -765,8 +809,7 @@ create policy "create own payments" on public.payments for insert
 create policy "read own refund requests" on public.refund_requests for select
   using (firebase_uid = current_firebase_uid());
 create policy "create own refund requests" on public.refund_requests for insert
-  with check (firebase_uid = current_firebase_uid());
-create policy "read own refund items" on public.refund_items for select
+  with check (firebase_uid = current_firebase_uid());create policy "read own refund items" on public.refund_items for select
   using (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = current_firebase_uid()));
 create policy "create own refund items" on public.refund_items for insert
   with check (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = current_firebase_uid()));
@@ -1587,3 +1630,32 @@ $$;
 
 revoke all on function public.place_order(uuid, boolean, uuid, text, text) from public;
 grant execute on function public.place_order(uuid, boolean, uuid, text, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- Refund eligibility, enforced server-side
+-- -----------------------------------------------------------------------------
+-- The original "create own refund requests" policy only checked that the
+-- caller owned the new row's `firebase_uid` — it never checked that
+-- `order_id` actually belongs to them, that the order is in a refundable
+-- state, or that it doesn't already have an open request. That let a
+-- signed-in customer insert a refund request against *any* order id
+-- (including another customer's), on an order still being prepared, or
+-- submit duplicates. Tightened here to require: the order belongs to the
+-- caller, it's actually 'completed' (the only state a refund makes sense
+-- from), and there is no existing request for it other than one already
+-- rejected.
+drop policy if exists "create own refund requests" on public.refund_requests;
+create policy "create own refund requests" on public.refund_requests for insert
+  with check (
+    firebase_uid = current_firebase_uid()
+    and exists (
+      select 1 from public.orders o
+      where o.id = order_id
+        and o.firebase_uid = current_firebase_uid()
+        and o.status = 'completed'
+    )
+    and not exists (
+      select 1 from public.refund_requests r
+      where r.order_id = refund_requests.order_id and r.status <> 'rejected'
+    )
+  );
