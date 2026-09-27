@@ -5,6 +5,12 @@ import '../repositories/icon_registry.dart';
 /// A single purchasable size/packaging option for a [Product]
 /// (e.g. "100g Retail Foil" vs "250g Standup Pouch").
 class ProductVariant {
+  /// The `product_variants.id` this came from. Needed (alongside
+  /// [Product.id]) to look up/lock the exact `branch_inventory` row when
+  /// re-validating stock on add-to-cart and at checkout. Empty for any
+  /// variant that wasn't built from a real row (should not happen in the
+  /// live app, but never treated as a match against a real inventory row).
+  final String id;
   final String label;
   final double price;
   final String? badge; // e.g. "Most Popular", "Best Value"
@@ -23,6 +29,7 @@ class ProductVariant {
   final int? stockOnHand;
 
   const ProductVariant({
+    this.id = '',
     required this.label,
     required this.price,
     this.badge,
@@ -44,6 +51,7 @@ class ProductVariant {
   /// the stock on hand for one branch (summed from `branch_inventory`).
   factory ProductVariant.fromRow(Map<String, dynamic> row, {int? stockOnHand}) {
     return ProductVariant(
+      id: row['id'] as String? ?? '',
       label: row['label'] as String,
       price: (row['price'] as num).toDouble(),
       badge: row['badge'] as String?,
@@ -61,11 +69,27 @@ class ProductCategory {
   final IconData icon;
   final Color color;
 
+  /// Whether staff currently want this category shown to customers
+  /// (`product_categories.is_active`). The catalog query only ever fetches
+  /// active categories in the first place — see
+  /// [ProductsRepository.loadCatalog] — so in practice every category that
+  /// makes it into [kProductCategories] already has this set to `true`;
+  /// the field is kept on the model (rather than assumed) so nothing here
+  /// is hardcoded.
+  final bool isActive;
+
+  /// Real, staff-uploaded category photo (Supabase Storage/CDN URL). Null
+  /// until one is uploaded — screens fall back to [icon]/[color] rather
+  /// than a fake stock photo.
+  final String? imageUrl;
+
   const ProductCategory({
     required this.id,
     required this.name,
     required this.icon,
     required this.color,
+    this.isActive = true,
+    this.imageUrl,
   });
 
   /// Builds a category from a `product_categories` row.
@@ -75,6 +99,8 @@ class ProductCategory {
       name: row['label'] as String,
       icon: IconRegistry.icon(row['icon_name'] as String?),
       color: const Color(0xFF8D6E63),
+      isActive: (row['is_active'] as bool?) ?? true,
+      imageUrl: row['image_url'] as String?,
     );
   }
 }
