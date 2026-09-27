@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../../core/services/branch_controller.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../data/models/product.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/products_repository.dart';
+import 'screens/cart_screen.dart';
 
 /// One line in the shopping cart: a product + chosen variant + quantity.
 class CartLine {
@@ -120,6 +122,7 @@ class CartController extends ChangeNotifier {
         await CartRepository.instance.upsertLine(
           cartId: cartId,
           productId: line.product.id,
+          variantId: line.variant.id.isEmpty ? null : line.variant.id,
           variantLabel: line.variant.label,
           quantity: line.quantity,
           unitPrice: line.variant.price,
@@ -144,7 +147,12 @@ class CartController extends ChangeNotifier {
   /// what's actually available — it never silently adds more than exists.
   /// Returns the quantity that was actually added (may be less than
   /// requested, or 0 if the variant is already at its stock limit).
-  int addProduct(Product product, ProductVariant variant, {int quantity = 1}) {
+  ///
+  /// [stockOverride], when given, takes priority over [variant.stockOnHand]
+  /// as the cap — this is how [addProductWithLiveCheck] injects a
+  /// freshly-fetched-from-Supabase stock figure instead of trusting
+  /// whatever was cached in [variant] at the last catalog load.
+  int addProduct(Product product, ProductVariant variant, {int quantity = 1, int? stockOverride}) {
     if (quantity <= 0) return 0;
 
     final lineId = '${product.id}_${variant.label}';
@@ -152,7 +160,7 @@ class CartController extends ChangeNotifier {
     final currentQty = existingIndex == -1 ? 0 : _lines[existingIndex].quantity;
 
     var addable = quantity;
-    final stock = variant.stockOnHand;
+    final stock = stockOverride ?? variant.stockOnHand;
     if (stock != null) {
       final remaining = stock - currentQty;
       addable = remaining < quantity ? (remaining < 0 ? 0 : remaining) : quantity;
@@ -246,4 +254,67 @@ class CartController extends ChangeNotifier {
     final line = _lines.where((l) => l.id == '${productId}_$variantLabel');
     return line.isEmpty ? 0 : line.first.quantity;
   }
+
+  /// Same as [addProduct], but re-checks real, live stock in
+  /// `branch_inventory` first via [ProductsRepository.fetchLiveStock]
+  /// instead of trusting the (possibly stale) cached
+  /// [ProductVariant.stockOnHand]. This is what every "Add to Cart"/"Buy
+  /// Now" action in the customer app should call — the cached figure is
+  /// still used as a fallback cap if the live check itself can't complete
+  /// (e.g. offline), but never as the sole source of truth when it can.
+  Future<int> addProductWithLiveCheck(
+    Product product,
+    ProductVariant variant, {
+    int quantity = 1,
+  }) async {
+    if (!product.isActive) return 0;
+    final branchId = BranchController.instance.selectedBranch?.id;
+    final liveStock = await ProductsRepository.instance.fetchLiveStock(
+      productId: product.id,
+      variantId: variant.id,
+      branchId: branchId,
+    );
+    return addProduct(product, variant, quantity: quantity, stockOverride: liveStock);
+  }
+}
+
+/// Shared "quick add" handler for the Add buttons on every product grid
+/// (Home, Catalog, Category, Search) — re-checks live stock via
+/// [CartController.addProductWithLiveCheck] instead of trusting the cached
+/// card, then surfaces the real outcome (added / capped / out of stock) in
+/// a SnackBar so a fast tap can never silently promise more than what's
+/// actually on the shelf.
+Future<void> addToCartWithFeedback(
+  BuildContext context,
+  Product product,
+  ProductVariant variant, {
+  int quantity = 1,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final added = await CartController.instance.addProductWithLiveCheck(
+    product,
+    variant,
+    quantity: quantity,
+  );
+  if (!context.mounted) return;
+  if (added <= 0) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('This item is out of stock.')),
+    );
+    return;
+  }
+  final message = added < quantity
+      ? 'Only $added available — added $added to cart (stock limit reached).'
+      : 'Added ${product.name} to cart';
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(message),
+      action: SnackBarAction(
+        label: 'View Cart',
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CartScreen()),
+        ),
+      ),
+    ),
+  );
 }
