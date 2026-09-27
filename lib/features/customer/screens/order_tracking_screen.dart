@@ -48,12 +48,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         return 0.3;
       case OrderStatus.preparing:
         return 0.55;
+      case OrderStatus.readyForPickup:
+        return 0.85;
       case OrderStatus.outForDelivery:
         return 0.85;
       case OrderStatus.completed:
         return 1.0;
       case OrderStatus.cancelled:
         return 0.0;
+      case OrderStatus.refundRequested:
+        return 1.0;
+      case OrderStatus.refunded:
+        return 1.0;
     }
   }
 
