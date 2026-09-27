@@ -9,6 +9,7 @@ import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/dummy_data/dummy_promotions.dart';
+import '../../../data/models/notification_item.dart';
 import '../../../data/models/order.dart';
 import '../../../data/models/product.dart';
 import '../../../data/repositories/products_repository.dart';
@@ -44,7 +45,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     // Catalog is preloaded at app boot; only re-fetch here if that hasn't
     // resolved yet (e.g. cold start was offline).
     _catalogFuture =
-        kProducts.isEmpty ? ProductsRepository.instance.loadCatalog() : Future.value();
+    kProducts.isEmpty ? ProductsRepository.instance.loadCatalog() : Future.value();
   }
 
   /// The dashboard's "Popular Near You" strip, ranked by real sales
