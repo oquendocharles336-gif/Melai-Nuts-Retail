@@ -11,6 +11,7 @@ import '../../../data/dummy_data/dummy_branches.dart';
 import '../../../data/models/branch.dart';
 import '../../../data/models/user_role.dart';
 import '../../../data/repositories/branch_repository.dart';
+import '../../customer/cart_controller.dart';
 
 /// Branch picker, reached from Settings.
 ///
@@ -67,6 +68,16 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
     final branch = kBranches.where((b) => b.id == branchId);
     if (branch.isEmpty) return;
     final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
+    if (firebaseUid != null) {
+      final cartSwitched = await CartController.instance.switchBranch(branch.first.id);
+      if (!cartSwitched) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(CartController.instance.lastError ?? 'Could not switch branch while the current cart is waiting to sync.')),
+        );
+        return;
+      }
+    }
     await BranchController.instance.selectBranch(branch.first, firebaseUid: firebaseUid);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

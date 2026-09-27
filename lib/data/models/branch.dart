@@ -16,6 +16,7 @@ class Branch {
   final bool isActive;
   final bool supportsDelivery;
   final bool supportsPickup;
+  final double deliveryFee;
 
   const Branch({
     required this.id,
@@ -24,6 +25,7 @@ class Branch {
     required this.isActive,
     required this.supportsDelivery,
     required this.supportsPickup,
+    required this.deliveryFee,
     this.contactPhone,
     this.operatingHours,
   });
@@ -38,6 +40,7 @@ class Branch {
       isActive: (row['is_active'] as bool?) ?? true,
       supportsDelivery: (row['supports_delivery'] as bool?) ?? true,
       supportsPickup: (row['supports_pickup'] as bool?) ?? true,
+      deliveryFee: (row['delivery_fee'] as num?)?.toDouble() ?? 0,
     );
   }
 }

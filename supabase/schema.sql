@@ -57,8 +57,12 @@ create table if not exists public.branches (
   operating_hours text,
   supports_delivery boolean not null default true,
   supports_pickup boolean not null default true,
+  delivery_fee numeric(10, 2) not null default 0 check (delivery_fee >= 0),
   created_at timestamptz not null default now()
 );
+alter table public.branches add column if not exists delivery_fee numeric(10, 2) not null default 0;
+alter table public.branches drop constraint if exists branches_delivery_fee_check;
+alter table public.branches add constraint branches_delivery_fee_check check (delivery_fee >= 0);
 
 create table if not exists public.product_categories (
   id uuid primary key default gen_random_uuid(),
@@ -178,12 +182,33 @@ create trigger notification_prefs_set_updated_at before update on public.notific
 create table if not exists public.carts (
   id uuid primary key default gen_random_uuid(),
   firebase_uid text not null references public.customer_profiles(firebase_uid) on delete cascade,
+  branch_id uuid not null references public.branches(id),
   status text not null default 'open' check (status in ('open', 'checked_out', 'abandoned')),
+  voucher_code text,
+  redeem_points boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index if not exists carts_one_open_per_customer
-  on public.carts (firebase_uid) where (status = 'open');
+
+-- Migrate carts created by the earlier prototype-backed cart implementation.
+alter table public.carts add column if not exists branch_id uuid references public.branches(id);
+alter table public.carts add column if not exists voucher_code text;
+alter table public.carts add column if not exists redeem_points boolean not null default false;
+update public.carts c
+set branch_id = cp.default_branch_id
+from public.customer_profiles cp
+where c.branch_id is null and c.firebase_uid = cp.firebase_uid;
+update public.carts set status = 'abandoned' where status = 'open' and branch_id is null;
+do $$
+begin
+  if not exists (select 1 from public.carts where branch_id is null) then
+    alter table public.carts alter column branch_id set not null;
+  end if;
+end $$;
+
+drop index if exists public.carts_one_open_per_customer;
+create unique index if not exists carts_one_open_per_customer_branch
+  on public.carts (firebase_uid, branch_id) where (status = 'open');
 create trigger carts_set_updated_at before update on public.carts
   for each row execute function public.set_updated_at();
 
@@ -194,9 +219,58 @@ create table if not exists public.cart_items (
   variant_id uuid references public.product_variants(id) on delete set null,
   variant_label text not null default 'Regular',
   quantity int not null check (quantity > 0),
-  unit_price numeric(10, 2) not null,
+  current_price numeric(10, 2) not null,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (cart_id, product_id, variant_label)
+);
+
+-- Migrate the old cart item's unit_price column to the explicit current_price name.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'cart_items' and column_name = 'unit_price'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'cart_items' and column_name = 'current_price'
+  ) then
+    alter table public.cart_items rename column unit_price to current_price;
+  end if;
+end $$;
+alter table public.cart_items add column if not exists current_price numeric(10, 2);
+update public.cart_items ci
+set current_price = pv.price
+from public.product_variants pv
+where ci.variant_id = pv.id and ci.current_price is null;
+delete from public.cart_items where current_price is null;
+alter table public.cart_items alter column current_price set not null;
+create trigger cart_items_set_updated_at before update on public.cart_items
+  for each row execute function public.set_updated_at();
+
+-- Vouchers are real owner/staff-managed records. Nothing is seeded here.
+create table if not exists public.vouchers (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  description text not null default '',
+  discount_type text not null check (discount_type in ('fixed', 'percent')),
+  discount_value numeric(10, 2) not null check (discount_value > 0),
+  minimum_subtotal numeric(10, 2) not null default 0 check (minimum_subtotal >= 0),
+  maximum_discount numeric(10, 2),
+  usage_limit int check (usage_limit is null or usage_limit > 0),
+  used_count int not null default 0 check (used_count >= 0),
+  starts_at timestamptz,
+  ends_at timestamptz,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- Loyalty redemption rate is business configuration, not a client-side constant.
+create table if not exists public.loyalty_cart_settings (
+  id text primary key default 'default',
+  points_per_peso numeric(10, 2) not null check (points_per_peso > 0),
+  max_discount_percent numeric(5, 2) not null default 100 check (max_discount_percent > 0 and max_discount_percent <= 100),
+  updated_at timestamptz not null default now()
 );
 
 -- -----------------------------------------------------------------------------
@@ -598,68 +672,7 @@ as $$
   limit greatest(p_limit, 0)
 $$;
 
-
 grant execute on function public.get_popular_products(int) to anon, authenticated;
-
--- =============================================================================
--- Customer catalog search
--- =============================================================================
--- Searches only active products and active categories. The query covers
--- product name, product SKU, variant SKU, partial tags, and category name.
--- Category ids and price bounds are optional server-side filters.
-create or replace function public.search_customer_products(
-  p_query text default '',
-  p_category_ids uuid[] default null,
-  p_min_price numeric default null,
-  p_max_price numeric default null,
-  p_limit int default 100
-)
-returns setof public.products
-language sql
-stable
-security invoker
-set search_path = public
-as $$
-  select p.*
-  from public.products p
-  where p.is_active
-    and (
-      nullif(trim(p_query), '') is null
-      or p.name ilike '%' || trim(p_query) || '%'
-      or coalesce(p.sku, '') ilike '%' || trim(p_query) || '%'
-      or exists (
-        select 1
-        from unnest(coalesce(p.tags, '{}'::text[])) as tag
-        where tag ilike '%' || trim(p_query) || '%'
-      )
-      or exists (
-        select 1
-        from public.product_variants pv
-        where pv.product_id = p.id
-          and coalesce(pv.sku, '') ilike '%' || trim(p_query) || '%'
-      )
-      or exists (
-        select 1
-        from public.product_categories pc
-        where pc.id = p.category_id
-          and pc.is_active
-          and pc.label ilike '%' || trim(p_query) || '%'
-      )
-    )
-    and (
-      p_category_ids is null
-      or cardinality(p_category_ids) = 0
-      or p.category_id = any(p_category_ids)
-    )
-    and (p_min_price is null or p.price >= p_min_price)
-    and (p_max_price is null or p.price <= p_max_price)
-  order by p.name
-  limit greatest(coalesce(p_limit, 100), 0);
-$$;
-
-grant execute on function public.search_customer_products(
-  text, uuid[], numeric, numeric, int
-) to anon, authenticated;
 
 -- =============================================================================
 -- Row Level Security
@@ -678,6 +691,8 @@ alter table public.customer_addresses enable row level security;
 alter table public.notification_preferences enable row level security;
 alter table public.carts enable row level security;
 alter table public.cart_items enable row level security;
+alter table public.vouchers enable row level security;
+alter table public.loyalty_cart_settings enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 alter table public.order_status_events enable row level security;
@@ -882,17 +897,303 @@ alter table public.promotions add column if not exists category_id uuid referenc
 -- stock number can never actually oversell.
 -- -----------------------------------------------------------------------------
 
-create or replace function public.place_order(
-  p_firebase_uid text,
+create or replace function public._calculate_cart_pricing(
+  p_cart_id uuid,
+  p_is_delivery boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_subtotal numeric := 0;
+  v_voucher_discount numeric := 0;
+  v_loyalty_discount numeric := 0;
+  v_delivery_fee numeric := 0;
+  v_total numeric := 0;
+  v_balance int := 0;
+  v_points_used int := 0;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
+  v_settings record;
+begin
+  if v_uid is null then
+    raise exception 'Please sign in to use the shopping cart.';
+  end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open';
+  if not found then
+    raise exception 'Cart not found.';
+  end if;
+
+  update public.cart_items ci
+  set current_price = pv.price, updated_at = now()
+  from public.product_variants pv
+  where ci.cart_id = p_cart_id and ci.variant_id = pv.id;
+
+  select coalesce(sum(ci.current_price * ci.quantity), 0)
+  into v_subtotal
+  from public.cart_items ci
+  where ci.cart_id = p_cart_id;
+
+  if v_cart.voucher_code is not null and trim(v_cart.voucher_code) <> '' then
+    select * into v_voucher
+    from public.vouchers v
+    where upper(v.code) = upper(trim(v_cart.voucher_code))
+      and v.is_active
+      and (v.starts_at is null or v.starts_at <= now())
+      and (v.ends_at is null or v.ends_at >= now())
+    for update;
+
+    if not found then
+      raise exception 'Voucher is invalid or expired.';
+    end if;
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then
+      raise exception 'This voucher has reached its usage limit.';
+    end if;
+    if v_subtotal < v_voucher.minimum_subtotal then
+      raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal;
+    end if;
+
+    if v_voucher.discount_type = 'percent' then
+      v_voucher_discount := round(v_subtotal * v_voucher.discount_value / 100, 2);
+    else
+      v_voucher_discount := v_voucher.discount_value;
+    end if;
+    if v_voucher.maximum_discount is not null then
+      v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount);
+    end if;
+    v_voucher_discount := least(v_voucher_discount, v_subtotal);
+  end if;
+
+  select points_balance into v_balance
+  from public.loyalty_accounts
+  where firebase_uid = v_uid;
+  v_balance := coalesce(v_balance, 0);
+
+  if v_cart.redeem_points then
+    select * into v_settings from public.loyalty_cart_settings where id = 'default';
+    if not found then
+      raise exception 'Loyalty point redemption is not configured yet.';
+    end if;
+    if v_balance <= 0 then
+      raise exception 'You do not have loyalty points available to redeem.';
+    end if;
+
+    v_points_used := least(
+      v_balance,
+      floor(
+        greatest(0, least(
+          v_subtotal - v_voucher_discount,
+          v_subtotal * v_settings.max_discount_percent / 100
+        )) * v_settings.points_per_peso
+      )::int
+    );
+    v_loyalty_discount := round(v_points_used / v_settings.points_per_peso, 2);
+  end if;
+
+  if p_is_delivery then
+    select delivery_fee into v_delivery_fee
+    from public.branches
+    where id = v_cart.branch_id and supports_delivery and is_active;
+    if not found then
+      raise exception 'Delivery is not available for this branch.';
+    end if;
+  end if;
+
+  v_total := greatest(0, v_subtotal - v_voucher_discount - v_loyalty_discount + v_delivery_fee);
+
+  return jsonb_build_object(
+    'cart_id', v_cart.id,
+    'branch_id', v_cart.branch_id,
+    'voucher_code', v_cart.voucher_code,
+    'redeem_points', v_cart.redeem_points,
+    'loyalty_points_balance', v_balance,
+    'loyalty_points_used', v_points_used,
+    'subtotal', round(v_subtotal, 2),
+    'voucher_discount', round(v_voucher_discount, 2),
+    'loyalty_discount', round(v_loyalty_discount, 2),
+    'delivery_fee', round(v_delivery_fee, 2),
+    'total', round(v_total, 2)
+  );
+end;
+$$;
+
+create or replace function public.get_customer_cart(p_branch_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_items jsonb;
+  v_pricing jsonb;
+begin
+  if v_uid is null then
+    raise exception 'Please sign in to use the shopping cart.';
+  end if;
+  select c.* into v_cart
+  from public.carts c
+  where c.firebase_uid = v_uid and c.branch_id = p_branch_id and c.status = 'open'
+  limit 1;
+  if not found then
+    return jsonb_build_object('cart_id', null, 'branch_id', p_branch_id, 'items', '[]'::jsonb,
+      'voucher_code', null, 'redeem_points', false,
+      'pricing', jsonb_build_object('subtotal',0,'voucher_discount',0,'loyalty_discount',0,'delivery_fee',0,'total',0,
+        'voucher_code',null,'redeem_points',false,'loyalty_points_balance',coalesce((select points_balance from public.loyalty_accounts where firebase_uid=v_uid),0),'loyalty_points_used',0));
+  end if;
+
+  update public.cart_items ci
+  set current_price = pv.price, updated_at = now()
+  from public.product_variants pv
+  where ci.cart_id = v_cart.id and ci.variant_id = pv.id;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'product_id', ci.product_id,
+    'variant_id', ci.variant_id,
+    'variant_label', ci.variant_label,
+    'quantity', ci.quantity,
+    'current_price', ci.current_price
+  ) order by ci.created_at), '[]'::jsonb)
+  into v_items
+  from public.cart_items ci
+  where ci.cart_id = v_cart.id;
+
+  v_pricing := public._calculate_cart_pricing(v_cart.id, exists (select 1 from public.branches b where b.id = v_cart.branch_id and b.supports_delivery and b.is_active));
+  return jsonb_build_object(
+    'cart_id', v_cart.id,
+    'branch_id', v_cart.branch_id,
+    'voucher_code', v_cart.voucher_code,
+    'redeem_points', v_cart.redeem_points,
+    'items', v_items,
+    'pricing', v_pricing
+  );
+end;
+$$;
+
+create or replace function public.get_cart_pricing(p_cart_id uuid, p_is_delivery boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public._calculate_cart_pricing(p_cart_id, p_is_delivery);
+end;
+$$;
+
+create or replace function public.sync_customer_cart(
   p_branch_id uuid,
-  p_branch_name text,
+  p_items jsonb,
+  p_voucher_code text,
+  p_redeem_points boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart_id uuid;
+  v_item jsonb;
+  v_product_id uuid;
+  v_variant_id uuid;
+  v_quantity int;
+  v_variant_label text;
+  v_price numeric;
+  v_result jsonb;
+begin
+  if v_uid is null then raise exception 'Please sign in to use the shopping cart.'; end if;
+  if p_branch_id is null then raise exception 'Please select a branch first.'; end if;
+  if not exists (select 1 from public.branches where id = p_branch_id and is_active) then
+    raise exception 'Selected branch is unavailable.';
+  end if;
+
+  insert into public.carts(firebase_uid, branch_id)
+  values(v_uid, p_branch_id)
+  on conflict (firebase_uid, branch_id) where (status = 'open') do nothing
+  returning id into v_cart_id;
+
+  if v_cart_id is null then
+    select id into v_cart_id from public.carts
+    where firebase_uid = v_uid and branch_id = p_branch_id and status = 'open'
+    for update;
+  end if;
+
+  delete from public.cart_items where cart_id = v_cart_id;
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) loop
+    v_product_id := nullif(v_item->>'product_id', '')::uuid;
+    v_variant_id := nullif(v_item->>'variant_id', '')::uuid;
+    v_quantity := nullif(v_item->>'quantity', '')::int;
+
+    if v_product_id is null or v_variant_id is null or v_quantity is null or v_quantity <= 0 then
+      raise exception 'One of the cart items is invalid. Please refresh the product and try again.';
+    end if;
+
+    select pv.label, pv.price into v_variant_label, v_price
+    from public.product_variants pv
+    join public.products p on p.id = pv.product_id
+    where pv.id = v_variant_id and pv.product_id = v_product_id and p.is_active;
+    if not found then
+      raise exception 'One of the cart items is no longer available.';
+    end if;
+
+    if not exists (
+      select 1
+      from public.branch_inventory bi
+      where bi.branch_id = p_branch_id
+        and bi.product_id = v_product_id
+        and bi.variant_id = v_variant_id
+        and bi.quantity >= v_quantity
+    ) then
+      raise exception 'The requested quantity is not available at this branch.';
+    end if;
+
+    insert into public.cart_items(cart_id, product_id, variant_id, variant_label, quantity, current_price)
+    values(v_cart_id, v_product_id, v_variant_id, v_variant_label, v_quantity, v_price);
+  end loop;
+
+  update public.carts
+  set voucher_code = nullif(upper(trim(p_voucher_code)), ''),
+      redeem_points = coalesce(p_redeem_points, false),
+      updated_at = now()
+  where id = v_cart_id;
+
+  -- Validation/calculation occurs inside the same transaction. Invalid vouchers
+  -- or unavailable loyalty redemption roll the entire sync back.
+  v_result := public._calculate_cart_pricing(v_cart_id, exists (select 1 from public.branches b where b.id = p_branch_id and b.supports_delivery and b.is_active));
+  v_result := jsonb_build_object(
+    'cart_id', v_cart_id,
+    'branch_id', p_branch_id,
+    'voucher_code', v_result->'voucher_code',
+    'redeem_points', v_result->'redeem_points',
+    'items', coalesce((select jsonb_agg(jsonb_build_object(
+      'product_id', ci.product_id,
+      'variant_id', ci.variant_id,
+      'variant_label', ci.variant_label,
+      'quantity', ci.quantity,
+      'current_price', ci.current_price
+    ) order by ci.created_at) from public.cart_items ci where ci.cart_id=v_cart_id), '[]'::jsonb),
+    'pricing', v_result
+  );
+  return v_result;
+end;
+$$;
+
+create or replace function public.place_order(
+  p_cart_id uuid,
   p_is_delivery boolean,
   p_delivery_address_id uuid,
-  p_items jsonb,
-  p_subtotal numeric,
-  p_discount numeric,
-  p_delivery_fee numeric,
-  p_total numeric,
   p_payment_method text
 )
 returns text
@@ -902,92 +1203,146 @@ set search_path = public
 as $$
 declare
   v_uid text := public.current_firebase_uid();
-  v_order_id text;
-  v_item jsonb;
-  v_product_id uuid;
-  v_variant_id uuid;
-  v_quantity int;
+  v_cart record;
+  v_item record;
   v_available int;
-  v_product_name text;
-  v_is_active boolean;
+  v_order_id text;
+  v_subtotal numeric;
+  v_voucher_discount numeric;
+  v_loyalty_discount numeric;
+  v_delivery_fee numeric;
+  v_total numeric;
+  v_discount numeric;
+  v_points_used int := 0;
+  v_balance int := 0;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
 begin
-  if v_uid is null or v_uid <> p_firebase_uid then
-    raise exception 'You must be signed in as this customer to place this order.';
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open'
+  for update;
+  if not found then raise exception 'Your cart is no longer available.'; end if;
+
+  if p_payment_method not in ('GCash E-Wallet', 'Maya / Credit Card', 'Cash on Counter Pickup') then
+    raise exception 'Unsupported payment method.';
   end if;
-  if p_branch_id is null then
-    raise exception 'Please select a branch before checking out.';
+
+  if p_is_delivery then
+    if p_delivery_address_id is null then raise exception 'Please provide a delivery address.'; end if;
+    if not exists (select 1 from public.customer_addresses where id=p_delivery_address_id and firebase_uid=v_uid) then
+      raise exception 'The selected delivery address is invalid.';
+    end if;
+    select delivery_fee into v_delivery_fee from public.branches where id=v_cart.branch_id and supports_delivery and is_active;
+    if not found then raise exception 'Delivery is not available for this branch.'; end if;
+  else
+    if not exists (select 1 from public.branches where id=v_cart.branch_id and supports_pickup and is_active) then
+      raise exception 'Pickup is not available for this branch.';
+    end if;
+    v_delivery_fee := 0;
   end if;
-  if p_items is null or jsonb_array_length(p_items) = 0 then
+
+  update public.cart_items ci
+  set current_price = pv.price, variant_label = pv.label, updated_at = now()
+  from public.product_variants pv
+  join public.products p on p.id = pv.product_id
+  where ci.cart_id=v_cart.id and ci.variant_id=pv.id and p.is_active;
+
+  if not exists (select 1 from public.cart_items where cart_id=v_cart.id) then
     raise exception 'Your cart is empty.';
   end if;
 
-  -- Pass 1: validate + lock every line's stock row before writing anything.
-  -- If any single line fails, the whole function raises and Postgres rolls
-  -- back everything this transaction touched so far — no partial orders.
-  for v_item in select * from jsonb_array_elements(p_items) loop
-    v_product_id := nullif(v_item->>'product_id', '')::uuid;
-    v_variant_id := nullif(v_item->>'variant_id', '')::uuid;
-    v_quantity := (v_item->>'quantity')::int;
-    v_product_name := coalesce(v_item->>'product_name', 'This item');
-
-    if v_product_id is null then
-      raise exception '% could not be identified — please refresh your cart and try again.', v_product_name;
-    end if;
-    if v_quantity is null or v_quantity <= 0 then
-      raise exception 'Invalid quantity for %.', v_product_name;
-    end if;
-
-    select is_active into v_is_active from public.products where id = v_product_id;
-    if v_is_active is null or not v_is_active then
-      raise exception '% is no longer available.', v_product_name;
-    end if;
-
-    if v_variant_id is null then
-      raise exception '% is missing a size/packaging selection — please refresh your cart and try again.', v_product_name;
-    end if;
-
+  for v_item in select ci.*, p.name, p.is_active from public.cart_items ci join public.products p on p.id=ci.product_id where ci.cart_id=v_cart.id loop
+    if not v_item.is_active then raise exception '% is no longer available.', v_item.name; end if;
     select quantity into v_available
-      from public.branch_inventory
-      where branch_id = p_branch_id and product_id = v_product_id and variant_id = v_variant_id
-      for update;
-
-    if v_available is null then
-      raise exception '% is not available at this branch.', v_product_name;
-    end if;
-    if v_available < v_quantity then
-      raise exception 'Only % of % left at this branch.', v_available, v_product_name;
-    end if;
+    from public.branch_inventory bi
+    where bi.branch_id=v_cart.branch_id and bi.product_id=v_item.product_id and bi.variant_id=v_item.variant_id
+    for update;
+    if v_available is null then raise exception '% is not available at this branch.', v_item.name; end if;
+    if v_available < v_item.quantity then raise exception 'Only % of % left at this branch.', v_available, v_item.name; end if;
   end loop;
 
-  -- Pass 2: every line checked out fine above — now actually decrement.
-  for v_item in select * from jsonb_array_elements(p_items) loop
+  -- Lock the loyalty account before recomputing so points cannot be spent twice.
+  insert into public.loyalty_accounts(firebase_uid) values(v_uid) on conflict(firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid=v_uid for update;
+
+  select * into v_voucher from public.vouchers v
+  where v.id is not null and upper(v.code)=upper(trim(v_cart.voucher_code))
+    and v_cart.voucher_code is not null
+    and v.is_active and (v.starts_at is null or v.starts_at<=now()) and (v.ends_at is null or v.ends_at>=now())
+  for update;
+  if v_cart.voucher_code is not null and not found then raise exception 'Voucher is invalid or expired.'; end if;
+
+  select coalesce(sum(current_price*quantity),0) into v_subtotal from public.cart_items where cart_id=v_cart.id;
+  if v_cart.voucher_code is not null then
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then raise exception 'This voucher has reached its usage limit.'; end if;
+    if v_subtotal < v_voucher.minimum_subtotal then raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal; end if;
+    if v_voucher.discount_type='percent' then v_voucher_discount := round(v_subtotal*v_voucher.discount_value/100,2); else v_voucher_discount := v_voucher.discount_value; end if;
+    if v_voucher.maximum_discount is not null then v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount); end if;
+    v_voucher_discount := least(v_voucher_discount,v_subtotal);
+  else
+    v_voucher_discount := 0;
+  end if;
+
+  if v_cart.redeem_points then
+    select points_per_peso, max_discount_percent into v_points_per_peso, v_max_discount_percent from public.loyalty_cart_settings where id='default';
+    if v_points_per_peso is null then raise exception 'Loyalty point redemption is not configured yet.'; end if;
+    if v_balance <= 0 then raise exception 'You do not have loyalty points available to redeem.'; end if;
+    v_points_used := least(
+      v_balance,
+      floor(greatest(0,least(v_subtotal-v_voucher_discount,v_subtotal*(v_max_discount_percent)/100))*v_points_per_peso)::int
+    );
+    v_loyalty_discount := round(v_points_used/v_points_per_peso,2);
+  else
+    v_loyalty_discount := 0;
+  end if;
+
+  v_discount := v_voucher_discount + v_loyalty_discount;
+  v_total := greatest(0,v_subtotal-v_discount+v_delivery_fee);
+
+  for v_item in select * from public.cart_items where cart_id=v_cart.id loop
     update public.branch_inventory
-      set quantity = quantity - (v_item->>'quantity')::int
-      where branch_id = p_branch_id
-        and product_id = (v_item->>'product_id')::uuid
-        and variant_id = (v_item->>'variant_id')::uuid;
+    set quantity=quantity-v_item.quantity
+    where branch_id=v_cart.branch_id and product_id=v_item.product_id and variant_id=v_item.variant_id;
   end loop;
 
-  insert into public.orders (
-    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
-    subtotal, discount, delivery_fee, total, payment_method
-  ) values (
-    p_firebase_uid, p_branch_id, p_branch_name, p_is_delivery, p_delivery_address_id,
-    p_subtotal, p_discount, p_delivery_fee, p_total, p_payment_method
-  ) returning id into v_order_id;
+  insert into public.orders(firebase_uid,branch_id,branch_name,is_delivery,delivery_address_id,subtotal,discount,delivery_fee,total,payment_method)
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery, p_delivery_address_id, v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method
+  from public.branches b where b.id=v_cart.branch_id
+  returning id into v_order_id;
 
-  insert into public.order_items (order_id, product_name, variant_label, quantity, unit_price)
-  select v_order_id,
-         v_item->>'product_name',
-         coalesce(v_item->>'variant_label', 'Regular'),
-         (v_item->>'quantity')::int,
-         (v_item->>'unit_price')::numeric
-  from jsonb_array_elements(p_items) as v_item;
+  insert into public.order_items(order_id,product_name,variant_label,quantity,unit_price)
+  select v_order_id,p.name,ci.variant_label,ci.quantity,ci.current_price
+  from public.cart_items ci join public.products p on p.id=ci.product_id where ci.cart_id=v_cart.id;
+
+  if v_points_used > 0 then
+    update public.loyalty_accounts set points_balance=points_balance-v_points_used where firebase_uid=v_uid;
+    insert into public.loyalty_transactions(firebase_uid,type,points,description,order_id)
+    values(v_uid,'redeem',-v_points_used,'Applied to order '||v_order_id,v_order_id);
+  end if;
+
+  if v_cart.voucher_code is not null then
+    update public.vouchers set used_count=used_count+1 where id=v_voucher.id;
+  end if;
+
+  delete from public.cart_items where cart_id=v_cart.id;
+  update public.carts set status='checked_out', voucher_code=null, redeem_points=false, updated_at=now() where id=v_cart.id;
 
   return v_order_id;
 end;
 $$;
 
-grant execute on function public.place_order(
-  text, uuid, text, boolean, uuid, jsonb, numeric, numeric, numeric, numeric, text
-) to authenticated;
+revoke all on function public._calculate_cart_pricing(uuid, boolean) from public;
+revoke all on function public.get_customer_cart(uuid) from public;
+revoke all on function public.get_cart_pricing(uuid, boolean) from public;
+revoke all on function public.sync_customer_cart(uuid, jsonb, text, boolean) from public;
+revoke all on function public.place_order(uuid, boolean, uuid, text) from public;
+
+grant execute on function public._calculate_cart_pricing(uuid, boolean) to authenticated;
+grant execute on function public.get_customer_cart(uuid) to authenticated;
+grant execute on function public.get_cart_pricing(uuid, boolean) to authenticated;
+grant execute on function public.sync_customer_cart(uuid, jsonb, text, boolean) to authenticated;
+grant execute on function public.place_order(uuid, boolean, uuid, text) to authenticated;

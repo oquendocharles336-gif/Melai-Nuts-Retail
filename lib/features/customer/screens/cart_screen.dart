@@ -43,7 +43,7 @@ class _CartScreenState extends State<CartScreen> {
           actions: [
             if (cart.lines.isNotEmpty)
               TextButton(
-                onPressed: cart.clear,
+                onPressed: cart.isSyncing ? null : () => cart.clear(),
                 child: const Text('Clear cart'),
               ),
           ],
@@ -110,18 +110,34 @@ class _CartScreenState extends State<CartScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Redeem Golden Kernel Points', style: AppTextStyles.labelLg),
-                          Text('Balance: 250 pts', style: AppTextStyles.bodySm),
+                          Text('Balance: ${cart.loyaltyPointsBalance} pts', style: AppTextStyles.bodySm),
                         ],
                       ),
                     ),
                     Switch(
                       value: cart.redeemPoints,
                       activeThumbColor: AppColors.primary,
-                      onChanged: (v) => setState(() => cart.redeemPoints = v),
+                      onChanged: cart.isSyncing || cart.loyaltyPointsBalance <= 0
+                          ? null
+                          : (v) async {
+                              final error = await cart.setRedeemPoints(v);
+                              if (!mounted || error == null) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(error)),
+                              );
+                            },
                     ),
                   ],
                 ),
               ),
+              if (cart.lastError != null && cart.isSyncing == false)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    cart.lastError!,
+                    style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                  ),
+                ),
               const SizedBox(height: AppSpacing.sm),
               Text('Pasalubong Voucher', style: AppTextStyles.labelLg),
               const SizedBox(height: 6),
@@ -132,14 +148,22 @@ class _CartScreenState extends State<CartScreen> {
                       controller: _voucherController,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.confirmation_number_outlined, size: 20),
-                        hintText: 'PASALUBONG15',
+                        hintText: 'Enter voucher code',
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: () => setState(() => cart.applyVoucher(_voucherController.text)),
-                    child: const Text('Apply'),
+                    onPressed: cart.isSyncing
+                        ? null
+                        : () async {
+                            final error = await cart.applyVoucher(_voucherController.text);
+                            if (!mounted || error == null) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error)),
+                            );
+                          },
+                    child: cart.isSyncing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Apply'),
                   ),
                 ],
               ),

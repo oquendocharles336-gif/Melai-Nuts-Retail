@@ -10,10 +10,9 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
-import '../../../data/models/order.dart';
 import '../../../data/models/payment.dart' as pay;
 import '../../../data/repositories/orders_repository.dart';
+import '../../../data/repositories/customer_profile_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../../settings/screens/branch_settings_screen.dart';
@@ -25,8 +24,8 @@ enum _FulfillmentMethod { pickup, delivery }
 enum _PaymentMethod { gcash, card, cash }
 
 /// Checkout — fulfillment method, branch/pickup details, payment method,
-/// and order summary, then simulates placing the order (matches the
-/// prototype's Checkout / Branch Fulfillment screen).
+/// and order summary. Order totals, stock, discounts, and cart consumption
+/// are finalized by the Supabase order transaction.
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
 
@@ -42,6 +41,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _addressController = TextEditingController();
   final _contactController = TextEditingController();
   bool _placingOrder = false;
+  String? _deliveryAddressId;
+
+  @override
+  void initState() {
+    super.initState();
+    final address = CustomerDataStore.instance.defaultAddress;
+    if (address != null) {
+      _deliveryAddressId = address.id;
+      _addressController.text = address.fullAddress;
+      _contactController.text = address.phone;
+    }
+  }
 
   @override
   void dispose() {
@@ -79,9 +90,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     setState(() => _placingOrder = true);
 
-    final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
-    final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
-        .clamp(0, double.infinity);
     final paymentLabel = switch (_payment) {
       _PaymentMethod.gcash => 'GCash E-Wallet',
       _PaymentMethod.card => 'Maya / Credit Card',
@@ -94,26 +102,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     };
 
     try {
-      final order = await OrdersRepository.instance.createOrder(
-        firebaseUid: firebaseUid,
-        branchName: cart.currentBranch,
-        branchId: branch.id,
-        isDelivery: _fulfillment == _FulfillmentMethod.delivery,
-        items: [
-          for (final line in cart.lines)
-            OrderItem(
-              productId: line.product.id,
-              variantId: line.variant.id.isEmpty ? null : line.variant.id,
-              productName: line.product.name,
-              variantLabel: line.variant.label,
-              quantity: line.quantity,
-              unitPrice: line.variant.price,
-            ),
-        ],
-        subtotal: cart.subtotal,
-        discount: cart.loyaltyDiscount + cart.voucherDiscount,
-        deliveryFee: deliveryFee,
-        total: total.toDouble(),
+      final cartId = cart.cartId;
+      if (cartId == null) {
+        throw Exception('Your cart is not synced yet. Please check your connection and try again.');
+      }
+      final isDelivery = _fulfillment == _FulfillmentMethod.delivery;
+      String? deliveryAddressId = _deliveryAddressId;
+      if (isDelivery) {
+        final enteredAddress = _addressController.text.trim();
+        final enteredPhone = _contactController.text.trim();
+        final matching = CustomerDataStore.instance.addresses.where(
+          (address) => address.fullAddress.trim() == enteredAddress && address.phone.trim() == enteredPhone,
+        );
+        if (matching.isNotEmpty) {
+          deliveryAddressId = matching.first.id;
+        } else {
+          final profile = CustomerDataStore.instance.profile;
+          if (profile == null) {
+            throw Exception('Your customer profile is not ready yet. Please try again.');
+          }
+          final saved = await CustomerProfileRepository.instance.addAddress(
+            firebaseUid: firebaseUid,
+            label: 'Checkout',
+            recipientName: profile.fullName,
+            phone: enteredPhone,
+            line1: enteredAddress,
+            city: '',
+            province: '',
+            postalCode: '',
+            isDefault: false,
+          );
+          deliveryAddressId = saved.id;
+          CustomerDataStore.instance.setAddresses([
+            ...CustomerDataStore.instance.addresses,
+            saved,
+          ]);
+        }
+      }
+      final itemCount = cart.itemCount;
+      final order = await OrdersRepository.instance.createOrderFromCart(
+        cartId: cartId,
+        isDelivery: isDelivery,
+        deliveryAddressId: deliveryAddressId,
         paymentMethod: paymentLabel,
       );
 
@@ -121,12 +151,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         orderId: order.id,
         firebaseUid: firebaseUid,
         method: paymentMethodEnum,
-        amount: total.toDouble(),
+        amount: order.total,
         referenceNumber: order.id,
       );
 
-      kOrders.insert(0, order);
-      final itemCount = cart.itemCount;
       await cart.completeCheckout();
       unawaited(CustomerDataStore.instance.refresh());
       // The `place_order` RPC just decremented real stock server-side —
@@ -139,7 +167,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) =>
-              OrderConfirmationScreen(order: order, itemCount: itemCount, total: total.toDouble()),
+              OrderConfirmationScreen(order: order, itemCount: itemCount, total: order.total),
         ),
       );
     } catch (e) {
@@ -169,9 +197,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         _fulfillment = _FulfillmentMethod.delivery;
       }
     }
-    final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
-    final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
-        .clamp(0, double.infinity);
+    final deliveryFee = _fulfillment == _FulfillmentMethod.delivery
+        ? (branch?.deliveryFee ?? 0)
+        : 0.0;
+    final total = (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
+        .clamp(0.0, double.infinity)
+        .toDouble();
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -272,7 +303,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     subtitle: (branch != null && !branch.supportsDelivery)
                         ? 'Not offered at this branch'
                         : 'Same Day Laguna',
-                    trailingLabel: '₱${cart.deliveryFee.toStringAsFixed(0)}',
+                    trailingLabel: '₱${(branch?.deliveryFee ?? 0).toStringAsFixed(2)}',
                     selected: _fulfillment == _FulfillmentMethod.delivery,
                     onTap: (branch == null || branch.supportsDelivery)
                         ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
@@ -352,6 +383,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 controller: _addressController,
                 decoration: const InputDecoration(hintText: 'House/unit no., street, barangay, city'),
                 maxLines: 2,
+                onChanged: (_) => _deliveryAddressId = null,
                 validator: (v) => ValidationUtils.validateAddress(v),
               ),
               const SizedBox(height: 10),
@@ -359,6 +391,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 controller: _contactController,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(hintText: '09XXXXXXXXX'),
+                onChanged: (_) => _deliveryAddressId = null,
                 validator: (v) => ValidationUtils.validatePhone(v),
               ),
             ],

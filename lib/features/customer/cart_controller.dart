@@ -1,39 +1,34 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/services/branch_controller.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
+import '../../core/services/customer_data_store.dart';
+import '../../data/catalog_store.dart';
 import '../../data/models/product.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import 'screens/cart_screen.dart';
 
-/// One line in the shopping cart: a product + chosen variant + quantity.
 class CartLine {
   final String id;
   final Product product;
   final ProductVariant variant;
+  double unitPrice;
   int quantity;
 
   CartLine({
     required this.id,
     required this.product,
     required this.variant,
+    required this.unitPrice,
     this.quantity = 1,
   });
 
-  double get lineTotal => variant.price * quantity;
+  double get lineTotal => unitPrice * quantity;
 }
 
-/// App-wide shopping cart for the Customer portal.
-///
-/// The public API here is unchanged from the original in-memory version —
-/// every mutation still applies to [_lines] synchronously so the UI updates
-/// instantly — but each mutation now also persists to the customer's real
-/// cart in Supabase (`carts` / `cart_items`) in the background via
-/// [CartRepository], and [hydrate] loads that persisted cart back in on
-/// sign-in. This is the standard "optimistic UI" pattern: the customer never
-/// waits on a network round trip to see their own cart update, but the cart
-/// is genuinely saved server-side and survives app restarts / device
-/// switches for that account.
 class CartController extends ChangeNotifier {
   CartController._();
   static final CartController instance = CartController._();
@@ -41,233 +36,471 @@ class CartController extends ChangeNotifier {
   final List<CartLine> _lines = [];
   List<CartLine> get lines => List.unmodifiable(_lines);
 
-  /// Optional loyalty points redemption toggle (used on the Cart screen).
-  bool redeemPoints = false;
-
-  /// Currently applied promo/voucher code, if any.
-  String? appliedVoucherCode;
-
-  /// The customer's actually-selected branch (see [BranchController]), or a
-  /// neutral placeholder before any branch has been picked. This used to be
-  /// a hardcoded 'Calamba Branch' regardless of what the customer chose.
-  String get currentBranch => BranchController.instance.selectedBranch?.name ?? 'Select a branch';
-
   String? _firebaseUid;
+  String? _branchId;
   String? _cartId;
+  String? _storageKey;
+  bool _dirty = false;
+  bool _syncing = false;
+  Future<String?>? _syncFuture;
+  Timer? _retryTimer;
+  int _revision = 0;
 
-  int get itemCount => _lines.fold(0, (sum, l) => sum + l.quantity);
+  String? appliedVoucherCode;
+  bool redeemPoints = false;
+  CartPricing _pricing = const CartPricing(
+    subtotal: 0,
+    voucherDiscount: 0,
+    loyaltyDiscount: 0,
+    deliveryFee: 0,
+    total: 0,
+    voucherCode: null,
+    redeemPoints: false,
+    loyaltyPointsBalance: 0,
+    loyaltyPointsUsed: 0,
+  );
 
-  double get subtotal => _lines.fold(0, (sum, l) => sum + l.lineTotal);
+  String? lastError;
+  bool get isSyncing => _syncing;
+  int get loyaltyPointsBalance => _pricing.loyaltyPointsBalance;
+  int get loyaltyPointsUsed => _pricing.loyaltyPointsUsed;
+  double get subtotal => _pricing.subtotal;
+  double get voucherDiscount => _pricing.voucherDiscount;
+  double get loyaltyDiscount => _pricing.loyaltyDiscount;
+  double get deliveryFee => _pricing.deliveryFee;
+  double get total => _pricing.total;
+  int get itemCount => _lines.fold(0, (sum, line) => sum + line.quantity);
+  String get currentBranch => BranchController.instance.selectedBranch?.name ?? 'Select a branch';
+  String? get cartId => _cartId;
+  String? get branchId => _branchId;
 
-  double get loyaltyDiscount => redeemPoints ? 5 : 0;
+  SharedPreferencesAsync? _prefs;
 
-  double get voucherDiscount => appliedVoucherCode != null ? 15 : 0;
+  Future<SharedPreferencesAsync> get _storage async {
+    _prefs ??= SharedPreferencesAsync();
+    return _prefs!;
+  }
 
-  double get deliveryFee => _lines.isEmpty ? 0 : 45;
+  String _keyFor(String uid, String branchId) => 'melai_cart_v3_${uid}_$branchId';
 
-  double get total =>
-      (subtotal - loyaltyDiscount - voucherDiscount + deliveryFee).clamp(
-        0,
-        double.infinity,
-      );
-
-  /// Loads this customer's persisted cart from Supabase. Call once after
-  /// sign-in (see AuthService). Safe to call again to re-sync.
-  Future<void> hydrate(String firebaseUid) async {
+  Future<void> hydrate(String firebaseUid, {String? branchId}) async {
     _firebaseUid = firebaseUid;
+    final resolvedBranch = branchId ?? await _resolveBranchId();
+    if (resolvedBranch == null) {
+      _branchId = null;
+      _storageKey = null;
+      _cartId = null;
+      _dirty = false;
+      _clearMemoryOnly();
+      notifyListeners();
+      return;
+    }
+
+    _branchId = resolvedBranch;
+    _storageKey = _keyFor(firebaseUid, resolvedBranch);
+    await _loadLocalSnapshot();
+
     try {
-      if (kProducts.isEmpty) {
-        await ProductsRepository.instance.loadCatalog();
+      final remote = await CartRepository.instance.loadOpenCart(branchId: resolvedBranch);
+      if (remote != null && !_dirty) {
+        _applyRemoteState(remote);
+        await _saveLocalSnapshot(dirty: false);
+      } else if (remote != null && _dirty) {
+        await _syncNow();
+      } else if (remote == null && _dirty) {
+        await _syncNow();
+      } else {
+        _dirty = false;
+        _clearMemoryOnly();
+        await _saveLocalSnapshot(dirty: false);
+        notifyListeners();
       }
-      _cartId = await CartRepository.instance.getOrCreateOpenCartId(firebaseUid);
-      final rows = await CartRepository.instance.fetchItems(_cartId!);
+    } catch (e) {
+      lastError = _messageFor(e);
+      notifyListeners();
+      _scheduleRetry();
+    }
+  }
+
+  Future<String?> _resolveBranchId() async {
+    final selected = BranchController.instance.selectedBranch;
+    if (selected != null) return selected.id;
+    final defaultId = CustomerDataStore.instance.profile?.defaultBranchId;
+    if (defaultId != null) return defaultId;
+    return null;
+  }
+
+  Future<bool> switchBranch(String branchId) async {
+    final uid = _firebaseUid;
+    if (uid == null) {
+      _branchId = branchId;
+      _storageKey = null;
+      _clearMemoryOnly();
+      notifyListeners();
+      return true;
+    }
+    final error = await _flushCurrentBranch();
+    if (error != null && _dirty) {
+      lastError = error;
+      notifyListeners();
+      return false;
+    }
+    await hydrate(uid, branchId: branchId);
+    return true;
+  }
+
+  Future<String?> _flushCurrentBranch() async {
+    if (!_dirty || _firebaseUid == null || _branchId == null) return null;
+    return _syncNow();
+  }
+
+  Future<void> _loadLocalSnapshot() async {
+    final key = _storageKey;
+    if (key == null) return;
+    final prefs = await _storage;
+    final raw = await prefs.getString(key);
+    if (raw == null || raw.isEmpty) {
+      _dirty = false;
+      _clearMemoryOnly();
+      return;
+    }
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      _cartId = map['cart_id'] as String?;
+      appliedVoucherCode = map['voucher_code'] as String?;
+      redeemPoints = map['redeem_points'] as bool? ?? false;
+      _dirty = map['dirty'] as bool? ?? false;
+      final savedPricing = map['pricing'];
+      _pricing = savedPricing is Map
+          ? CartPricing.fromJson(Map<String, dynamic>.from(savedPricing))
+          : _localPricing();
       _lines.clear();
-      for (final row in rows) {
-        final product = findProductById(row['product_id'] as String);
-        final variantLabel = row['variant_label'] as String;
-        final variant = product.variants.where((v) => v.label == variantLabel);
-        if (variant.isEmpty) continue; // catalog changed under us; skip stale line
+      for (final rawItem in (map['items'] as List? ?? const [])) {
+        final item = Map<String, dynamic>.from(rawItem as Map);
+        final productId = item['product_id'] as String?;
+        final variantId = item['variant_id'] as String?;
+        if (productId == null) continue;
+        Product? product;
+        try {
+          product = findProductById(productId);
+        } catch (_) {
+          product = null;
+        }
+        product ??= _productFromSnapshot(item['product_snapshot']);
+        if (product == null) continue;
+        final variant = product.variants.where((v) => v.id == variantId || v.label == item['variant_label']).toList();
+        if (variant.isEmpty) continue;
         _lines.add(
           CartLine(
-            id: '${product.id}_$variantLabel',
+            id: '${product.id}_${variant.first.id}',
             product: product,
             variant: variant.first,
-            quantity: row['quantity'] as int,
+            unitPrice: (item['unit_price'] as num?)?.toDouble() ?? variant.first.price,
+            quantity: (item['quantity'] as num?)?.toInt() ?? 0,
           ),
         );
       }
+      if (_lines.isNotEmpty && savedPricing == null) {
+        _pricing = _localPricing();
+      }
       notifyListeners();
     } catch (_) {
-      // Offline — keep whatever was already in memory for this session.
+      await prefs.remove(key);
+      _clearMemoryOnly();
     }
   }
 
-  Future<void> _ensureCartId() async {
-    if (_cartId != null || _firebaseUid == null) return;
-    try {
-      _cartId = await CartRepository.instance.getOrCreateOpenCartId(_firebaseUid!);
-    } catch (_) {
-      // Will retry on the next mutation.
-    }
+  CartPricing _localPricing() {
+    final subtotal = _lines.fold<double>(0, (sum, line) => sum + line.lineTotal);
+    return CartPricing(
+      subtotal: subtotal,
+      voucherDiscount: 0,
+      loyaltyDiscount: 0,
+      deliveryFee: BranchController.instance.selectedBranch?.deliveryFee ?? 0,
+      total: subtotal + (BranchController.instance.selectedBranch?.deliveryFee ?? 0),
+      voucherCode: appliedVoucherCode,
+      redeemPoints: redeemPoints,
+      loyaltyPointsBalance: _pricing.loyaltyPointsBalance,
+      loyaltyPointsUsed: 0,
+    );
   }
 
-  void _syncUpsert(CartLine line) {
-    if (_firebaseUid == null) return;
-    () async {
-      await _ensureCartId();
-      final cartId = _cartId;
-      if (cartId == null) return;
+  void _applyRemoteState(CartRemoteState remote) {
+    _cartId = remote.cartId;
+    appliedVoucherCode = remote.voucherCode;
+    redeemPoints = remote.redeemPoints;
+    _pricing = remote.pricing;
+    _lines.clear();
+    final previousLines = List<CartLine>.from(_lines);
+    _lines.clear();
+    for (final item in remote.items) {
+      Product? product;
       try {
-        await CartRepository.instance.upsertLine(
-          cartId: cartId,
-          productId: line.product.id,
-          variantId: line.variant.id.isEmpty ? null : line.variant.id,
-          variantLabel: line.variant.label,
-          quantity: line.quantity,
-          unitPrice: line.variant.price,
-        );
+        product = findProductById(item.productId);
       } catch (_) {
-        // Best-effort background sync; the in-memory cart is still correct
-        // for this session and the next hydrate() will reconcile.
+        product = null;
       }
-    }();
+      if (product == null) {
+        final cached = previousLines.where((line) => line.product.id == item.productId && line.variant.id == item.variantId).toList();
+        if (cached.isNotEmpty) {
+          final line = cached.first;
+          line.quantity = item.quantity;
+          line.unitPrice = item.currentPrice;
+          _lines.add(line);
+        }
+        continue;
+      }
+      final matches = product.variants.where((v) => v.id == item.variantId || v.label == item.variantLabel).toList();
+      if (matches.isEmpty) continue;
+      final variant = matches.first;
+      _lines.add(
+        CartLine(
+          id: '${product.id}_${variant.id}',
+          product: product,
+          variant: variant,
+          unitPrice: item.currentPrice,
+          quantity: item.quantity,
+        ),
+      );
+    }
+    _dirty = false;
+    _revision++;
+    lastError = null;
+    notifyListeners();
   }
 
-  void _syncRemove(String productId, String variantLabel) {
-    final cartId = _cartId;
-    if (cartId == null) return;
-    CartRepository.instance
-        .removeLine(cartId: cartId, productId: productId, variantLabel: variantLabel)
-        .catchError((_) {});
+  Future<void> _saveLocalSnapshot({required bool dirty}) async {
+    final key = _storageKey;
+    if (key == null) return;
+    final prefs = await _storage;
+    final payload = {
+      'cart_id': _cartId,
+      'branch_id': _branchId,
+      'voucher_code': appliedVoucherCode,
+      'redeem_points': redeemPoints,
+      'dirty': dirty,
+      'updated_at': DateTime.now().toIso8601String(),
+      'pricing': _pricing.toJson(),
+      'items': [
+        for (final line in _lines)
+          {
+            'product_id': line.product.id,
+            'variant_id': line.variant.id,
+            'variant_label': line.variant.label,
+            'quantity': line.quantity,
+            'unit_price': line.unitPrice,
+            'product_snapshot': _productToSnapshot(line.product),
+          },
+      ],
+    };
+    await prefs.setString(key, jsonEncode(payload));
   }
 
-  /// Adds [quantity] of [product]/[variant] to the cart. If the variant has
-  /// known stock information, the resulting cart quantity is capped at
-  /// what's actually available — it never silently adds more than exists.
-  /// Returns the quantity that was actually added (may be less than
-  /// requested, or 0 if the variant is already at its stock limit).
-  ///
-  /// [stockOverride], when given, takes priority over [variant.stockOnHand]
-  /// as the cap — this is how [addProductWithLiveCheck] injects a
-  /// freshly-fetched-from-Supabase stock figure instead of trusting
-  /// whatever was cached in [variant] at the last catalog load.
+  void _markDirty() {
+    _dirty = true;
+    _revision++;
+    unawaited(_saveLocalSnapshot(dirty: true));
+    notifyListeners();
+    unawaited(_syncNow());
+  }
+
+  Future<String?> _syncNow() {
+    final existing = _syncFuture;
+    if (existing != null) return existing;
+    final future = _syncLoop();
+    _syncFuture = future;
+    future.whenComplete(() {
+      if (identical(_syncFuture, future)) {
+        _syncFuture = null;
+      }
+    });
+    return future;
+  }
+
+  Future<String?> _syncLoop() async {
+    if (_firebaseUid == null || _branchId == null || !_dirty) return null;
+    _syncing = true;
+    notifyListeners();
+    try {
+      while (_dirty) {
+        final sentRevision = _revision;
+        final branch = _branchId!;
+        final result = await CartRepository.instance.syncCart(
+          branchId: branch,
+          voucherCode: appliedVoucherCode,
+          redeemPoints: redeemPoints,
+          items: [
+            for (final line in _lines)
+              {
+                'product_id': line.product.id,
+                'variant_id': line.variant.id,
+                'quantity': line.quantity,
+              },
+          ],
+        );
+        if (_branchId != branch) return null;
+        _cartId = result.cartId;
+        _pricing = result.pricing;
+        appliedVoucherCode = result.voucherCode;
+        redeemPoints = result.redeemPoints;
+        lastError = null;
+        if (_revision == sentRevision) {
+          _dirty = false;
+          await _saveLocalSnapshot(dirty: false);
+          notifyListeners();
+        }
+      }
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      return null;
+    } catch (e) {
+      lastError = _messageFor(e);
+      _scheduleRetry();
+      notifyListeners();
+      return lastError;
+    } finally {
+      _syncing = false;
+      notifyListeners();
+    }
+  }
+
+  void _scheduleRetry() {
+    if (_retryTimer?.isActive ?? false) return;
+    _retryTimer = Timer(const Duration(seconds: 15), () {
+      unawaited(_syncNow());
+    });
+  }
+
+  Future<void> refresh({bool? isDelivery}) async {
+    if (_branchId == null || _firebaseUid == null) return;
+    if (kProducts.isEmpty) {
+      await ProductsRepository.instance.loadCatalog(branchId: _branchId);
+    }
+    final remote = await CartRepository.instance.loadOpenCart(branchId: _branchId!);
+    if (remote == null) {
+      _dirty = false;
+      _clearMemoryOnly();
+      await _saveLocalSnapshot(dirty: false);
+      notifyListeners();
+      return;
+    }
+    _applyRemoteState(remote);
+    if (isDelivery != null) {
+      await _refreshDeliveryPricing(isDelivery);
+    }
+    await _saveLocalSnapshot(dirty: false);
+  }
+
+  Future<void> _refreshDeliveryPricing(bool isDelivery) async {
+    if (_firebaseUid == null || _branchId == null || _cartId == null) return;
+    final result = await CartRepository.instance.getPricing(
+      cartId: _cartId!,
+      isDelivery: isDelivery,
+    );
+    _pricing = result;
+    notifyListeners();
+  }
+
+  Future<CartPricing?> pricingFor({required bool isDelivery}) async {
+    if (_branchId == null || _firebaseUid == null || _cartId == null) return null;
+    final pricing = await CartRepository.instance.getPricing(cartId: _cartId!, isDelivery: isDelivery);
+    _pricing = pricing;
+    notifyListeners();
+    return pricing;
+  }
+
+  Future<String?> applyVoucher(String code) async {
+    final normalized = code.trim().toUpperCase();
+    if (normalized.isEmpty) {
+      clearVoucher();
+      return null;
+    }
+    final previous = appliedVoucherCode;
+    appliedVoucherCode = normalized;
+    _markDirty();
+    final error = await _syncNow();
+    if (error != null) {
+      appliedVoucherCode = previous;
+      _dirty = true;
+      _revision++;
+      await _saveLocalSnapshot(dirty: true);
+      notifyListeners();
+      return error;
+    }
+    return null;
+  }
+
+  void clearVoucher() {
+    appliedVoucherCode = null;
+    _markDirty();
+  }
+
+  Future<String?> setRedeemPoints(bool enabled) async {
+    final previous = redeemPoints;
+    redeemPoints = enabled;
+    _markDirty();
+    final error = await _syncNow();
+    if (error != null) {
+      redeemPoints = previous;
+      _dirty = true;
+      _revision++;
+      await _saveLocalSnapshot(dirty: true);
+      notifyListeners();
+      return error;
+    }
+    return null;
+  }
+
   int addProduct(Product product, ProductVariant variant, {int quantity = 1, int? stockOverride}) {
     if (quantity <= 0) return 0;
-
-    final lineId = '${product.id}_${variant.label}';
-    final existingIndex = _lines.indexWhere((l) => l.id == lineId);
-    final currentQty = existingIndex == -1 ? 0 : _lines[existingIndex].quantity;
-
-    var addable = quantity;
-    final stock = stockOverride ?? variant.stockOnHand;
-    if (stock != null) {
-      final remaining = stock - currentQty;
-      addable = remaining < quantity ? (remaining < 0 ? 0 : remaining) : quantity;
-    }
-    if (addable <= 0) {
+    if (_firebaseUid == null) {
+      lastError = 'Please sign in before adding items to your cart.';
       notifyListeners();
       return 0;
     }
-
-    CartLine line;
-    if (existingIndex != -1) {
-      _lines[existingIndex].quantity += addable;
-      line = _lines[existingIndex];
-    } else {
-      line = CartLine(id: lineId, product: product, variant: variant, quantity: addable);
-      _lines.add(line);
+    if (_branchId == null) {
+      lastError = 'Please select a branch first.';
+      notifyListeners();
+      return 0;
     }
-    notifyListeners();
-    _syncUpsert(line);
+    final lineId = '${product.id}_${variant.id}';
+    final index = _lines.indexWhere((line) => line.id == lineId);
+    final currentQty = index == -1 ? 0 : _lines[index].quantity;
+    final stock = stockOverride ?? variant.stockOnHand;
+    var addable = quantity;
+    if (stock != null) {
+      final remaining = stock - currentQty;
+      if (remaining <= 0) return 0;
+      if (remaining < addable) addable = remaining;
+    }
+    if (index == -1) {
+      _lines.add(CartLine(
+        id: lineId,
+        product: product,
+        variant: variant,
+        unitPrice: variant.price,
+        quantity: addable,
+      ));
+    } else {
+      _lines[index].quantity += addable;
+    }
+    _pricing = _localPricing();
+    _markDirty();
     return addable;
   }
 
-  /// Sets the quantity for an existing cart line, capped at available
-  /// stock (if known) and never allowed below 0 (0 removes the line).
-  void updateQuantity(String lineId, int quantity) {
-    final index = _lines.indexWhere((l) => l.id == lineId);
-    if (index == -1) return;
-    if (quantity <= 0) {
-      final line = _lines.removeAt(index);
-      notifyListeners();
-      _syncRemove(line.product.id, line.variant.label);
-      return;
-    }
-    final stock = _lines[index].variant.stockOnHand;
-    _lines[index].quantity = stock != null && quantity > stock ? stock : quantity;
-    notifyListeners();
-    _syncUpsert(_lines[index]);
-  }
-
-  void removeLine(String lineId) {
-    final index = _lines.indexWhere((l) => l.id == lineId);
-    if (index == -1) return;
-    final line = _lines.removeAt(index);
-    notifyListeners();
-    _syncRemove(line.product.id, line.variant.label);
-  }
-
-  void applyVoucher(String code) {
-    appliedVoucherCode = code.trim().isEmpty ? null : code.trim().toUpperCase();
-    notifyListeners();
-  }
-
-  /// Empties the cart lines shown in the UI. Used both for a plain "clear
-  /// cart" action and right after checkout — in the checkout case, call
-  /// [completeCheckout] instead so the server-side cart is closed out too.
-  void clear() {
-    _lines.clear();
-    redeemPoints = false;
-    appliedVoucherCode = null;
-    notifyListeners();
-  }
-
-  /// Call after an order has been placed from this cart: closes the
-  /// server-side cart (so the next add-to-cart opens a fresh one) and
-  /// clears the local lines.
-  Future<void> completeCheckout() async {
-    final cartId = _cartId;
-    _cartId = null;
-    clear();
-    if (cartId != null) {
-      try {
-        await CartRepository.instance.clearCart(cartId);
-        await CartRepository.instance.markCheckedOut(cartId);
-      } catch (_) {
-        // Local cart is already cleared; server cleanup can lag safely.
-      }
-    }
-  }
-
-  /// Ends the cart session on sign-out: clears local lines and forgets
-  /// which customer/cart they belonged to (the data itself stays safe in
-  /// Supabase and reloads via [hydrate] next time this account signs in).
-  void endSession() {
-    _firebaseUid = null;
-    _cartId = null;
-    clear();
-  }
-
-  /// Quantity currently in the cart for a given product+variant, or 0.
-  int quantityFor(String productId, String variantLabel) {
-    final line = _lines.where((l) => l.id == '${productId}_$variantLabel');
-    return line.isEmpty ? 0 : line.first.quantity;
-  }
-
-  /// Same as [addProduct], but re-checks real, live stock in
-  /// `branch_inventory` first via [ProductsRepository.fetchLiveStock]
-  /// instead of trusting the (possibly stale) cached
-  /// [ProductVariant.stockOnHand]. This is what every "Add to Cart"/"Buy
-  /// Now" action in the customer app should call — the cached figure is
-  /// still used as a fallback cap if the live check itself can't complete
-  /// (e.g. offline), but never as the sole source of truth when it can.
-  Future<int> addProductWithLiveCheck(
-    Product product,
-    ProductVariant variant, {
-    int quantity = 1,
-  }) async {
+  Future<int> addProductWithLiveCheck(Product product, ProductVariant variant, {int quantity = 1}) async {
     if (!product.isActive) return 0;
-    final branchId = BranchController.instance.selectedBranch?.id;
+    final branchId = BranchController.instance.selectedBranch?.id ?? _branchId;
+    if (_firebaseUid != null && branchId == null) {
+      lastError = 'Please select a branch first.';
+      notifyListeners();
+      return 0;
+    }
+    if (_branchId != branchId && _firebaseUid != null && branchId != null) {
+      final switched = await switchBranch(branchId);
+      if (!switched) return 0;
+    }
     final liveStock = await ProductsRepository.instance.fetchLiveStock(
       productId: product.id,
       variantId: variant.id,
@@ -275,14 +508,203 @@ class CartController extends ChangeNotifier {
     );
     return addProduct(product, variant, quantity: quantity, stockOverride: liveStock);
   }
+
+  Future<void> updateQuantity(String lineId, int quantity) async {
+    final index = _lines.indexWhere((line) => line.id == lineId);
+    if (index == -1) return;
+    if (quantity <= 0) {
+      _lines.removeAt(index);
+    } else {
+      _lines[index].quantity = quantity;
+    }
+    _pricing = _localPricing();
+    _markDirty();
+    if (_firebaseUid != null && _branchId != null) {
+      await _syncNow();
+    }
+  }
+
+  Future<void> removeLine(String lineId) async {
+    final index = _lines.indexWhere((line) => line.id == lineId);
+    if (index == -1) return;
+    _lines.removeAt(index);
+    _pricing = _localPricing();
+    _markDirty();
+    if (_firebaseUid != null && _branchId != null) {
+      await _syncNow();
+    }
+  }
+
+  Future<void> clear() async {
+    _lines.clear();
+    appliedVoucherCode = null;
+    redeemPoints = false;
+    _pricing = _localPricing();
+    _markDirty();
+    if (_firebaseUid != null && _branchId != null) {
+      await _syncNow();
+    }
+  }
+
+  Future<void> completeCheckout() async {
+    final key = _storageKey;
+    _lines.clear();
+    _cartId = null;
+    appliedVoucherCode = null;
+    redeemPoints = false;
+    _dirty = false;
+    _pricing = const CartPricing(
+      subtotal: 0,
+      voucherDiscount: 0,
+      loyaltyDiscount: 0,
+      deliveryFee: 0,
+      total: 0,
+      voucherCode: null,
+      redeemPoints: false,
+      loyaltyPointsBalance: 0,
+      loyaltyPointsUsed: 0,
+    );
+    if (key != null) await (await _storage).remove(key);
+    notifyListeners();
+  }
+
+  void endSession() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _firebaseUid = null;
+    _branchId = null;
+    _storageKey = null;
+    _cartId = null;
+    _dirty = false;
+    _clearMemoryOnly();
+    notifyListeners();
+  }
+
+  int quantityFor(String productId, String variantLabel) {
+    final matches = _lines.where((line) => line.product.id == productId && line.variant.label == variantLabel);
+    return matches.isEmpty ? 0 : matches.first.quantity;
+  }
+
+  void _clearMemoryOnly() {
+    _lines.clear();
+    appliedVoucherCode = null;
+    redeemPoints = false;
+    _cartId = null;
+    _pricing = const CartPricing(
+      subtotal: 0,
+      voucherDiscount: 0,
+      loyaltyDiscount: 0,
+      deliveryFee: 0,
+      total: 0,
+      voucherCode: null,
+      redeemPoints: false,
+      loyaltyPointsBalance: 0,
+      loyaltyPointsUsed: 0,
+    );
+  }
+
+  Map<String, dynamic> _productToSnapshot(Product product) {
+    return {
+      'id': product.id,
+      'name': product.name,
+      'variant_label': product.variantLabel,
+      'category_id': product.categoryId,
+      'price': product.price,
+      'original_price': product.originalPrice,
+      'rating': product.rating,
+      'review_count': product.reviewCount,
+      'badge': product.badge,
+      'stock_label': product.stockLabel,
+      'description': product.description,
+      'branch_availability': product.branchAvailability,
+      'spice_levels': product.spiceLevels,
+      'icon_code_point': product.icon.codePoint,
+      'icon_font_family': product.icon.fontFamily,
+      'icon_font_package': product.icon.fontPackage,
+      'icon_match_text_direction': product.icon.matchTextDirection,
+      'color_value': product.color.value,
+      'images': product.images,
+      'sku': product.sku,
+      'cost_price': product.costPrice,
+      'is_active': product.isActive,
+      'tags': product.tags,
+      'units_sold_last_30_days': product.unitsSoldLast30Days,
+      'is_featured': product.isFeatured,
+      'variants': [
+        for (final variant in product.variants)
+          {
+            'id': variant.id,
+            'label': variant.label,
+            'price': variant.price,
+            'badge': variant.badge,
+            'cost_price': variant.costPrice,
+            'sku': variant.sku,
+            'stock_on_hand': variant.stockOnHand,
+          },
+      ],
+    };
+  }
+
+  Product? _productFromSnapshot(dynamic raw) {
+    if (raw is! Map) return null;
+    try {
+      final map = Map<String, dynamic>.from(raw);
+      final variants = (map['variants'] as List? ?? const [])
+          .whereType<Map>()
+          .map((rawVariant) {
+            final variant = Map<String, dynamic>.from(rawVariant);
+            return ProductVariant(
+              id: variant['id'] as String? ?? '',
+              label: variant['label'] as String? ?? '',
+              price: (variant['price'] as num?)?.toDouble() ?? 0,
+              badge: variant['badge'] as String?,
+              costPrice: (variant['cost_price'] as num?)?.toDouble(),
+              sku: variant['sku'] as String?,
+              stockOnHand: (variant['stock_on_hand'] as num?)?.toInt(),
+            );
+          })
+          .toList();
+      return Product(
+        id: map['id'] as String,
+        name: map['name'] as String,
+        variantLabel: map['variant_label'] as String? ?? '',
+        categoryId: map['category_id'] as String? ?? '',
+        price: (map['price'] as num?)?.toDouble() ?? 0,
+        originalPrice: (map['original_price'] as num?)?.toDouble(),
+        rating: (map['rating'] as num?)?.toDouble() ?? 0,
+        reviewCount: (map['review_count'] as num?)?.toInt() ?? 0,
+        badge: map['badge'] as String?,
+        stockLabel: map['stock_label'] as String? ?? 'Unknown',
+        description: map['description'] as String? ?? '',
+        branchAvailability: List<String>.from(map['branch_availability'] as List? ?? const []),
+        variants: variants,
+        spiceLevels: List<String>.from(map['spice_levels'] as List? ?? const []),
+        icon: IconData(
+          (map['icon_code_point'] as num?)?.toInt() ?? Icons.inventory_2_outlined.codePoint,
+          fontFamily: map['icon_font_family'] as String?,
+          fontPackage: map['icon_font_package'] as String?,
+          matchTextDirection: map['icon_match_text_direction'] as bool? ?? false,
+        ),
+        color: Color((map['color_value'] as num?)?.toInt() ?? Colors.grey.value),
+        images: List<String>.from(map['images'] as List? ?? const []),
+        sku: map['sku'] as String? ?? '',
+        costPrice: (map['cost_price'] as num?)?.toDouble() ?? 0,
+        isActive: map['is_active'] as bool? ?? true,
+        tags: List<String>.from(map['tags'] as List? ?? const []),
+        unitsSoldLast30Days: (map['units_sold_last_30_days'] as num?)?.toInt() ?? 0,
+        isFeatured: map['is_featured'] as bool? ?? false,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _messageFor(Object e) {
+    final text = e.toString().replaceFirst('Exception: ', '').trim();
+    return text.isEmpty ? 'Cart sync failed. We will retry when the connection is available.' : text;
+  }
 }
 
-/// Shared "quick add" handler for the Add buttons on every product grid
-/// (Home, Catalog, Category, Search) — re-checks live stock via
-/// [CartController.addProductWithLiveCheck] instead of trusting the cached
-/// card, then surfaces the real outcome (added / capped / out of stock) in
-/// a SnackBar so a fast tap can never silently promise more than what's
-/// actually on the shelf.
 Future<void> addToCartWithFeedback(
   BuildContext context,
   Product product,
@@ -290,20 +712,16 @@ Future<void> addToCartWithFeedback(
   int quantity = 1,
 }) async {
   final messenger = ScaffoldMessenger.of(context);
-  final added = await CartController.instance.addProductWithLiveCheck(
-    product,
-    variant,
-    quantity: quantity,
-  );
+  final added = await CartController.instance.addProductWithLiveCheck(product, variant, quantity: quantity);
   if (!context.mounted) return;
   if (added <= 0) {
     messenger.showSnackBar(
-      const SnackBar(content: Text('This item is out of stock.')),
+      SnackBar(content: Text(CartController.instance.lastError ?? 'This item is out of stock.')),
     );
     return;
   }
   final message = added < quantity
-      ? 'Only $added available — added $added to cart (stock limit reached).'
+      ? 'Only $added available — added $added to cart.'
       : 'Added ${product.name} to cart';
   messenger.showSnackBar(
     SnackBar(
