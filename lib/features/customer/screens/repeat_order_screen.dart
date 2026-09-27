@@ -109,7 +109,8 @@ class RepeatOrderScreen extends StatelessWidget {
     final unavailable = results.where((r) => !r.added).toList();
     final capped = results.where((r) => r.added && r.note != null).toList();
 
-    showDialog<void>(
+    final navigator = Navigator.of(context);
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(addedCount == 0 ? 'Nothing could be added' : 'Added to your cart'),
@@ -144,12 +145,12 @@ class RepeatOrderScreen extends StatelessWidget {
           ),
         ],
       ),
-    ).then((_) {
-      if (addedCount == 0) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const CartScreen()),
-      );
-    });
+    );
+
+    if (addedCount == 0 || !mounted) return;
+    navigator.pushReplacement(
+      MaterialPageRoute(builder: (_) => const CartScreen()),
+    );
   }
 
   @override
