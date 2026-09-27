@@ -40,6 +40,42 @@ class PaymentsRepository {
     return PaymentTransaction.fromRow(row);
   }
 
+  /// Retries payment for an order that already has a payment record —
+  /// `place_order` creates one atomically with every order, so by the time
+  /// a customer reaches the "Pay Now" retry flow a row already exists.
+  /// This UPDATEs that existing row (method, reference number, status back
+  /// to pending) instead of inserting a second one, since `payments` has
+  /// no unique constraint on `order_id` and a blind insert would silently
+  /// leave two payment records for the same order. Falls back to
+  /// [recordPayment] only for the edge case of an order with no payment
+  /// row at all (e.g. one created before this table existed).
+  Future<PaymentTransaction> retryPayment({
+    required String orderId,
+    required String firebaseUid,
+    required PaymentMethod method,
+    required double amount,
+    required String referenceNumber,
+  }) async {
+    final row = await _client
+        .from('payments')
+        .update({
+          'method': method.name,
+          'reference_number': referenceNumber,
+          'status': 'pending',
+        })
+        .eq('order_id', orderId)
+        .select()
+        .maybeSingle();
+    if (row != null) return PaymentTransaction.fromRow(row);
+    return recordPayment(
+      orderId: orderId,
+      firebaseUid: firebaseUid,
+      method: method,
+      amount: amount,
+      referenceNumber: referenceNumber,
+    );
+  }
+
   Future<List<PaymentTransaction>> fetchAll(String firebaseUid) async {
     final raw = await _client
         .from('payments')
