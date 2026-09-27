@@ -48,7 +48,15 @@ create table if not exists public.branches (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   address text,
+  -- Operating status shown to customers ("Open"/"Temporarily Closed").
   is_active boolean not null default true,
+  contact_phone text,
+  -- Free-text display hours (e.g. "8:00 AM – 8:00 PM, Mon–Sun"). Structured
+  -- per-day open/close times aren't modeled yet; this is intentionally a
+  -- simple real field rather than a fabricated schedule.
+  operating_hours text,
+  supports_delivery boolean not null default true,
+  supports_pickup boolean not null default true,
   created_at timestamptz not null default now()
 );
 
@@ -70,6 +78,10 @@ create table if not exists public.products (
   icon_name text not null default 'nuts',
   color_hex text not null default '#8D6E63',
   is_active boolean not null default true,
+  -- Manually curated by staff/owner ("Featured" toggle on Product
+  -- Management) to promote a product on the customer Home dashboard when
+  -- there isn't yet enough sales history to rank it as genuinely popular.
+  is_featured boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -392,6 +404,23 @@ create table if not exists public.rewards (
   created_at timestamptz not null default now()
 );
 
+-- Home dashboard promo banner(s). Real, staff/owner-managed rows — the app
+-- never shows a promo that isn't actually here, and shows none at all
+-- (rather than a fabricated one) when this table is empty or nothing is
+-- currently within its date window.
+create table if not exists public.promotions (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  subtitle text not null default '',
+  badge_label text not null default 'LIMITED TIME OFFER',
+  icon_name text not null default 'local_offer',
+  starts_at timestamptz,
+  ends_at timestamptz,
+  sort_order int not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.reward_redemptions (
   id uuid primary key default gen_random_uuid(),
   firebase_uid text not null references public.customer_profiles(firebase_uid),
@@ -521,6 +550,38 @@ $$;
 create trigger refunds_notify after insert or update of status on public.refund_requests
   for each row execute function public.notify_on_refund_status();
 
+-- -----------------------------------------------------------------------------
+-- Storefront popularity ranking
+-- -----------------------------------------------------------------------------
+
+-- "Popular Near You" on the customer Home dashboard needs to rank products
+-- by real units sold across ALL customers, but `order_items` itself is only
+-- readable by the customer who placed that order (see RLS below). This
+-- function runs as security definer to read across every order, and returns
+-- only an aggregate (product id + total units sold) — never anyone's order
+-- details — so it's safe to expose to any signed-in or anonymous caller.
+-- `order_items` stores a denormalized `product_name` (not a product_id FK,
+-- since a name can outlive edits to the product row), so we match on name.
+create or replace function public.get_popular_products(p_limit int default 8)
+returns table (product_id uuid, total_quantity bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.id as product_id, sum(oi.quantity)::bigint as total_quantity
+  from public.order_items oi
+  join public.orders o on o.id = oi.order_id
+  join public.products p on p.name = oi.product_name
+  where p.is_active
+    and o.status <> 'cancelled'
+  group by p.id
+  order by total_quantity desc
+  limit greatest(p_limit, 0)
+$$;
+
+grant execute on function public.get_popular_products(int) to anon, authenticated;
+
 -- =============================================================================
 -- Row Level Security
 -- =============================================================================
@@ -531,6 +592,7 @@ alter table public.products enable row level security;
 alter table public.product_variants enable row level security;
 alter table public.branch_inventory enable row level security;
 alter table public.rewards enable row level security;
+alter table public.promotions enable row level security;
 
 alter table public.customer_profiles enable row level security;
 alter table public.customer_addresses enable row level security;
@@ -556,6 +618,8 @@ create policy "catalog is publicly readable" on public.products for select using
 create policy "catalog is publicly readable" on public.product_variants for select using (true);
 create policy "catalog is publicly readable" on public.branch_inventory for select using (true);
 create policy "rewards are publicly readable" on public.rewards for select using (is_active);
+create policy "active promotions are publicly readable" on public.promotions for select
+  using (is_active and (starts_at is null or starts_at <= now()) and (ends_at is null or ends_at >= now()));
 
 -- Customer profile
 create policy "read own profile" on public.customer_profiles for select
@@ -642,11 +706,16 @@ create policy "delete own notifications" on public.notifications for delete
 -- editor (or build an Owner-side admin screen later). Nothing in the Flutter
 -- app is hardcoded to these ids; the catalog UI renders whatever is here.
 
-insert into public.branches (name, address) values
-  ('Calamba Branch', 'Calamba City, Laguna'),
-  ('Los Baños Branch', 'Los Baños, Laguna'),
-  ('Santa Cruz Branch', 'Santa Cruz, Laguna')
-on conflict (name) do nothing;
+insert into public.branches (name, address, contact_phone, operating_hours, supports_delivery, supports_pickup) values
+  ('Calamba Branch', 'Poblacion Terminal, National Hwy, Calamba City, Laguna', '(049) 502-1187', '8:00 AM – 8:00 PM, Mon–Sun', true, true),
+  ('Los Baños Branch', 'Lopez Ave, Los Baños, Laguna', '(049) 536-4420', '8:00 AM – 7:00 PM, Mon–Sun', true, true),
+  ('Santa Cruz Branch', 'National Hwy, Santa Cruz, Laguna', '(049) 501-7765', '9:00 AM – 6:00 PM, Mon–Sat', false, true)
+on conflict (name) do update set
+  address = excluded.address,
+  contact_phone = excluded.contact_phone,
+  operating_hours = excluded.operating_hours,
+  supports_delivery = excluded.supports_delivery,
+  supports_pickup = excluded.supports_pickup;
 
 insert into public.product_categories (label, icon_name, sort_order) values
   ('Roasted Nuts', 'nuts', 1),
@@ -676,6 +745,13 @@ insert into public.branch_inventory (branch_id, product_id, variant_id, quantity
 select b.id, v.product_id, v.id, 50
 from public.branches b cross join public.product_variants v
 on conflict (branch_id, product_id, variant_id) do nothing;
+
+update public.products set is_featured = true
+where name in ('Chili Garlic Peanuts', 'Melai Nuts Gift Box');
+
+insert into public.promotions (title, subtitle, badge_label, icon_name, sort_order) values
+  ('Fresh Batch Every Friday', 'All Roasted Nuts restocked weekly at every branch.', 'FRESH THIS WEEK', 'local_offer', 1)
+on conflict do nothing;
 
 insert into public.rewards (title, description, points_required, badge_label, icon_name, color_hex) values
   ('₱50 Off Voucher', 'Instant ₱50 off your next order.', 200, 'Instant Voucher', 'local_offer', '#8D6E63'),

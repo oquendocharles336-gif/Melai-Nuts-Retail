@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -64,17 +64,22 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       backgroundColor: AppColors.canvas,
       appBar: AppBar(title: const Text('My Orders')),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search_rounded),
-                hintText: 'Search branch, or order ID...',
-              ),
-            ),
+        child: ListenableBuilder(
+          listenable: CustomerDataStore.instance,
+          builder: (context, _) {
+            final orders = _filtered;
+            final active = activeOrder;
+            return ListView(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              children: [
+                TextField(
+                  controller: _searchController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search_rounded),
+                    hintText: 'Search branch, or order ID...',
+                  ),
+                ),
             const SizedBox(height: AppSpacing.sm),
             SizedBox(
               height: 42,
@@ -213,7 +218,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                   child: Text('No orders found.'),
                 ),
               ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );

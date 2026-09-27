@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,6 +9,7 @@ import '../../data/models/app_user.dart';
 import '../../data/models/user_role.dart';
 import '../../features/customer/cart_controller.dart';
 import '../constants/app_constants.dart';
+import 'branch_controller.dart';
 import 'customer_data_store.dart';
 import 'data_sync_service.dart';
 import 'email_verification_service.dart';
@@ -455,6 +458,7 @@ class AuthService {
     _currentProfile = null;
     CartController.instance.endSession();
     CustomerDataStore.instance.clear();
+    BranchController.instance.clear();
     await DataSyncService.instance.syncPendingWrites();
     await _auth.signOut();
   }
@@ -526,6 +530,9 @@ class AuthService {
           CartController.instance.hydrate(appUser.uid),
           CustomerDataStore.instance.loadForCustomer(appUser.uid),
         ]);
+        // Needs CustomerDataStore.profile (just loaded above) to restore
+        // the customer's saved default branch.
+        unawaited(BranchController.instance.hydrate());
       } catch (_) {
         // Non-fatal — individual screens retry their own data on open.
       }

@@ -87,7 +87,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               children: [
                 if (product.badge != null)
                   _Pill(label: product.badge!, color: AppColors.primaryContainer, textColor: AppColors.primaryDark),
-                _Pill(label: product.stockLabel, color: AppColors.successBg, textColor: AppColors.success),
+                _Pill(label: product.stockLabel, color: product.stockLabelBg, textColor: product.stockLabelColor),
               ],
             ),
             const SizedBox(height: 8),
@@ -265,11 +265,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: PrimaryButton(
-                    label: 'Add to Cart • ₱${(_selectedVariant.price * _quantity).toStringAsFixed(0)}',
-                    icon: Icons.shopping_cart_outlined,
-                    onPressed: _addToCart,
-                  ),
+                  child: Builder(builder: (context) {
+                    final variantOutOfStock =
+                        (_selectedVariant.stockOnHand ?? 1) <= 0;
+                    return PrimaryButton(
+                      label: variantOutOfStock
+                          ? 'Out of Stock'
+                          : 'Add to Cart • ₱${(_selectedVariant.price * _quantity).toStringAsFixed(0)}',
+                      icon: Icons.shopping_cart_outlined,
+                      onPressed: variantOutOfStock ? null : _addToCart,
+                    );
+                  }),
                 ),
               ],
             ),

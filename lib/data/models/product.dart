@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme/app_colors.dart';
 import '../repositories/icon_registry.dart';
 
 /// A single purchasable size/packaging option for a [Product]
@@ -36,6 +37,8 @@ class ProductVariant {
       costPrice == null || price == 0 ? 0 : ((price - costPrice!) / price) * 100;
 
   double get netProfit => costPrice == null ? 0 : price - costPrice!;
+
+  bool get isOutOfStock => stockOnHand != null && stockOnHand! <= 0;
 
   /// Builds a variant from a `product_variants` row, optionally folding in
   /// the stock on hand for one branch (summed from `branch_inventory`).
@@ -121,6 +124,11 @@ class Product {
   /// Product Performance ranking screen.
   final int unitsSoldLast30Days;
 
+  /// Staff/owner "Featured" toggle (`products.is_featured`). Used as a
+  /// fallback for the Home dashboard's "Popular Near You" section when
+  /// there isn't yet enough real sales history to rank products by demand.
+  final bool isFeatured;
+
   const Product({
     required this.id,
     required this.name,
@@ -143,7 +151,22 @@ class Product {
     this.isActive = true,
     this.tags = const [],
     this.unitsSoldLast30Days = 0,
+    this.isFeatured = false,
   });
+
+  /// True only when real computed stock is actually zero — never a
+  /// fabricated guess. Drives whether [ProductCard] lets the customer add
+  /// this product to their cart.
+  bool get isOutOfStock => stockLabel == 'Out of Stock';
+  bool get isLowStock => stockLabel == 'Low Stock';
+
+  /// Foreground/background colors for [stockLabel], shared by every screen
+  /// that shows it (Home, Catalog, Product Details) so "Out of Stock" is
+  /// never rendered as if it were a success state.
+  Color get stockLabelColor =>
+      isOutOfStock ? AppColors.error : (isLowStock ? AppColors.warning : AppColors.success);
+  Color get stockLabelBg =>
+      isOutOfStock ? AppColors.errorBg : (isLowStock ? AppColors.warningBg : AppColors.successBg);
 
   /// Gross margin percentage (0-100) on the base price vs [costPrice].
   double get marginPercent =>
@@ -184,6 +207,7 @@ class Product {
       icon: IconRegistry.icon(row['icon_name'] as String?, fallback: Icons.eco_rounded),
       color: IconRegistry.color(row['color_hex'] as String?),
       isActive: (row['is_active'] as bool?) ?? true,
+      isFeatured: (row['is_featured'] as bool?) ?? false,
     );
   }
 }

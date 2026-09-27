@@ -104,6 +104,24 @@ class ProductCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                // Real stock/availability state — only shown when it isn't
+                // the default "In Stock" (nothing to flag there).
+                if (product.isOutOfStock || product.isLowStock)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: product.stockLabelBg,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        product.stockLabel,
+                        style: AppTextStyles.labelSm.copyWith(color: product.stockLabelColor),
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 8),
@@ -148,7 +166,10 @@ class ProductCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                _AddButton(quantity: quantityInCart, onAdd: onAdd),
+                _AddButton(
+                  quantity: quantityInCart,
+                  onAdd: product.isOutOfStock ? null : onAdd,
+                ),
               ],
             ),
           ],
@@ -160,12 +181,24 @@ class ProductCard extends StatelessWidget {
 
 class _AddButton extends StatelessWidget {
   final int quantity;
-  final VoidCallback onAdd;
+
+  /// Null means this product can't be added right now (out of stock).
+  final VoidCallback? onAdd;
 
   const _AddButton({required this.quantity, required this.onAdd});
 
   @override
   Widget build(BuildContext context) {
+    if (onAdd == null && quantity == 0) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.errorBg,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text('Unavailable', style: AppTextStyles.labelSm.copyWith(color: AppColors.error)),
+      );
+    }
     if (quantity > 0) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),

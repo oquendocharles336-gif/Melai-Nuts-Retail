@@ -37,6 +37,18 @@ class CustomerDataStore extends ChangeNotifier {
 
   int pointsBalance = 0;
   CustomerProfile? profile;
+  List<CustomerAddress> addresses = [];
+
+  /// The address to prefill on checkout / show as "delivery address" on the
+  /// profile screen: the one marked default, or the first saved address if
+  /// none is marked, or null if the customer hasn't saved any yet.
+  CustomerAddress? get defaultAddress {
+    if (addresses.isEmpty) return null;
+    for (final a in addresses) {
+      if (a.isDefault) return a;
+    }
+    return addresses.first;
+  }
 
   /// Loads (or reloads) everything for [firebaseUid]. Safe to call multiple
   /// times — screens call this from `initState` and it's a cheap no-op if
@@ -63,6 +75,7 @@ class CustomerDataStore extends ChangeNotifier {
         NotificationsRepository.instance.fetchAll(firebaseUid),
         RefundsRepository.instance.fetchAll(firebaseUid),
         PaymentsRepository.instance.fetchAll(firebaseUid),
+        CustomerProfileRepository.instance.fetchAddresses(firebaseUid),
       ]);
 
       kOrders
@@ -84,6 +97,7 @@ class CustomerDataStore extends ChangeNotifier {
       kPayments
         ..clear()
         ..addAll(results[6] as List<PaymentTransaction>);
+      addresses = results[7] as List<CustomerAddress>;
 
       _uid = firebaseUid;
     } catch (_) {
@@ -118,6 +132,14 @@ class CustomerDataStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Lets [SavedAddressesScreen] push its freshly-fetched address list back
+  /// in here after an add/edit/delete, instead of triggering a full
+  /// `refresh()` re-fetch of every other customer record just to update one.
+  void setAddresses(List<CustomerAddress> updated) {
+    addresses = updated;
+    notifyListeners();
+  }
+
   /// Clears every cached customer record — call on sign-out so the next
   /// signed-in account (on a shared device) never sees a previous
   /// customer's data.
@@ -125,6 +147,7 @@ class CustomerDataStore extends ChangeNotifier {
     _uid = null;
     pointsBalance = 0;
     profile = null;
+    addresses = [];
     kOrders.clear();
     dummyLoyaltyTransactions.clear();
     dummyRewards.clear();

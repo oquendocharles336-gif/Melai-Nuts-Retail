@@ -42,6 +42,14 @@ List<ProductCategory> kProductCategories = [
 /// Real product catalog — starts empty until connected to a backend.
 final List<Product> kProducts = <Product>[];
 
+/// "Popular Near You" ranking for the customer Home dashboard, ranked by
+/// real units sold across all branches (see
+/// `ProductsRepository.loadCatalog` / `public.get_popular_products`).
+/// Starts empty; falls back to staff-curated [Product.isFeatured] products,
+/// then to the first few active products, only once nothing has sold yet —
+/// never to a fabricated ranking.
+final List<Product> kPopularProducts = <Product>[];
+
 /// Placeholder shown when a product id can't be found (e.g. it was
 /// removed, or no product data has been loaded yet). Never treated as a
 /// real record — every field signals "unavailable".

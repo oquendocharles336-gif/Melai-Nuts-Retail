@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -179,7 +180,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
             ),
             Expanded(
               child: ListenableBuilder(
-                listenable: cart,
+                listenable: Listenable.merge([cart, BranchController.instance]),
                 builder: (context, _) {
                   if (products.isEmpty) {
                     return Center(

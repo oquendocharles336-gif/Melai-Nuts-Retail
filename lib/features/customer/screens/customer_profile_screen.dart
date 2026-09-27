@@ -10,6 +10,7 @@ import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../notifications/screens/notification_center_screen.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
 import 'edit_profile_screen.dart';
+import 'saved_addresses_screen.dart';
 
 /// "Account" tab — profile header, loyalty summary, contact info, and
 /// settings list (matches the prototype's Account & Settings screen,
@@ -35,6 +36,9 @@ class CustomerProfileScreen extends StatelessWidget {
     final phone = profile?.phone ?? '';
     final points = CustomerDataStore.instance.pointsBalance;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+    final emailVerified = AuthService.instance.currentFirebaseUser?.emailVerified ?? false;
+    final addresses = CustomerDataStore.instance.addresses;
+    final defaultAddress = CustomerDataStore.instance.defaultAddress;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -164,10 +168,15 @@ class CustomerProfileScreen extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppColors.successBg,
+                          color: emailVerified ? AppColors.successBg : AppColors.warningBg,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Text('Verified', style: AppTextStyles.labelSm.copyWith(color: AppColors.success)),
+                        child: Text(
+                          emailVerified ? 'Verified' : 'Email Not Verified',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: emailVerified ? AppColors.success : AppColors.warning,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -175,7 +184,10 @@ class CustomerProfileScreen extends StatelessWidget {
                   _FieldRow(label: 'FULL NAME', value: name.isEmpty ? 'Not set' : name),
                   _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
                   _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : phone),
-                  const _FieldRow(label: 'DELIVERY ADDRESS', value: 'Not set'),
+                  _FieldRow(
+                    label: 'DELIVERY ADDRESS',
+                    value: defaultAddress == null ? 'Not set' : defaultAddress.fullAddress,
+                  ),
                   const SizedBox(height: 10),
                   SecondaryButton(
                     label: 'Edit Profile Information',
@@ -223,9 +235,11 @@ class CustomerProfileScreen extends StatelessWidget {
                   _SettingsTile(
                     icon: Icons.location_on_outlined,
                     title: 'Saved Addresses',
-                    subtitle: 'No address saved',
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Saved addresses coming soon')),
+                    subtitle: addresses.isEmpty
+                        ? 'No address saved'
+                        : '${addresses.length} address${addresses.length == 1 ? '' : 'es'} saved',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SavedAddressesScreen()),
                     ),
                   ),
                   const Divider(height: 1),

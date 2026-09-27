@@ -26,6 +26,7 @@ import '../features/customer/screens/repeat_order_screen.dart';
 import '../features/customer/screens/order_tracking_screen.dart';
 import '../features/customer/screens/customer_profile_screen.dart';
 import '../features/customer/screens/edit_profile_screen.dart';
+import '../features/customer/screens/saved_addresses_screen.dart';
 import '../features/customer/screens/loyalty_dashboard_screen.dart';
 import '../features/customer/screens/rfid_tap_screen.dart';
 import '../features/customer/screens/rfid_detected_screen.dart';
@@ -172,6 +173,7 @@ class AppRoutes {
   static const String customerOrderTracking = '/customer/order-tracking';
   static const String customerProfile = '/customer/profile';
   static const String customerEditProfile = '/customer/edit-profile';
+  static const String customerSavedAddresses = '/customer/addresses';
 
   static const String customerLoyaltyDashboard = '/customer/loyalty';
   static const String customerRfidTap = '/customer/loyalty/rfid-tap';
@@ -327,6 +329,7 @@ class AppRoutes {
     customerOrderTracking: _customerOnly,
     customerProfile: _customerOnly,
     customerEditProfile: _customerOnly,
+    customerSavedAddresses: _customerOnly,
     customerLoyaltyDashboard: _customerOnly,
     customerRfidTap: _customerOnly,
     customerRfidDetected: _customerOnly,
@@ -491,6 +494,7 @@ class AppRoutes {
     customerOrderHistory: (_) => const OrderHistoryScreen(),
     customerProfile: (_) => const CustomerProfileScreen(),
     customerEditProfile: (_) => const EditProfileScreen(),
+    customerSavedAddresses: (_) => const SavedAddressesScreen(),
 
     customerLoyaltyDashboard: (_) => const LoyaltyDashboardScreen(),
     customerRfidTap: (_) => const RfidTapScreen(),

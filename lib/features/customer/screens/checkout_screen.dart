@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -14,6 +15,7 @@ import '../../../data/models/order.dart';
 import '../../../data/models/payment.dart' as pay;
 import '../../../data/repositories/orders_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
+import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
 import 'order_confirmation_screen.dart';
 
@@ -140,6 +142,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final profile = CustomerDataStore.instance.profile;
     final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email;
     final phone = profile?.phone;
+    final branch = BranchController.instance.selectedBranch;
+    // If the selected branch can't actually fulfil the currently chosen
+    // method (e.g. it doesn't deliver), fall back to whichever method it
+    // does support instead of silently charging for an unavailable one.
+    if (branch != null) {
+      if (_fulfillment == _FulfillmentMethod.delivery && !branch.supportsDelivery) {
+        _fulfillment = _FulfillmentMethod.pickup;
+      } else if (_fulfillment == _FulfillmentMethod.pickup && !branch.supportsPickup) {
+        _fulfillment = _FulfillmentMethod.delivery;
+      }
+    }
     final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
     final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
         .clamp(0, double.infinity);
@@ -230,7 +243,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     subtitle: 'Ready in 30 mins',
                     trailingLabel: 'FREE',
                     selected: _fulfillment == _FulfillmentMethod.pickup,
-                    onTap: () => setState(() => _fulfillment = _FulfillmentMethod.pickup),
+                    onTap: (branch == null || branch.supportsPickup)
+                        ? () => setState(() => _fulfillment = _FulfillmentMethod.pickup)
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -238,10 +253,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   child: _OptionCard(
                     icon: Icons.delivery_dining_rounded,
                     title: 'Melai Van',
-                    subtitle: 'Same Day Laguna',
+                    subtitle: (branch != null && !branch.supportsDelivery)
+                        ? 'Not offered at this branch'
+                        : 'Same Day Laguna',
                     trailingLabel: '₱${cart.deliveryFee.toStringAsFixed(0)}',
                     selected: _fulfillment == _FulfillmentMethod.delivery,
-                    onTap: () => setState(() => _fulfillment = _FulfillmentMethod.delivery),
+                    onTap: (branch == null || branch.supportsDelivery)
+                        ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
+                        : null,
                   ),
                 ),
               ],
@@ -255,37 +274,59 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 border: Border.all(color: AppColors.primary, width: 1.4),
                 boxShadow: AppShadows.sm,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('PICKUP DEPOT DETAILS', style: AppTextStyles.labelSm),
-                      Text('Branch ID: CAL-01', style: AppTextStyles.bodySm),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text('Calamba Highway Branch', style: AppTextStyles.titleMd),
-                  Text(
-                    'Poblacion Terminal, National Hwy, Calamba City, Laguna',
-                    style: AppTextStyles.bodySm,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
-                      const SizedBox(width: 6),
-                      Text(
-                        _fulfillment == _FulfillmentMethod.pickup
-                            ? 'Estimated pickup: Today by 2:00 PM'
-                            : 'Estimated delivery: Today by 2:45 PM',
-                        style: AppTextStyles.bodySm,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              child: branch == null
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('NO BRANCH SELECTED', style: AppTextStyles.labelSm),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Pick a branch so we know where to fulfil this order from.',
+                          style: AppTextStyles.bodySm,
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+                          ),
+                          child: const Text('Select Branch'),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _fulfillment == _FulfillmentMethod.pickup
+                                  ? 'PICKUP DEPOT DETAILS'
+                                  : 'FULFILLING FROM',
+                              style: AppTextStyles.labelSm,
+                            ),
+                            if (branch.contactPhone != null && branch.contactPhone!.isNotEmpty)
+                              Text(branch.contactPhone!, style: AppTextStyles.bodySm),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(branch.name, style: AppTextStyles.titleMd),
+                        Text(branch.address, style: AppTextStyles.bodySm),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                branch.operatingHours ?? 'Hours not set',
+                                style: AppTextStyles.bodySm,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
             ),
             if (_fulfillment == _FulfillmentMethod.delivery) ...[
               const SizedBox(height: AppSpacing.md),
@@ -478,7 +519,10 @@ class _OptionCard extends StatelessWidget {
   final String subtitle;
   final String trailingLabel;
   final bool selected;
-  final VoidCallback onTap;
+
+  /// Null disables the card (e.g. the selected branch doesn't offer this
+  /// fulfillment method).
+  final VoidCallback? onTap;
 
   const _OptionCard({
     required this.icon,
@@ -491,35 +535,42 @@ class _OptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primaryContainer.withValues(alpha: 0.3) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 18, color: AppColors.darkBrown),
-                const Spacer(),
-                Text(
-                  trailingLabel,
-                  style: AppTextStyles.labelMd.copyWith(
-                    color: trailingLabel == 'FREE' ? AppColors.success : AppColors.textMuted,
-                  ),
-                ),
-              ],
+    final disabled = onTap == null;
+    return Opacity(
+      opacity: disabled ? 0.5 : 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected && !disabled ? AppColors.primaryContainer.withValues(alpha: 0.3) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected && !disabled ? AppColors.primary : AppColors.border,
+              width: selected && !disabled ? 1.6 : 1,
             ),
-            const SizedBox(height: 6),
-            Text(title, style: AppTextStyles.labelLg),
-            Text(subtitle, style: AppTextStyles.bodySm),
-          ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: AppColors.darkBrown),
+                  const Spacer(),
+                  Text(
+                    trailingLabel,
+                    style: AppTextStyles.labelMd.copyWith(
+                      color: trailingLabel == 'FREE' ? AppColors.success : AppColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(title, style: AppTextStyles.labelLg),
+              Text(subtitle, style: AppTextStyles.bodySm),
+            ],
+          ),
         ),
       ),
     );

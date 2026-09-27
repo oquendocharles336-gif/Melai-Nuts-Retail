@@ -59,6 +59,15 @@ class CustomerProfileRepository {
         .eq('firebase_uid', firebaseUid);
   }
 
+  /// Persists the customer's chosen branch (see `BranchController`) so it's
+  /// restored automatically the next time they sign in.
+  Future<void> setDefaultBranch(String firebaseUid, String branchId) async {
+    await _client
+        .from('customer_profiles')
+        .update({'default_branch_id': branchId})
+        .eq('firebase_uid', firebaseUid);
+  }
+
   Future<List<CustomerAddress>> fetchAddresses(String firebaseUid) async {
     final raw = await _client
         .from('customer_addresses')
@@ -101,6 +110,52 @@ class CustomerProfileRepository {
         .select()
         .single();
     return CustomerAddress.fromRow(row);
+  }
+
+  Future<CustomerAddress> updateAddress({
+    required String id,
+    required String firebaseUid,
+    required String label,
+    required String recipientName,
+    required String phone,
+    required String line1,
+    required String city,
+    required String province,
+    required String postalCode,
+    bool isDefault = false,
+  }) async {
+    if (isDefault) {
+      await _client
+          .from('customer_addresses')
+          .update({'is_default': false})
+          .eq('firebase_uid', firebaseUid);
+    }
+    final row = await _client
+        .from('customer_addresses')
+        .update({
+          'label': label,
+          'recipient_name': recipientName,
+          'phone': phone,
+          'line1': line1,
+          'city': city,
+          'province': province,
+          'postal_code': postalCode,
+          'is_default': isDefault,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+    return CustomerAddress.fromRow(row);
+  }
+
+  /// Marks [id] as the default delivery address and unsets every other
+  /// address belonging to [firebaseUid].
+  Future<void> setDefaultAddress(String firebaseUid, String id) async {
+    await _client
+        .from('customer_addresses')
+        .update({'is_default': false})
+        .eq('firebase_uid', firebaseUid);
+    await _client.from('customer_addresses').update({'is_default': true}).eq('id', id);
   }
 
   Future<void> deleteAddress(String id) async {

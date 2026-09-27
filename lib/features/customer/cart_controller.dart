@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../core/services/branch_controller.dart';
 import '../../data/dummy_data/dummy_products.dart';
 import '../../data/models/product.dart';
 import '../../data/repositories/cart_repository.dart';
@@ -45,7 +46,10 @@ class CartController extends ChangeNotifier {
   /// Currently applied promo/voucher code, if any.
   String? appliedVoucherCode;
 
-  String currentBranch = 'Calamba Branch';
+  /// The customer's actually-selected branch (see [BranchController]), or a
+  /// neutral placeholder before any branch has been picked. This used to be
+  /// a hardcoded 'Calamba Branch' regardless of what the customer chose.
+  String get currentBranch => BranchController.instance.selectedBranch?.name ?? 'Select a branch';
 
   String? _firebaseUid;
   String? _cartId;
