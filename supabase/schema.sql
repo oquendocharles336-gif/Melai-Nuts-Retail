@@ -1659,3 +1659,133 @@ create policy "create own refund requests" on public.refund_requests for insert
       where r.order_id = refund_requests.order_id and r.status <> 'rejected'
     )
   );
+
+-- =============================================================================
+-- Migration: close the direct-insert bypass on orders/order_items, and stop
+-- trusting client-supplied refund amounts/prices.
+-- =============================================================================
+-- Safe to re-run.
+--
+-- 1. `orders`/`order_items` still carried their original "create own ..."
+--    INSERT policies from before `place_order()` existed. Those policies
+--    only checked `firebase_uid = current_firebase_uid()` — they never
+--    checked that `subtotal`/`discount`/`total`/`points_earned` were
+--    correct, or that `order_items` rows matched anything real. Since
+--    `place_order` is `security definer` (runs as the function owner, which
+--    bypasses RLS), it never needed these policies to do its own inserts —
+--    they were a live bypass letting any signed-in customer skip checkout
+--    entirely and insert a fabricated order with a self-chosen total, plus
+--    arbitrary order_items. Removing them makes `place_order` (and, for
+--    staff/owner tooling, a future security-definer function) the only way
+--    an order can ever be created — exactly the same pattern already used
+--    for loyalty_accounts/reward_redemptions (no client insert policy;
+--    redeem_reward() is the only path).
+-- 2. `refund_requests.amount` and `refund_items.unit_price`/`quantity` were
+--    accepted from the client with no check against the order they claim to
+--    refund. Added a trigger that recomputes/validates the refund amount
+--    against that order's own total at insert time, so a request can never
+--    ask for more than what was actually paid.
+-- -----------------------------------------------------------------------------
+
+drop policy if exists "create own orders" on public.orders;
+drop policy if exists "create own order items" on public.order_items;
+
+create or replace function public.validate_refund_amount()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_order_total numeric;
+begin
+  select total into v_order_total from public.orders where id = new.order_id;
+  if v_order_total is null then
+    raise exception 'Order not found.';
+  end if;
+  if new.amount > v_order_total then
+    raise exception 'Refund amount cannot exceed the order total (₱%).', v_order_total;
+  end if;
+  if new.amount <= 0 then
+    raise exception 'Refund amount must be greater than zero.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists refund_requests_validate_amount on public.refund_requests;
+create trigger refund_requests_validate_amount before insert on public.refund_requests
+  for each row execute function public.validate_refund_amount();
+
+-- =============================================================================
+-- Migration: idempotency key for order placement.
+-- =============================================================================
+-- Safe to re-run.
+--
+-- Problem: `place_order` is one atomic transaction (see above), so a
+-- dropped connection *during* it always rolls back cleanly and a retry is
+-- safe. But if the transaction actually COMMITS on the server and only the
+-- *response* is lost on the way back to a flaky client, the app has no way
+-- to tell "failed" apart from "succeeded, I just didn't hear back" — and a
+-- naive retry would call `place_order` again. That second call is already
+-- blocked (the cart's `status` flips to 'checked_out' inside the same
+-- transaction as the first order, so the retry's cart lookup fails), but it
+-- fails with a confusing "cart no longer available" error instead of
+-- calmly returning the order that already exists — exactly the
+-- ambiguous-failure case the client needs to resolve, not just avoid a
+-- duplicate row.
+--
+-- Fix: an optional client-generated `p_idempotency_key` (any opaque unique
+-- string the client keeps for the lifetime of one checkout attempt, reused
+-- verbatim across retries of that same attempt). Before doing any real
+-- work, if an order already carries that (firebase_uid, key) pair, its id
+-- is returned immediately — no re-validation, no double stock deduction,
+-- no double order. A unique index makes this a hard guarantee at the
+-- database level, not just a check-then-act race.
+-- -----------------------------------------------------------------------------
+
+alter table public.orders add column if not exists idempotency_key text;
+create unique index if not exists orders_firebase_uid_idempotency_key
+  on public.orders (firebase_uid, idempotency_key)
+  where (idempotency_key is not null);
+
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text,
+  p_idempotency_key text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_existing_order_id text;
+  v_order_id text;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select id into v_existing_order_id
+    from public.orders
+    where firebase_uid = v_uid and idempotency_key = p_idempotency_key;
+    if found then
+      -- Same checkout attempt already went through; hand back the same
+      -- order instead of touching stock/loyalty/cart again.
+      return v_existing_order_id;
+    end if;
+  end if;
+
+  v_order_id := public.place_order(p_cart_id, p_is_delivery, p_delivery_address_id, p_payment_method, p_customer_notes);
+
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    update public.orders set idempotency_key = p_idempotency_key where id = v_order_id;
+  end if;
+
+  return v_order_id;
+end;
+$$;
+
+revoke all on function public.place_order(uuid, boolean, uuid, text, text, text) from public;
+grant execute on function public.place_order(uuid, boolean, uuid, text, text, text) to authenticated;

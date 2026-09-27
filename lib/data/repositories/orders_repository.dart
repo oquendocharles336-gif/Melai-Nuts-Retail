@@ -15,12 +15,22 @@ class OrdersRepository {
   /// `orders`/`order_items`/`payments`/`branch_inventory` directly, so a
   /// dropped connection partway through can never leave a half-created
   /// order behind.
+  ///
+  /// [idempotencyKey], when given, must stay the same across every retry of
+  /// one checkout attempt (the caller generates it once per attempt — see
+  /// `CheckoutScreen`). If a previous call with the same key already
+  /// committed an order (the request succeeded but the response never made
+  /// it back — a dropped connection, a killed app, a flaky network — this
+  /// is genuinely indistinguishable from "it failed" without one), this
+  /// returns that same order instead of creating a second one. Safe to omit
+  /// for calls that are known not to be a retry.
   Future<Order> createOrderFromCart({
     required String cartId,
     required bool isDelivery,
     String? deliveryAddressId,
     required String paymentMethod,
     String customerNotes = '',
+    String? idempotencyKey,
   }) async {
     String orderId;
     try {
@@ -30,6 +40,7 @@ class OrdersRepository {
         'p_delivery_address_id': deliveryAddressId,
         'p_payment_method': paymentMethod,
         'p_customer_notes': customerNotes,
+        'p_idempotency_key': idempotencyKey,
       });
       orderId = result as String;
     } on PostgrestException catch (e) {

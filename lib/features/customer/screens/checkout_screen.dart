@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
@@ -6,6 +7,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/branch_controller.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -42,6 +44,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _placingOrder = false;
   String? _deliveryAddressId;
 
+  /// One id per checkout *attempt*, generated once when this screen opens
+  /// and reused unchanged across every retry the person makes on it (see
+  /// `_placeOrder`). If a "Place Order" tap times out or the connection
+  /// drops after the order actually went through server-side, retrying
+  /// with the same key returns that same order instead of creating a
+  /// second one — see `OrdersRepository.createOrderFromCart`. Going back
+  /// and re-entering checkout (a new `CheckoutScreen` instance) is a new
+  /// attempt and gets a new key, as it should: that really is a fresh order.
+  late final String _checkoutAttemptKey =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +83,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    // Fail fast and honestly: don't let the person sit through a doomed
+    // request, and never let a checkout attempt start believing it might
+    // silently "queue" — there is no offline order queue. Placing an order
+    // always requires reaching the real backend right now.
+    if (!ConnectivityService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You\'re offline. Please reconnect before placing your order — nothing has been charged or ordered yet.'),
+        ),
+      );
       return;
     }
     final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
@@ -169,6 +194,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         deliveryAddressId: deliveryAddressId,
         paymentMethod: paymentLabel,
         customerNotes: _notesController.text.trim(),
+        idempotencyKey: _checkoutAttemptKey,
       );
 
       await cart.completeCheckout();
@@ -188,12 +214,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      // A dropped connection/timeout here does NOT mean the order failed —
+      // the request may well have reached the database and committed; we
+      // just never heard back. Say so honestly instead of a flat "failed",
+      // and don't offer to retry with a fresh cart: tapping "Place Order"
+      // again re-uses `_checkoutAttemptKey`, so if it did go through, the
+      // retry safely returns that same order instead of creating another.
+      final isConnectivityFailure = _looksLikeConnectivityFailure(e);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not place your order: ${e.toString().replaceFirst('Exception: ', '')}')),
+        SnackBar(
+          content: Text(
+            isConnectivityFailure
+                ? 'Could not reach the server. If your order actually went '
+                    'through, tapping Place Order again will not duplicate '
+                    'it — please check your connection and try again.'
+                : 'Could not place your order: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
       );
     } finally {
       if (mounted) setState(() => _placingOrder = false);
     }
+  }
+
+  /// Distinguishes "the network/connection itself failed" (timeout, no
+  /// route to host, socket closed) from a real, already-validated business
+  /// rejection from the database (out of stock, invalid voucher, etc. —
+  /// those arrive as a plain [Exception] with a server-written message via
+  /// [OrdersRepository]). Only the connectivity case gets the
+  /// "may have gone through" wording — a genuine business error is final
+  /// and retrying it will just fail again the same way.
+  bool _looksLikeConnectivityFailure(Object e) {
+    if (e is TimeoutException) return true;
+    final text = e.toString().toLowerCase();
+    return text.contains('socketexception') ||
+        text.contains('clientexception') ||
+        text.contains('failed host lookup') ||
+        text.contains('connection closed') ||
+        text.contains('connection reset') ||
+        text.contains('network is unreachable');
   }
 
   @override

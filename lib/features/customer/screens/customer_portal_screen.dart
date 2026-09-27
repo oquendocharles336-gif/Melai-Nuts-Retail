@@ -3,6 +3,7 @@ import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/offline_banner.dart';
 import 'customer_home_screen.dart';
 import 'product_catalog_screen.dart';
 import 'order_history_screen.dart';
@@ -35,14 +36,16 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
     return Scaffold(
       // Guests may browse the Store and Catalog. The account-specific tabs
       // (My Orders, Account) are not even built until someone is signed in.
-      body: IndexedStack(
-        index: _index,
-        children: [
-          _tabs[0],
-          _tabs[1],
-          _isSignedIn ? _tabs[2] : const SizedBox.shrink(),
-          _isSignedIn ? _tabs[3] : const SizedBox.shrink(),
-        ],
+      body: OfflineBanner(
+        child: IndexedStack(
+          index: _index,
+          children: [
+            _tabs[0],
+            _tabs[1],
+            _isSignedIn ? _tabs[2] : const SizedBox.shrink(),
+            _isSignedIn ? _tabs[3] : const SizedBox.shrink(),
+          ],
+        ),
       ),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
