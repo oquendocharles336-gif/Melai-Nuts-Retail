@@ -103,7 +103,7 @@ class RepeatOrderScreen extends StatelessWidget {
     return results;
   }
 
-  void _handleRepeat(BuildContext context) {
+  Future<void> _handleRepeat(BuildContext context) async {
     final results = _repeat();
     final addedCount = results.where((r) => r.added).length;
     final unavailable = results.where((r) => !r.added).toList();
@@ -147,7 +147,7 @@ class RepeatOrderScreen extends StatelessWidget {
       ),
     );
 
-    if (addedCount == 0 || !mounted) return;
+    if (addedCount == 0 || !context.mounted) return;
     navigator.pushReplacement(
       MaterialPageRoute(builder: (_) => const CartScreen()),
     );
