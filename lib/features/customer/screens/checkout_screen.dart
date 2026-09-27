@@ -97,10 +97,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final order = await OrdersRepository.instance.createOrder(
         firebaseUid: firebaseUid,
         branchName: cart.currentBranch,
+        branchId: branch.id,
         isDelivery: _fulfillment == _FulfillmentMethod.delivery,
         items: [
           for (final line in cart.lines)
             OrderItem(
+              productId: line.product.id,
+              variantId: line.variant.id.isEmpty ? null : line.variant.id,
               productName: line.product.name,
               variantLabel: line.variant.label,
               quantity: line.quantity,
@@ -126,6 +129,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final itemCount = cart.itemCount;
       await cart.completeCheckout();
       unawaited(CustomerDataStore.instance.refresh());
+      // The `place_order` RPC just decremented real stock server-side —
+      // reload the catalog so kProducts (and every screen reading it)
+      // reflects the new, real quantities instead of the pre-checkout
+      // numbers still sitting in memory.
+      unawaited(ProductsRepository.instance.loadCatalog(branchId: branch.id));
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -137,7 +145,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not place your order: ${e.toString()}')),
+        SnackBar(content: Text('Could not place your order: ${e.toString().replaceFirst('Exception: ', '')}')),
       );
     } finally {
       if (mounted) setState(() => _placingOrder = false);
