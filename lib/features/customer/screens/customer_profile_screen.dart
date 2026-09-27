@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -17,7 +19,23 @@ class CustomerProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     final unreadCount = kNotifications.where((n) => !n.read).length;
+    final profile = CustomerDataStore.instance.profile;
+    final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email ?? '';
+    final name = (profile?.fullName.isNotEmpty ?? false)
+        ? profile!.fullName
+        : (AuthService.instance.currentProfile?.name ?? 'Customer');
+    final phone = profile?.phone ?? '';
+    final points = CustomerDataStore.instance.pointsBalance;
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -70,7 +88,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(
-                        'U',
+                        initial,
                         style: AppTextStyles.headlineSm.copyWith(color: Colors.white),
                       ),
                     ),
@@ -80,7 +98,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('User Profile', style: AppTextStyles.titleMd),
+                        Text(name, style: AppTextStyles.titleMd),
                         Text('Kernel Member', style: AppTextStyles.bodySm),
                       ],
                     ),
@@ -91,7 +109,10 @@ class CustomerProfileScreen extends StatelessWidget {
                       color: AppColors.border,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text('New Tier', style: AppTextStyles.labelMd.copyWith(color: AppColors.textMuted)),
+                    child: Text(
+                      points >= 500 ? 'Gold Tier' : (points >= 150 ? 'Silver Tier' : 'New Tier'),
+                      style: AppTextStyles.labelMd.copyWith(color: AppColors.textMuted),
+                    ),
                   ),
                 ],
               ),
@@ -113,7 +134,7 @@ class CustomerProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Golden Kernel Rewards', style: AppTextStyles.titleMd),
-                        Text('0 pts • Earn 1 pt per ₱10 spent', style: AppTextStyles.bodySm),
+                        Text('$points pts • Earn 1 pt per ₱50 spent', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
@@ -151,13 +172,10 @@ class CustomerProfileScreen extends StatelessWidget {
                     ],
                   ),
                   const Divider(height: 20),
-                  const _FieldRow(label: 'FULL NAME', value: 'Not set'),
-                  const _FieldRow(label: 'EMAIL', value: 'Not set'),
-                  const _FieldRow(label: 'MOBILE NUMBER', value: 'Not set'),
-                  const _FieldRow(
-                    label: 'DELIVERY ADDRESS',
-                    value: 'Not set',
-                  ),
+                  _FieldRow(label: 'FULL NAME', value: name.isEmpty ? 'Not set' : name),
+                  _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
+                  _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : phone),
+                  const _FieldRow(label: 'DELIVERY ADDRESS', value: 'Not set'),
                   const SizedBox(height: 10),
                   SecondaryButton(
                     label: 'Edit Profile Information',

@@ -2,16 +2,25 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../widgets/reward_card.dart';
+import '../widgets/reward_redeem_action.dart';
 
 class RedeemRewardsScreen extends StatelessWidget {
   const RedeemRewardsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const userPoints = 0;
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final userPoints = CustomerDataStore.instance.pointsBalance;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -62,13 +71,7 @@ class RedeemRewardsScreen extends StatelessWidget {
                 return RewardCard(
                   reward: reward,
                   canRedeem: userPoints >= reward.pointsRequired,
-                  onRedeem: () {
-                    Navigator.pushNamed(
-                      context,
-                      '/customer/loyalty/redemption-success',
-                      arguments: reward,
-                    );
-                  },
+                  onRedeem: () => redeemRewardAndNavigate(context, reward),
                 );
               },
             ),

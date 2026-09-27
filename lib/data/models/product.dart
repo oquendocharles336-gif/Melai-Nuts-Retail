@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../repositories/icon_registry.dart';
 
 /// A single purchasable size/packaging option for a [Product]
 /// (e.g. "100g Retail Foil" vs "250g Standup Pouch").
@@ -35,6 +36,19 @@ class ProductVariant {
       costPrice == null || price == 0 ? 0 : ((price - costPrice!) / price) * 100;
 
   double get netProfit => costPrice == null ? 0 : price - costPrice!;
+
+  /// Builds a variant from a `product_variants` row, optionally folding in
+  /// the stock on hand for one branch (summed from `branch_inventory`).
+  factory ProductVariant.fromRow(Map<String, dynamic> row, {int? stockOnHand}) {
+    return ProductVariant(
+      label: row['label'] as String,
+      price: (row['price'] as num).toDouble(),
+      badge: row['badge'] as String?,
+      costPrice: (row['cost_price'] as num?)?.toDouble(),
+      sku: row['sku'] as String?,
+      stockOnHand: stockOnHand,
+    );
+  }
 }
 
 /// A product category (e.g. Garlic Nuts, Sweet Peanuts).
@@ -50,6 +64,16 @@ class ProductCategory {
     required this.icon,
     required this.color,
   });
+
+  /// Builds a category from a `product_categories` row.
+  factory ProductCategory.fromRow(Map<String, dynamic> row) {
+    return ProductCategory(
+      id: row['id'] as String,
+      name: row['label'] as String,
+      icon: IconRegistry.icon(row['icon_name'] as String?),
+      color: const Color(0xFF8D6E63),
+    );
+  }
 }
 
 /// Dummy/static product used throughout the customer storefront.
@@ -128,4 +152,38 @@ class Product {
   double get netProfitPerUnit => price - costPrice;
 
   double get monthlyRevenue => price * unitsSoldLast30Days;
+
+  /// Builds a product from a `products` row plus its already-fetched
+  /// `product_variants` rows and per-branch stock. There is no review system
+  /// backing this app yet, so rating/reviewCount stay at 0 (honestly "no
+  /// reviews yet") rather than a made-up number.
+  factory Product.fromRow(
+    Map<String, dynamic> row, {
+    required List<Map<String, dynamic>> variantRows,
+    required Map<String, int> stockByVariantId,
+    required List<String> branchAvailability,
+  }) {
+    final totalStock = stockByVariantId.values.fold<int>(0, (a, b) => a + b);
+    final variants = variantRows
+        .map((v) => ProductVariant.fromRow(v, stockOnHand: stockByVariantId[v['id']]))
+        .toList();
+    return Product(
+      id: row['id'] as String,
+      name: row['name'] as String,
+      variantLabel: variants.isNotEmpty ? variants.first.label : '',
+      categoryId: (row['category_id'] as String?) ?? '',
+      price: (row['price'] as num).toDouble(),
+      rating: 0,
+      reviewCount: 0,
+      stockLabel: totalStock <= 0
+          ? 'Out of Stock'
+          : (totalStock <= 10 ? 'Low Stock' : 'In Stock'),
+      description: (row['description'] as String?) ?? '',
+      branchAvailability: branchAvailability,
+      variants: variants,
+      icon: IconRegistry.icon(row['icon_name'] as String?, fallback: Icons.eco_rounded),
+      color: IconRegistry.color(row['color_hex'] as String?),
+      isActive: (row['is_active'] as bool?) ?? true,
+    );
+  }
 }

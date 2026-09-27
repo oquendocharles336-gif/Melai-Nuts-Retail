@@ -3,6 +3,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/secondary_button.dart';
 
@@ -43,6 +45,13 @@ class _RfidTapScreenState extends State<RfidTapScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    final profile = CustomerDataStore.instance.profile;
+    final name = (profile?.fullName.isNotEmpty ?? false)
+        ? profile!.fullName
+        : (AuthService.instance.currentProfile?.name ?? 'Customer');
+    final cardNumber = profile?.rfidCardNumber ?? 'No card linked';
+    final points = CustomerDataStore.instance.pointsBalance;
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: MelaiAppBar(
@@ -58,7 +67,7 @@ class _RfidTapScreenState extends State<RfidTapScreen> with SingleTickerProvider
                   color: AppColors.primaryContainer,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text('1,450 pts', style: AppTextStyles.labelMd.copyWith(color: AppColors.primaryDark)),
+                child: Text('$points pts', style: AppTextStyles.labelMd.copyWith(color: AppColors.primaryDark)),
               ),
             ),
           ),
@@ -80,7 +89,7 @@ class _RfidTapScreenState extends State<RfidTapScreen> with SingleTickerProvider
                   const Icon(Icons.circle, size: 8, color: AppColors.success),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text('Santa Cruz Main • Counter Terminal #02', style: AppTextStyles.bodySm),
+                    child: Text(cardNumber == 'No card linked' ? 'This device' : cardNumber, style: AppTextStyles.bodySm),
                   ),
                   const Icon(Icons.wifi_rounded, size: 16, color: AppColors.textSecondary),
                   const SizedBox(width: 4),
@@ -140,12 +149,12 @@ class _RfidTapScreenState extends State<RfidTapScreen> with SingleTickerProvider
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              Text('•••• 4892', style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
+                              Text(cardNumber, style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
                             ],
                           ),
                           const SizedBox(height: 14),
-                          Text('CLUB TIER MEMBER', style: AppTextStyles.labelSm.copyWith(color: Colors.white70)),
-                          Text('MARIA CLARA S.', style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
+                          Text('CLUB MEMBER', style: AppTextStyles.labelSm.copyWith(color: Colors.white70)),
+                          Text(name.toUpperCase(), style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
                         ],
                       ),
                     ),
@@ -212,7 +221,7 @@ class _RfidTapScreenState extends State<RfidTapScreen> with SingleTickerProvider
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _StatTile(label: 'INSTANT PERK', value: '5% Snack Bonus', icon: Icons.card_giftcard_rounded),
+                  child: _StatTile(label: 'YOUR BALANCE', value: '$points Kernel Points', icon: Icons.card_giftcard_rounded),
                 ),
               ],
             ),

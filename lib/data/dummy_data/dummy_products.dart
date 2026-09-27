@@ -3,9 +3,16 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../models/product.dart';
 
-/// Fixed category structure for the storefront/catalog. Not a data record —
-/// kept as static app structure per the product catalog's design.
-const List<ProductCategory> kProductCategories = [
+/// Live category + product catalog, backed by Supabase
+/// (`product_categories` / `products` tables — see
+/// `lib/data/repositories/products_repository.dart`).
+///
+/// These lists start with a small fallback so the storefront never looks
+/// broken for the instant before the first real fetch resolves; that fetch
+/// then replaces the contents in place, and every screen that already reads
+/// these globals directly (product catalog, categories, product list,
+/// search, home) picks up the real data automatically.
+List<ProductCategory> kProductCategories = [
   ProductCategory(
     id: 'garlic',
     name: 'Garlic Nuts',

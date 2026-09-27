@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
+import '../../../data/models/payment.dart' as pay;
+import '../../../data/repositories/orders_repository.dart';
+import '../../../data/repositories/payments_repository.dart';
 import '../cart_controller.dart';
 import 'order_confirmation_screen.dart';
 
@@ -52,11 +59,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
+    if (firebaseUid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in again before checking out.')),
+      );
+      return;
+    }
 
     setState(() => _placingOrder = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    setState(() => _placingOrder = false);
 
     final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
     final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
@@ -66,42 +77,69 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _PaymentMethod.card => 'Maya / Credit Card',
       _PaymentMethod.cash => 'Cash on Counter Pickup',
     };
+    final paymentMethodEnum = switch (_payment) {
+      _PaymentMethod.gcash => pay.PaymentMethod.gcash,
+      _PaymentMethod.card => pay.PaymentMethod.card,
+      _PaymentMethod.cash => pay.PaymentMethod.cash,
+    };
 
-    final order = Order(
-      id: 'ORD-${DateTime.now().millisecondsSinceEpoch}',
-      date: DateTime.now(),
-      status: OrderStatus.confirmed,
-      branch: cart.currentBranch,
-      isDelivery: _fulfillment == _FulfillmentMethod.delivery,
-      items: [
-        for (final line in cart.lines)
-          OrderItem(
-            productName: line.product.name,
-            variantLabel: line.variant.label,
-            quantity: line.quantity,
-            unitPrice: line.variant.price,
-          ),
-      ],
-      discount: cart.loyaltyDiscount + cart.voucherDiscount,
-      deliveryFee: deliveryFee,
-      paymentMethod: paymentLabel,
-      pointsEarned: (cart.subtotal / 10).floor(),
-    );
-    kOrders.insert(0, order);
-    final itemCount = cart.itemCount;
-    cart.clear();
+    try {
+      final order = await OrdersRepository.instance.createOrder(
+        firebaseUid: firebaseUid,
+        branchName: cart.currentBranch,
+        isDelivery: _fulfillment == _FulfillmentMethod.delivery,
+        items: [
+          for (final line in cart.lines)
+            OrderItem(
+              productName: line.product.name,
+              variantLabel: line.variant.label,
+              quantity: line.quantity,
+              unitPrice: line.variant.price,
+            ),
+        ],
+        subtotal: cart.subtotal,
+        discount: cart.loyaltyDiscount + cart.voucherDiscount,
+        deliveryFee: deliveryFee,
+        total: total.toDouble(),
+        paymentMethod: paymentLabel,
+      );
 
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => OrderConfirmationScreen(order: order, itemCount: itemCount, total: total.toDouble()),
-      ),
-    );
+      await PaymentsRepository.instance.recordPayment(
+        orderId: order.id,
+        firebaseUid: firebaseUid,
+        method: paymentMethodEnum,
+        amount: total.toDouble(),
+        referenceNumber: order.id,
+      );
+
+      kOrders.insert(0, order);
+      final itemCount = cart.itemCount;
+      await cart.completeCheckout();
+      unawaited(CustomerDataStore.instance.refresh());
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) =>
+              OrderConfirmationScreen(order: order, itemCount: itemCount, total: total.toDouble()),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not place your order: ${e.toString()}')),
+      );
+    } finally {
+      if (mounted) setState(() => _placingOrder = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final cart = CartController.instance;
+    final profile = CustomerDataStore.instance.profile;
+    final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email;
+    final phone = profile?.phone;
     final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
     final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
         .clamp(0, double.infinity);
@@ -158,8 +196,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Customer Account', style: AppTextStyles.titleMd),
-                        Text('No phone linked', style: AppTextStyles.bodySm),
-                        Text('No email linked', style: AppTextStyles.bodySm),
+                        Text(
+                          (phone == null || phone.isEmpty) ? 'No phone linked' : phone,
+                          style: AppTextStyles.bodySm,
+                        ),
+                        Text(
+                          (email == null || email.isEmpty) ? 'No email linked' : email,
+                          style: AppTextStyles.bodySm,
+                        ),
                       ],
                     ),
                   ),

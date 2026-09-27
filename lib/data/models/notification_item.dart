@@ -78,4 +78,15 @@ class NotificationItem {
     required this.time,
     this.read = false,
   });
+
+  factory NotificationItem.fromRow(Map<String, dynamic> row) {
+    return NotificationItem(
+      id: row['id'] as String,
+      category: NotificationCategory.values.byName(row['category'] as String),
+      title: row['title'] as String,
+      body: row['body'] as String,
+      time: DateTime.parse(row['created_at'] as String).toLocal(),
+      read: (row['read'] as bool?) ?? false,
+    );
+  }
 }

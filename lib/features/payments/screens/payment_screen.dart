@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/dummy_data/dummy_payments.dart';
 import '../../../data/models/payment.dart';
-import 'payment_processing_screen.dart';
+import '../../../data/repositories/payments_repository.dart';
+import 'payment_status_screen.dart';
 
 class PaymentScreen extends StatefulWidget {
   final String orderId;
@@ -28,6 +31,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   final _formKey = GlobalKey<FormState>();
   late PaymentMethod _method = widget.initialMethod;
   final _refController = TextEditingController();
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -35,21 +39,49 @@ class _PaymentScreenState extends State<PaymentScreen> {
     super.dispose();
   }
 
-  void _processPayment() {
+  String _maskedCardReference() {
+    final digits = _refController.text.replaceAll(' ', '');
+    final last4 = digits.length >= 4 ? digits.substring(digits.length - 4) : digits;
+    return '**** $last4';
+  }
+
+  Future<void> _processPayment() async {
     if (_method == PaymentMethod.card &&
         !_formKey.currentState!.validate()) {
       return;
     }
+    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
+    if (firebaseUid == null) return;
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => PaymentProcessingScreen(
-          orderId: widget.orderId,
-          amount: widget.amount,
-          method: _method,
+    setState(() => _submitting = true);
+    try {
+      // There is no live payment-gateway integration wired up yet (that
+      // needs a real provider — e.g. PayMongo/GCash for Business — plus
+      // API keys and webhook handling this project doesn't have). So this
+      // records exactly what really happened: a payment intent, pending
+      // confirmation, rather than faking an instant charge result.
+      final txn = await PaymentsRepository.instance.recordPayment(
+        orderId: widget.orderId,
+        firebaseUid: firebaseUid,
+        method: _method,
+        amount: widget.amount,
+        referenceNumber: _method == PaymentMethod.card ? _maskedCardReference() : widget.orderId,
+      );
+      kPayments.insert(0, txn);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => PaymentStatusScreen(orderId: widget.orderId, amount: widget.amount),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not record payment: ${e.toString()}')),
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
@@ -204,7 +236,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
           child: PrimaryButton(
             label: 'Pay ₱${widget.amount.toStringAsFixed(0)} Now',
             icon: Icons.lock_rounded,
-            onPressed: _processPayment,
+            loading: _submitting,
+            onPressed: _submitting ? null : _processPayment,
           ),
         ),
       ),

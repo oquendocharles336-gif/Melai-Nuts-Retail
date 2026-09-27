@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/models/notification_item.dart';
+import '../../../data/repositories/notifications_repository.dart';
 import 'notification_detail_screen.dart';
 import 'notification_settings_screen.dart';
 
@@ -22,10 +24,15 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
         n.read = true;
       }
     });
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    if (uid != null) {
+      NotificationsRepository.instance.markAllRead(uid).catchError((_) {});
+    }
   }
 
   Future<void> _open(NotificationItem item) async {
     setState(() => item.read = true);
+    NotificationsRepository.instance.markRead(item.id).catchError((_) {});
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => NotificationDetailScreen(item: item)),
     );

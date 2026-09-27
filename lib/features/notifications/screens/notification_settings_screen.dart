@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/repositories/notifications_repository.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -21,12 +23,55 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   bool _systemAnnouncements = true;
   bool _emailNotifications = false;
   bool _smsNotifications = false;
+  bool _saving = false;
 
-  void _save() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Notification preferences saved.')),
-    );
-    Navigator.of(context).pop();
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    if (uid == null) return;
+    try {
+      final prefs = await NotificationsRepository.instance.fetchPreferences(uid);
+      if (prefs == null || !mounted) return;
+      setState(() {
+        _orderUpdates = (prefs['order_updates'] as bool?) ?? _orderUpdates;
+        _deliveryUpdates = (prefs['delivery_updates'] as bool?) ?? _deliveryUpdates;
+        _loyaltyUpdates = (prefs['loyalty_updates'] as bool?) ?? _loyaltyUpdates;
+        _promos = (prefs['promos'] as bool?) ?? _promos;
+      });
+    } catch (_) {
+      // Keep the defaults; the save button will still work when back online.
+    }
+  }
+
+  Future<void> _save() async {
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    if (uid == null) return;
+    setState(() => _saving = true);
+    try {
+      await NotificationsRepository.instance.savePreferences(uid, {
+        'order_updates': _orderUpdates,
+        'delivery_updates': _deliveryUpdates,
+        'loyalty_updates': _loyaltyUpdates,
+        'promos': _promos,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notification preferences saved.')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save preferences: ${e.toString()}')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -123,7 +168,12 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
-          child: PrimaryButton(label: 'Save Preferences', icon: Icons.check_rounded, onPressed: _save),
+          child: PrimaryButton(
+            label: 'Save Preferences',
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: _saving ? null : _save,
+          ),
         ),
       ),
     );

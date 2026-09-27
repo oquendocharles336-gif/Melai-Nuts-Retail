@@ -95,4 +95,16 @@ class PaymentTransaction {
     required this.amount,
     required this.referenceNumber,
   });
+
+  factory PaymentTransaction.fromRow(Map<String, dynamic> row) {
+    return PaymentTransaction(
+      id: row['id'] as String,
+      orderId: row['order_id'] as String,
+      date: DateTime.parse(row['created_at'] as String).toLocal(),
+      method: PaymentMethod.values.byName(row['method'] as String),
+      status: PaymentStatus.values.byName(row['status'] as String),
+      amount: (row['amount'] as num).toDouble(),
+      referenceNumber: row['reference_number'] as String,
+    );
+  }
 }

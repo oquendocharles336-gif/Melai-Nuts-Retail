@@ -3,19 +3,78 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/order.dart';
+import '../../../data/repositories/orders_repository.dart';
 import 'order_details_screen.dart';
 
-/// Live order tracking — ETA banner, a simple decorative route map, order
-/// timeline, and rider info (matches the prototype's "Track Live Order
-/// Progress" screen). No real GPS/maps package is used; the map is a
-/// static illustrative panel.
-class OrderTrackingScreen extends StatelessWidget {
+/// Live order tracking — ETA banner, a simple decorative route panel, real
+/// order timeline, and rider info. The order's status/timeline come from
+/// Supabase and update live via realtime — there's no real GPS/maps
+/// package, so the route panel is clearly labeled as a preview, not a live
+/// map.
+class OrderTrackingScreen extends StatefulWidget {
   final Order order;
 
   const OrderTrackingScreen({super.key, required this.order});
 
   @override
+  State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
+}
+
+class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+  late Order _order;
+  Stream<List<Map<String, dynamic>>>? _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = widget.order;
+    _stream = OrdersRepository.instance.watchOrder(_order.id);
+  }
+
+  Future<void> _refetch() async {
+    try {
+      final updated = await OrdersRepository.instance.refetch(_order.id);
+      if (mounted) setState(() => _order = updated);
+    } catch (_) {
+      // Keep showing the last known state; the stream will retry.
+    }
+  }
+
+  double _progressFor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return 0.1;
+      case OrderStatus.confirmed:
+        return 0.3;
+      case OrderStatus.preparing:
+        return 0.55;
+      case OrderStatus.outForDelivery:
+        return 0.85;
+      case OrderStatus.completed:
+        return 1.0;
+      case OrderStatus.cancelled:
+        return 0.0;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          final rows = snapshot.data!;
+          if (rows.isNotEmpty && rows.first['status'] != _order.status.name) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => _refetch());
+          }
+        }
+        return _buildScaffold(context);
+      },
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
+    final order = _order;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -62,7 +121,7 @@ class OrderTrackingScreen extends StatelessWidget {
                           style: AppTextStyles.labelMd.copyWith(color: AppColors.warning),
                         ),
                       ),
-                      Text('Laguna Express', style: AppTextStyles.bodySm),
+                      Text(order.branch, style: AppTextStyles.bodySm),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -70,12 +129,15 @@ class OrderTrackingScreen extends StatelessWidget {
                     'ETA ${order.etaLabel ?? '—'}',
                     style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary),
                   ),
-                  Text('Moving via Laguna National Highway', style: AppTextStyles.bodySm),
+                  Text(
+                    order.isDelivery ? 'Delivery order' : 'Pickup order',
+                    style: AppTextStyles.bodySm,
+                  ),
                   const SizedBox(height: 10),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: const LinearProgressIndicator(
-                      value: 0.65,
+                    child: LinearProgressIndicator(
+                      value: _progressFor(order.status),
                       minHeight: 6,
                       backgroundColor: AppColors.border,
                       color: AppColors.primary,
@@ -141,13 +203,13 @@ class OrderTrackingScreen extends StatelessWidget {
                     ),
                     IconButton(
                       onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Simulated message to rider')),
+                        const SnackBar(content: Text("Rider messaging isn't available yet.")),
                       ),
                       icon: const Icon(Icons.chat_bubble_outline_rounded),
                     ),
                     IconButton(
                       onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Simulated call to rider')),
+                        const SnackBar(content: Text("Rider calling isn't available yet.")),
                       ),
                       icon: const Icon(Icons.call_outlined),
                     ),
@@ -247,7 +309,7 @@ class _RouteMapPlaceholder extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20)),
-              child: const Text('LIVE GPS', style: TextStyle(color: Colors.white, fontSize: 10)),
+              child: const Text('ROUTE PREVIEW', style: TextStyle(color: Colors.white, fontSize: 10)),
             ),
           ),
         ],

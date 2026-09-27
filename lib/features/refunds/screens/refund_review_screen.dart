@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/dummy_data/dummy_refunds.dart';
 import '../../../data/models/order.dart';
+import '../../../data/repositories/refunds_repository.dart';
 import 'refund_confirmation_screen.dart';
 
 class RefundReviewScreen extends StatefulWidget {
@@ -32,20 +38,34 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
   bool _submitting = false;
 
   Future<void> _submit() async {
+    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
+    if (firebaseUid == null) return;
+
     setState(() => _submitting = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => RefundConfirmationScreen(
-          order: widget.order,
-          items: widget.items,
-          reason: widget.reason,
-          notes: widget.notes,
-          amount: widget.amount,
-        ),
-      ),
-    );
+    try {
+      final request = await RefundsRepository.instance.submitRequest(
+        orderId: widget.order.id,
+        firebaseUid: firebaseUid,
+        reason: widget.reason,
+        notes: widget.notes,
+        items: widget.items,
+        amount: widget.amount,
+        paymentMethod: widget.order.paymentMethod,
+      );
+      kRefundRequests.insert(0, request);
+      unawaited(CustomerDataStore.instance.refresh());
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => RefundConfirmationScreen(request: request)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not submit refund request: ${e.toString()}')),
+      );
+    }
   }
 
   @override

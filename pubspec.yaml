@@ -50,6 +50,10 @@ dependencies:
   # Calls the email-verification API (6-digit code mode).
   http: ^1.2.2
 
+  # Supabase Postgres database (products, cart, orders, loyalty, payments,
+  # refunds, notifications, addresses — see lib/core/services/supabase_service.dart).
+  supabase_flutter: ^2.8.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

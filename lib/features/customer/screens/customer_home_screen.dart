@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/dummy_data/dummy_products.dart';
+import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/product_card.dart';
@@ -24,6 +25,16 @@ class CustomerHomeScreen extends StatefulWidget {
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   String _selectedCategory = 'All';
+  late final Future<void> _catalogFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Catalog is preloaded at app boot; only re-fetch here if that hasn't
+    // resolved yet (e.g. cold start was offline).
+    _catalogFuture =
+        kProducts.isEmpty ? ProductsRepository.instance.loadCatalog() : Future.value();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,12 +65,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.notifications_none_rounded),
-            onPressed: () {},
+            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.notificationCenter),
           ),
         ],
       ),
       body: FutureBuilder(
-        future: Future.delayed(const Duration(milliseconds: 100)),
+        future: _catalogFuture,
         builder: (context, snapshot) {
           return ListView(
             padding: const EdgeInsets.fromLTRB(

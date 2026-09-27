@@ -58,6 +58,15 @@ class OrderItem {
   });
 
   double get total => unitPrice * quantity;
+
+  factory OrderItem.fromRow(Map<String, dynamic> row) {
+    return OrderItem(
+      productName: row['product_name'] as String,
+      variantLabel: (row['variant_label'] as String?) ?? 'Regular',
+      quantity: row['quantity'] as int,
+      unitPrice: (row['unit_price'] as num).toDouble(),
+    );
+  }
 }
 
 /// A single step in an order's tracking timeline.
@@ -75,6 +84,29 @@ class OrderTimelineStep {
     this.done = false,
     this.current = false,
   });
+
+  /// Builds the real timeline from `order_status_events` rows (oldest
+  /// first) — every step here actually happened, at the time shown. There
+  /// are no placeholder "upcoming" steps, since we don't know the future.
+  static List<OrderTimelineStep> fromEventRows(List<Map<String, dynamic>> rows) {
+    final steps = <OrderTimelineStep>[];
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      final status = OrderStatus.values.byName(row['status'] as String);
+      final isLast = i == rows.length - 1;
+      final createdAt = DateTime.parse(row['created_at'] as String).toLocal();
+      steps.add(
+        OrderTimelineStep(
+          label: status.label,
+          description: (row['note'] as String?) ?? 'Order ${status.label.toLowerCase()}',
+          time: '${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}',
+          done: true,
+          current: isLast,
+        ),
+      );
+    }
+    return steps;
+  }
 }
 
 /// A dummy/static customer order.
@@ -112,4 +144,26 @@ class Order {
   double get subtotal => items.fold(0, (sum, i) => sum + i.total);
   double get total => subtotal - discount + deliveryFee;
   int get itemCount => items.fold(0, (sum, i) => sum + i.quantity);
+
+  factory Order.fromRow(
+    Map<String, dynamic> row, {
+    required List<Map<String, dynamic>> itemRows,
+    List<Map<String, dynamic>> eventRows = const [],
+  }) {
+    return Order(
+      id: row['id'] as String,
+      date: DateTime.parse(row['created_at'] as String).toLocal(),
+      status: OrderStatus.values.byName(row['status'] as String),
+      branch: row['branch_name'] as String,
+      isDelivery: row['is_delivery'] as bool,
+      items: itemRows.map(OrderItem.fromRow).toList(),
+      discount: (row['discount'] as num).toDouble(),
+      deliveryFee: (row['delivery_fee'] as num).toDouble(),
+      paymentMethod: row['payment_method'] as String,
+      pointsEarned: row['points_earned'] as int,
+      riderName: row['rider_name'] as String?,
+      etaLabel: row['eta_label'] as String?,
+      timeline: OrderTimelineStep.fromEventRows(eventRows),
+    );
+  }
 }

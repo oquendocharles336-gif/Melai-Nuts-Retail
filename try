@@ -1,0 +1,787 @@
+warning: in the working copy of 'lib/core/config/supabase_config.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/core/services/auth_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/core/services/customer_data_store.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/dummy_data/dummy_products.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/customer_profile.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/loyalty.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/notification_item.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/order.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/payment.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/product.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/data/models/refund.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/cart_controller.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/checkout_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/customer_home_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/customer_profile_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/edit_profile_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/loyalty_dashboard_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/order_details_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/order_tracking_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/redeem_rewards_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/redemption_success_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/rfid_detected_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/customer/screens/rfid_tap_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/notifications/screens/notification_center_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/notifications/screens/notification_detail_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/notifications/screens/notification_settings_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/payments/screens/payment_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/refunds/screens/refund_confirmation_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/refunds/screens/refund_processing_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/features/refunds/screens/refund_review_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/main.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'linux/flutter/generated_plugin_registrant.cc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'linux/flutter/generated_plugins.cmake', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'macos/Flutter/GeneratedPluginRegistrant.swift', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pubspec.lock', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pubspec.yaml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'windows/flutter/generated_plugin_registrant.cc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'windows/flutter/generated_plugins.cmake', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/lib/core/config/supabase_config.dart b/lib/core/config/supabase_config.dart[m
+[1mindex e69de29..87fe445 100644[m
+[1m--- a/lib/core/config/supabase_config.dart[m
+[1m+++ b/lib/core/config/supabase_config.dart[m
+[36m@@ -0,0 +1,37 @@[m
+[32m+[m[32m// Supabase configuration for Melai Nuts.[m
+[32m+[m[32m//[m
+[32m+[m[32m// The Supabase project URL + anon (public) key are NOT stored in source[m
+[32m+[m[32m// control. They are injected at build time, exactly like env/firebase.json:[m
+[32m+[m[32m//[m
+[32m+[m[32m//   flutter run \[m
+[32m+[m[32m//     --dart-define-from-file=env/firebase.json \[m
+[32m+[m[32m//     --dart-define-from-file=env/supabase.json[m
+[32m+[m[32m//[m
+[32m+[m[32m// Copy env/supabase.example.json to env/supabase.json (git-ignored) and fill[m
+[32m+[m[32m// in the values from your Supabase project's Settings > API page.[m
+[32m+[m[32m//[m
+[32m+[m[32m// The anon key is safe to ship in a client app — it identifies the project,[m
+[32m+[m[32m// not a privileged user. Every table it can reach is still protected by[m
+[32m+[m[32m// Postgres Row Level Security (see supabase/schema.sql); the anon key alone[m
+[32m+[m[32m// grants no access beyond what those policies allow. Never put the[m
+[32m+[m[32m// `service_role` key in this app.[m
+[32m+[m[32mclass SupabaseConfig {[m
+[32m+[m[32m  SupabaseConfig._();[m
+[32m+[m
+[32m+[m[32m  static const String url = String.fromEnvironment('SUPABASE_URL');[m
+[32m+[m[32m  static const String anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');[m
+[32m+[m
+[32m+[m[32m  static bool get isConfigured => url.isNotEmpty && anonKey.isNotEmpty;[m
+[32m+[m
+[32m+[m[32m  static void requireConfigured() {[m
+[32m+[m[32m    if (!isConfigured) {[m
+[32m+[m[32m      throw StateError([m
+[32m+[m[32m        'Supabase URL/anon key are missing. Run with '[m
+[32m+[m[32m        '--dart-define-from-file=env/supabase.json '[m
+[32m+[m[32m        '(copy env/supabase.example.json first, fill in your project\'s '[m
+[32m+[m[32m        'values, and run supabase/schema.sql against that project). '[m
+[32m+[m[32m        'See SECURITY.md.',[m
+[32m+[m[32m      );[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[1mdiff --git a/lib/core/services/auth_service.dart b/lib/core/services/auth_service.dart[m
+[1mindex c1fc810..f344d00 100644[m
+[1m--- a/lib/core/services/auth_service.dart[m
+[1m+++ b/lib/core/services/auth_service.dart[m
+[36m@@ -7,6 +7,7 @@[m [mimport '../../data/models/app_user.dart';[m
+ import '../../data/models/user_role.dart';[m
+ import '../../features/customer/cart_controller.dart';[m
+ import '../constants/app_constants.dart';[m
+[32m+[m[32mimport 'customer_data_store.dart';[m
+ import 'data_sync_service.dart';[m
+ import 'email_verification_service.dart';[m
+ [m
+[36m@@ -452,7 +453,8 @@[m [mclass AuthService {[m
+   Future<void> signOut() async {[m
+     _userInitiatedSignOut = true;[m
+     _currentProfile = null;[m
+[31m-    CartController.instance.clear();[m
+[32m+[m[32m    CartController.instance.endSession();[m
+[32m+[m[32m    CustomerDataStore.instance.clear();[m
+     await DataSyncService.instance.syncPendingWrites();[m
+     await _auth.signOut();[m
+   }[m
+[36m@@ -509,6 +511,26 @@[m [mclass AuthService {[m
+       );[m
+     }[m
+     _currentProfile = appUser;[m
+[32m+[m
+[32m+[m[32m    if (appUser.role == UserRole.customer) {[m
+[32m+[m[32m      // Business data lives in Supabase, keyed by this same Firebase UID.[m
+[32m+[m[32m      // Best-effort: a slow/offline connection here must not block sign-in[m
+[32m+[m[32m      // itself (the screens that need this data load it themselves too).[m
+[32m+[m[32m      try {[m
+[32m+[m[32m        await CustomerDataStore.instance.ensureProfile([m
+[32m+[m[32m          firebaseUid: appUser.uid,[m
+[32m+[m[32m          fallbackName: appUser.name,[m
+[32m+[m[32m          fallbackEmail: appUser.email,[m
+[32m+[m[32m        );[m
+[32m+[m[32m        await Future.wait([[m
+[32m+[m[32m          CartController.instance.hydrate(appUser.uid),[m
+[32m+[m[32m          CustomerDataStore.instance.loadForCustomer(appUser.uid),[m
+[32m+[m[32m        ]);[m
+[32m+[m[32m      } catch (_) {[m
+[32m+[m[32m        // Non-fatal — individual screens retry their own data on open.[m
+[32m+[m[32m      }[m
+[32m+[m[32m    }[m
+[32m+[m
+     return appUser;[m
+   }[m
+ [m
+[1mdiff --git a/lib/core/services/customer_data_store.dart b/lib/core/services/customer_data_store.dart[m
+[1mindex fc6e9d1..785daf5 100644[m
+[1m--- a/lib/core/services/customer_data_store.dart[m
+[1m+++ b/lib/core/services/customer_data_store.dart[m
+[36m@@ -5,6 +5,11 @@[m [mimport '../../data/dummy_data/dummy_orders.dart';[m
+ import '../../data/dummy_data/dummy_payments.dart';[m
+ import '../../data/dummy_data/dummy_refunds.dart';[m
+ import '../../data/models/customer_profile.dart';[m
+[32m+[m[32mimport '../../data/models/loyalty.dart';[m
+[32m+[m[32mimport '../../data/models/notification_item.dart';[m
+[32m+[m[32mimport '../../data/models/order.dart';[m
+[32m+[m[32mimport '../../data/models/payment.dart';[m
+[32m+[m[32mimport '../../data/models/refund.dart';[m
+ import '../../data/repositories/customer_profile_repository.dart';[m
+ import '../../data/repositories/loyalty_repository.dart';[m
+ import '../../data/repositories/notifications_repository.dart';[m
+[36m@@ -62,23 +67,23 @@[m [mclass CustomerDataStore extends ChangeNotifier {[m
+ [m
+       kOrders[m
+         ..clear()[m
+[31m-        ..addAll(results[0] as List);[m
+[32m+[m[32m        ..addAll(results[0] as List<Order>);[m
+       pointsBalance = results[1] as int;[m
+       dummyLoyaltyTransactions[m
+         ..clear()[m
+[31m-        ..addAll(results[2] as List);[m
+[32m+[m[32m        ..addAll(results[2] as List<LoyaltyPointTransaction>);[m
+       dummyRewards[m
+         ..clear()[m
+[31m-        ..addAll(results[3] as List);[m
+[32m+[m[32m        ..addAll(results[3] as List<RewardItem>);[m
+       kNotifications[m
+         ..clear()[m
+[31m-        ..addAll(results[4] as List);[m
+[32m+[m[32m        ..addAll(results[4] as List<NotificationItem>);[m
+       kRefundRequests[m
+         ..clear()[m
+[31m-        ..addAll(results[5] as List);[m
+[32m+[m[32m        ..addAll(results[5] as List<RefundRequest>);[m
+       kPayments[m
+         ..clear()[m
+[31m-        ..addAll(results[6] as List);[m
+[32m+[m[32m        ..addAll(results[6] as List<PaymentTransaction>);[m
+ [m
+       _uid = firebaseUid;[m
+     } catch (_) {[m
+[36m@@ -128,4 +133,4 @@[m [mclass CustomerDataStore extends ChangeNotifier {[m
+     kPayments.clear();[m
+     notifyListeners();[m
+   }[m
+[31m-}[m
+[32m+[m[32m}[m
+\ No newline at end of file[m
+[1mdiff --git a/lib/core/services/data_sync_service.dart b/lib/core/services/data_sync_service.dart[m
+[1mindex 742dc63..89e27e7 100644[m
+[1m--- a/lib/core/services/data_sync_service.dart[m
+[1m+++ b/lib/core/services/data_sync_service.dart[m
+[36m@@ -1,90 +1,46 @@[m
+[31m-import 'package:cloud_firestore/cloud_firestore.dart';[m
+[31m-import 'package:firebase_auth/firebase_auth.dart';[m
+[31m-import 'package:flutter/foundation.dart';[m
+[32m+[m[32mimport 'package:firebase_auth/firebase_auth.dart' as fb;[m
+[32m+[m[32mimport 'package:supabase_flutter/supabase_flutter.dart';[m
+[32m+[m[32mimport '../config/supabase_config.dart';[m
+ [m
+[31m-/// DataSyncService handles local database caching and cloud database synchronization.[m
+[32m+[m[32m/// Bootstraps the Supabase client and makes every request identify itself[m
+[32m+[m[32m/// as the signed-in Firebase user.[m
+ ///[m
+[31m-/// Under the hood, Cloud Firestore maintains an indexed local disk cache[m
+[31m-/// (SQLite / LevelDB) on mobile devices. When offline or on low connectivity,[m
+[31m-/// reads/writes execute against that local cache and are replayed to the[m
+[31m-/// server when connectivity returns.[m
+[32m+[m[32m/// Firebase stays the identity provider (sign-in, email verification,[m
+[32m+[m[32m/// password reset). Supabase is configured as a "Third-Party Auth" consumer[m
+[32m+[m[32m/// of Firebase (Supabase Dashboard > Authentication > Sign In / Providers >[m
+[32m+[m[32m/// Third Party Auth > Firebase, using this app's Firebase project ID) so[m
+[32m+[m[32m/// that Postgres Row Level Security policies can check the caller's Firebase[m
+[32m+[m[32m/// UID directly via `auth.jwt() ->> 'sub'` — no Supabase Auth account, no[m
+[32m+[m[32m/// service-role key on the client, ever.[m
+ ///[m
+[31m-/// SECURITY MODEL[m
+[31m-/// * The local cache is a *convenience copy*, never an authority. Every[m
+[31m-///   queued write is re-checked by Firestore Security Rules (firestore.rules)[m
+[31m-///   when it reaches the server, using the identity that is signed in at that[m
+[31m-///   moment. Editing the local cache cannot grant access or change a role.[m
+[31m-/// * The cache is not encrypted by Firestore. To limit what a lost/shared[m
+[31m-///   device exposes, (a) it is size-bounded, and (b) it is wiped on app start[m
+[31m-///   whenever no user is signed in (see [initializeLocalDatabase]).[m
+[31m-/// * No passwords, tokens or keys are ever written to it by this app.[m
+[31m-class DataSyncService {[m
+[31m-  DataSyncService._();[m
+[31m-  static final DataSyncService instance = DataSyncService._();[m
+[31m-[m
+[31m-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;[m
+[31m-[m
+[31m-  /// Firestore's own default cache size (100 MB) — bounded, so stale data[m
+[31m-  /// is garbage-collected instead of accumulating forever.[m
+[31m-  static const int _cacheSizeBytes = 100 * 1024 * 1024;[m
+[31m-[m
+[31m-  bool _isInitialized = false;[m
+[31m-  bool get isInitialized => _isInitialized;[m
+[31m-[m
+[31m-  /// Initializes local persistence & caching settings for offline access.[m
+[31m-  ///[m
+[31m-  /// Must run before any other Firestore call. If no user is signed in[m
+[31m-  /// (first launch, or the previous person logged out) any cached data left[m
+[31m-  /// on disk is cleared, so a signed-out device holds no business data.[m
+[31m-  /// A signed-in user keeps their cache, so the offline workflow is unchanged.[m
+[31m-  Future<void> initializeLocalDatabase() async {[m
+[31m-    if (_isInitialized) return;[m
+[31m-[m
+[31m-    try {[m
+[31m-      if (!kIsWeb) {[m
+[31m-        _firestore.settings = const Settings([m
+[31m-          persistenceEnabled: true,[m
+[31m-          cacheSizeBytes: _cacheSizeBytes,[m
+[31m-        );[m
+[31m-[m
+[31m-        final user = await FirebaseAuth.instance[m
+[31m-            .authStateChanges()[m
+[31m-            .first[m
+[31m-            .timeout(const Duration(seconds: 5), onTimeout: () => null);[m
+[31m-        if (user == null) {[m
+[31m-          try {[m
+[31m-            await _firestore.clearPersistence();[m
+[31m-          } catch (_) {[m
+[31m-            // Fails harmlessly if Firestore was already started; nothing to do.[m
+[31m-          }[m
+[31m-        }[m
+[31m-      }[m
+[31m-      _isInitialized = true;[m
+[31m-      if (kDebugMode) debugPrint('Local database & cloud sync initialized.');[m
+[31m-    } catch (e) {[m
+[31m-      if (kDebugMode) debugPrint('Local database init warning: ${e.runtimeType}');[m
+[31m-    }[m
+[32m+[m[32m/// [accessToken] below is the hook `Supabase.initialize` calls before every[m
+[32m+[m[32m/// request to fetch the current bearer token; we hand it the caller's live[m
+[32m+[m[32m/// Firebase ID token. When nobody is signed in it returns null and requests[m
+[32m+[m[32m/// go out under the `anon` key, which is enough for the public, read-only[m
+[32m+[m[32m/// data (catalog, categories, rewards) per supabase/schema.sql's policies.[m
+[32m+[m[32mclass SupabaseService {[m
+[32m+[m[32m  SupabaseService._();[m
+[32m+[m
+[32m+[m[32m  static final SupabaseService instance = SupabaseService._();[m
+[32m+[m
+[32m+[m[32m  bool _initialized = false;[m
+[32m+[m
+[32m+[m[32m  Future<void> initialize() async {[m
+[32m+[m[32m    if (_initialized) return;[m
+[32m+[m[32m    SupabaseConfig.requireConfigured();[m
+[32m+[m
+[32m+[m[32m    await Supabase.initialize([m
+[32m+[m[32m      url: SupabaseConfig.url,[m
+[32m+[m[32m      anonKey: SupabaseConfig.anonKey,[m
+[32m+[m[32m      accessToken: () async {[m
+[32m+[m[32m        final user = fb.FirebaseAuth.instance.currentUser;[m
+[32m+[m[32m        if (user == null) return null;[m
+[32m+[m[32m        return user.getIdToken();[m
+[32m+[m[32m      },[m
+[32m+[m[32m    );[m
+[32m+[m
+[32m+[m[32m    _initialized = true;[m
+   }[m
+ [m
+[31m-  /// Best-effort flush of queued local writes. Bounded by a short timeout so[m
+[31m-  /// it can never hang (e.g. logout while offline).[m
+[31m-  Future<void> syncPendingWrites({[m
+[31m-    Duration timeout = const Duration(seconds: 3),[m
+[31m-  }) async {[m
+[31m-    try {[m
+[31m-      await _firestore.waitForPendingWrites().timeout(timeout);[m
+[31m-    } catch (e) {[m
+[31m-      if (kDebugMode) debugPrint('Pending writes not flushed: ${e.runtimeType}');[m
+[31m-    }[m
+[31m-  }[m
+[31m-[m
+[31m-  /// Disables network to simulate offline mode or save bandwidth.[m
+[31m-  Future<void> enableOfflineMode() async {[m
+[31m-    await _firestore.disableNetwork();[m
+[31m-  }[m
+[31m-[m
+[31m-  /// Re-enables network synchronization with Cloud Firestore.[m
+[31m-  Future<void> enableOnlineSync() async {[m
+[31m-    await _firestore.enableNetwork();[m
+[31m-  }[m
+[32m+[m[32m  SupabaseClient get client => Supabase.instance.client;[m
+ }[m
+[1mdiff --git a/lib/data/dummy_data/dummy_products.dart b/lib/data/dummy_data/dummy_products.dart[m
+[1mindex e69de29..cc69a61 100644[m
+[1m--- a/lib/data/dummy_data/dummy_products.dart[m
+[1m+++ b/lib/data/dummy_data/dummy_products.dart[m
+[36m@@ -0,0 +1,81 @@[m
+[32m+[m[32mimport 'package:flutter/material.dart';[m
+[32m+[m
+[32m+[m[32mimport '../../core/theme/app_colors.dart';[m
+[32m+[m[32mimport '../models/product.dart';[m
+[32m+[m
+[32m+[m[32m/// Live category + product catalog, backed by Supabase[m
+[32m+[m[32m/// (`product_categories` / `products` tables — see[m
+[32m+[m[32m/// `lib/data/repositories/products_repository.dart`).[m
+[32m+[m[32m///[m
+[32m+[m[32m/// These lists start with a small fallback so the storefront never looks[m
+[32m+[m[32m/// broken for the instant before the first real fetch resolves; that fetch[m
+[32m+[m[32m/// then replaces the contents in place, and every screen that already reads[m
+[32m+[m[32m/// these globals directly (product catalog, categories, product list,[m
+[32m+[m[32m/// search, home) picks up the real data automatically.[m
+[32m+[m[32mList<ProductCategory> kProductCategories = [[m
+[32m+[m[32m  ProductCategory([m
+[32m+[m[32m    id: 'garlic',[m
+[32m+[m[32m    name: 'Garlic Nuts',[m
+[32m+[m[32m    icon: Icons.eco_rounded,[m
+[32m+[m[32m    color: AppColors.success,[m
+[32m+[m[32m  ),[m
+[32m+[m[32m  ProductCategory([m
+[32m+[m[32m    id: 'sweet',[m
+[32m+[m[32m    name: 'Sweet Peanuts',[m
+[32m+[m[32m    icon: Icons.cookie_rounded,[m
+[32m+[m[32m    color: AppColors.warning,[m
+[32m+[m[32m  ),[m
+[32m+[m[32m  ProductCategory([m
+[32m+[m[32m    id: 'spicy',[m
+[32m+[m[32m    name: 'Spicy Nuts',[m
+[32m+[m[32m    icon: Icons.local_fire_department_rounded,[m
+[32m+[m[32m    color: AppColors.error,[m
+[32m+[m[32m  ),[m
+[32m+[m[32m  ProductCategory([m
+[32m+[m[32m    id: 'classic',[m
+[32m+[m[32m    name: 'Classic Roasted',[m
+[32m+[m[32m    icon: Icons.grain_rounded,[m
+[32m+[m[32m    color: AppColors.primary,[m
+[32m+[m[32m  ),[m
+[32m+[m[32m];[m
+[32m+[m
+[32m+[m[32m/// Real product catalog — starts empty until connected to a backend.[m
+[32m+[m[32mfinal List<Product> kProducts = <Product>[];[m
+[32m+[m
+[32m+[m[32m/// Placeholder shown when a product id can't be found (e.g. it was[m
+[32m+[m[32m/// removed, or no product data has been loaded yet). Never treated as a[m
+[32m+[m[32m/// real record — every field signals "unavailable".[m
+[32m+[m[32mProduct _unknownProduct(String id) => Product([m
+[32m+[m[32m      id: id,[m
+[32m+[m[32m      name: 'Product unavailable',[m
+[32m+[m[32m      variantLabel: '',[m
+[32m+[m[32m      categoryId: '',[m
+[32m+[m[32m      price: 0,[m
+[32m+[m[32m      rating: 0,[m
+[32m+[m[32m      reviewCount: 0,[m
+[32m+[m[32m      stockLabel: 'Unavailable',[m
+[32m+[m[32m      description: 'This product could not be found.',[m
+[32m+[m[32m      branchAvailability: const [],[m
+[32m+[m[32m      variants: const [],[m
+[32m+[m[32m      icon: Icons.help_outline_rounded,[m
+[32m+[m[32m      color: AppColors.textMuted,[m
+[32m+[m[32m    );[m
+[32m+[m
+[32m+[m[32m/// Returns the product with [id], or a clearly-labeled placeholder if no[m
+[32m+[m[32m/// matching product exists (e.g. catalog not loaded yet).[m
+[32m+[m[32mProduct findProductById(String id) {[m
+[32m+[m[32m  return kProducts.firstWhere((p) => p.id == id, orElse: () => _unknownProduct(id));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/// Returns the category with [id], falling back to the first fixed[m
+[32m+[m[32m/// category if not found.[m
+[32m+[m[32mProductCategory findCategoryById(String id) {[m
+[32m+[m[32m  return kProductCategories.firstWhere([m
+[32m+[m[32m    (c) => c.id == id,[m
+[32m+[m[32m    orElse: () => kProductCategories.first,[m
+[32m+[m[32m  );[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mList<Product> productsByCategory(String categoryId) {[m
+[32m+[m[32m  return kProducts.where((p) => p.categoryId == categoryId).toList();[m
+[32m+[m[32m}[m
+[1mdiff --git a/lib/data/models/customer_profile.dart b/lib/data/models/customer_profile.dart[m
+[1mindex e69de29..4bc804c 100644[m
+[1m--- a/lib/data/models/customer_profile.dart[m
+[1m+++ b/lib/data/models/customer_profile.dart[m
+[36m@@ -0,0 +1,83 @@[m
+[32m+[m[32m/// Customer business-profile data — everything about the customer beyond[m
+[32m+[m[32m/// their login identity (which stays in Firebase). Backed by the[m
+[32m+[m[32m/// `customer_profiles` table in Supabase.[m
+[32m+[m[32mclass CustomerProfile {[m
+[32m+[m[32m  final String firebaseUid;[m
+[32m+[m[32m  final String fullName;[m
+[32m+[m[32m  final String email;[m
+[32m+[m[32m  final String phone;[m
+[32m+[m[32m  final String? rfidCardNumber;[m
+[32m+[m[32m  final String? defaultBranchId;[m
+[32m+[m
+[32m+[m[32m  const CustomerProfile({[m
+[32m+[m[32m    required this.firebaseUid,[m
+[32m+[m[32m    required this.fullName,[m
+[32m+[m[32m    required this.email,[m
+[32m+[m[32m    required this.phone,[m
+[32m+[m[32m    this.rfidCardNumber,[m
+[32m+[m[32m    this.defaultBranchId,[m
+[32m+[m[32m  });[m
+[32m+[m
+[32m+[m[32m  factory CustomerProfile.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return CustomerProfile([m
+[32m+[m[32m      firebaseUid: row['firebase_uid'] as String,[m
+[32m+[m[32m      fullName: (row['full_name'] as String?) ?? '',[m
+[32m+[m[32m      email: (row['email'] as String?) ?? '',[m
+[32m+[m[32m      phone: (row['phone'] as String?) ?? '',[m
+[32m+[m[32m      rfidCardNumber: row['rfid_card_number'] as String?,[m
+[32m+[m[32m      defaultBranchId: row['default_branch_id'] as String?,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  CustomerProfile copyWith({String? fullName, String? email, String? phone}) {[m
+[32m+[m[32m    return CustomerProfile([m
+[32m+[m[32m      firebaseUid: firebaseUid,[m
+[32m+[m[32m      fullName: fullName ?? this.fullName,[m
+[32m+[m[32m      email: email ?? this.email,[m
+[32m+[m[32m      phone: phone ?? this.phone,[m
+[32m+[m[32m      rfidCardNumber: rfidCardNumber,[m
+[32m+[m[32m      defaultBranchId: defaultBranchId,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/// A saved delivery address, backed by `customer_addresses`.[m
+[32m+[m[32mclass CustomerAddress {[m
+[32m+[m[32m  final String id;[m
+[32m+[m[32m  final String label;[m
+[32m+[m[32m  final String recipientName;[m
+[32m+[m[32m  final String phone;[m
+[32m+[m[32m  final String line1;[m
+[32m+[m[32m  final String city;[m
+[32m+[m[32m  final String province;[m
+[32m+[m[32m  final String postalCode;[m
+[32m+[m[32m  final bool isDefault;[m
+[32m+[m
+[32m+[m[32m  const CustomerAddress({[m
+[32m+[m[32m    required this.id,[m
+[32m+[m[32m    required this.label,[m
+[32m+[m[32m    required this.recipientName,[m
+[32m+[m[32m    required this.phone,[m
+[32m+[m[32m    required this.line1,[m
+[32m+[m[32m    required this.city,[m
+[32m+[m[32m    required this.province,[m
+[32m+[m[32m    required this.postalCode,[m
+[32m+[m[32m    this.isDefault = false,[m
+[32m+[m[32m  });[m
+[32m+[m
+[32m+[m[32m  factory CustomerAddress.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return CustomerAddress([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      label: (row['label'] as String?) ?? 'Home',[m
+[32m+[m[32m      recipientName: row['recipient_name'] as String,[m
+[32m+[m[32m      phone: row['phone'] as String,[m
+[32m+[m[32m      line1: row['line1'] as String,[m
+[32m+[m[32m      city: row['city'] as String,[m
+[32m+[m[32m      province: (row['province'] as String?) ?? 'Laguna',[m
+[32m+[m[32m      postalCode: (row['postal_code'] as String?) ?? '',[m
+[32m+[m[32m      isDefault: (row['is_default'] as bool?) ?? false,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  String get fullAddress => '$line1, $city, $province $postalCode'.trim();[m
+[32m+[m[32m}[m
+[1mdiff --git a/lib/data/models/loyalty.dart b/lib/data/models/loyalty.dart[m
+[1mindex 9821e29..4a762ef 100644[m
+[1m--- a/lib/data/models/loyalty.dart[m
+[1m+++ b/lib/data/models/loyalty.dart[m
+[36m@@ -1,7 +1,18 @@[m
+ import 'package:flutter/material.dart';[m
+[32m+[m[32mimport '../repositories/icon_registry.dart';[m
+ [m
+ enum LoyaltyTransactionType { earn, redeem }[m
+ [m
+[32m+[m[32m/// Passed as route arguments to [RedemptionSuccessScreen] once a redemption[m
+[32m+[m[32m/// has actually been recorded server-side — [pointsAfter] is the real new[m
+[32m+[m[32m/// balance returned by the `redeem_reward` Supabase function, never a guess.[m
+[32m+[m[32mclass RedemptionResult {[m
+[32m+[m[32m  final RewardItem reward;[m
+[32m+[m[32m  final int pointsAfter;[m
+[32m+[m
+[32m+[m[32m  const RedemptionResult({required this.reward, required this.pointsAfter});[m
+[32m+[m[32m}[m
+[32m+[m
+ class LoyaltyPointTransaction {[m
+   final String id;[m
+   final DateTime date;[m
+[36m@@ -16,6 +27,16 @@[m [mclass LoyaltyPointTransaction {[m
+     required this.type,[m
+     required this.description,[m
+   });[m
+[32m+[m
+[32m+[m[32m  factory LoyaltyPointTransaction.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return LoyaltyPointTransaction([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      date: DateTime.parse(row['created_at'] as String).toLocal(),[m
+[32m+[m[32m      points: (row['points'] as int).abs(),[m
+[32m+[m[32m      type: LoyaltyTransactionType.values.byName(row['type'] as String),[m
+[32m+[m[32m      description: row['description'] as String,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+ [m
+ /// A redeemable loyalty reward.[m
+[36m@@ -41,4 +62,16 @@[m [mclass RewardItem {[m
+     required this.icon,[m
+     required this.color,[m
+   });[m
+[32m+[m
+[32m+[m[32m  factory RewardItem.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return RewardItem([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      title: row['title'] as String,[m
+[32m+[m[32m      description: (row['description'] as String?) ?? '',[m
+[32m+[m[32m      pointsRequired: row['points_required'] as int,[m
+[32m+[m[32m      badgeLabel: (row['badge_label'] as String?) ?? '',[m
+[32m+[m[32m      icon: IconRegistry.icon(row['icon_name'] as String?, fallback: Icons.redeem_rounded),[m
+[32m+[m[32m      color: IconRegistry.color(row['color_hex'] as String?),[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+[1mdiff --git a/lib/data/models/notification_item.dart b/lib/data/models/notification_item.dart[m
+[1mindex ac97e6c..c459659 100644[m
+[1m--- a/lib/data/models/notification_item.dart[m
+[1m+++ b/lib/data/models/notification_item.dart[m
+[36m@@ -78,4 +78,15 @@[m [mclass NotificationItem {[m
+     required this.time,[m
+     this.read = false,[m
+   });[m
+[32m+[m
+[32m+[m[32m  factory NotificationItem.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return NotificationItem([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      category: NotificationCategory.values.byName(row['category'] as String),[m
+[32m+[m[32m      title: row['title'] as String,[m
+[32m+[m[32m      body: row['body'] as String,[m
+[32m+[m[32m      time: DateTime.parse(row['created_at'] as String).toLocal(),[m
+[32m+[m[32m      read: (row['read'] as bool?) ?? false,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+[1mdiff --git a/lib/data/models/order.dart b/lib/data/models/order.dart[m
+[1mindex e794489..de621b4 100644[m
+[1m--- a/lib/data/models/order.dart[m
+[1m+++ b/lib/data/models/order.dart[m
+[36m@@ -58,6 +58,15 @@[m [mclass OrderItem {[m
+   });[m
+ [m
+   double get total => unitPrice * quantity;[m
+[32m+[m
+[32m+[m[32m  factory OrderItem.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return OrderItem([m
+[32m+[m[32m      productName: row['product_name'] as String,[m
+[32m+[m[32m      variantLabel: (row['variant_label'] as String?) ?? 'Regular',[m
+[32m+[m[32m      quantity: row['quantity'] as int,[m
+[32m+[m[32m      unitPrice: (row['unit_price'] as num).toDouble(),[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+ [m
+ /// A single step in an order's tracking timeline.[m
+[36m@@ -75,6 +84,29 @@[m [mclass OrderTimelineStep {[m
+     this.done = false,[m
+     this.current = false,[m
+   });[m
+[32m+[m
+[32m+[m[32m  /// Builds the real timeline from `order_status_events` rows (oldest[m
+[32m+[m[32m  /// first) — every step here actually happened, at the time shown. There[m
+[32m+[m[32m  /// are no placeholder "upcoming" steps, since we don't know the future.[m
+[32m+[m[32m  static List<OrderTimelineStep> fromEventRows(List<Map<String, dynamic>> rows) {[m
+[32m+[m[32m    final steps = <OrderTimelineStep>[];[m
+[32m+[m[32m    for (var i = 0; i < rows.length; i++) {[m
+[32m+[m[32m      final row = rows[i];[m
+[32m+[m[32m      final status = OrderStatus.values.byName(row['status'] as String);[m
+[32m+[m[32m      final isLast = i == rows.length - 1;[m
+[32m+[m[32m      final createdAt = DateTime.parse(row['created_at'] as String).toLocal();[m
+[32m+[m[32m      steps.add([m
+[32m+[m[32m        OrderTimelineStep([m
+[32m+[m[32m          label: status.label,[m
+[32m+[m[32m          description: (row['note'] as String?) ?? 'Order ${status.label.toLowerCase()}',[m
+[32m+[m[32m          time: '${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}',[m
+[32m+[m[32m          done: true,[m
+[32m+[m[32m          current: isLast,[m
+[32m+[m[32m        ),[m
+[32m+[m[32m      );[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return steps;[m
+[32m+[m[32m  }[m
+ }[m
+ [m
+ /// A dummy/static customer order.[m
+[36m@@ -112,4 +144,26 @@[m [mclass Order {[m
+   double get subtotal => items.fold(0, (sum, i) => sum + i.total);[m
+   double get total => subtotal - discount + deliveryFee;[m
+   int get itemCount => items.fold(0, (sum, i) => sum + i.quantity);[m
+[32m+[m
+[32m+[m[32m  factory Order.fromRow([m
+[32m+[m[32m    Map<String, dynamic> row, {[m
+[32m+[m[32m    required List<Map<String, dynamic>> itemRows,[m
+[32m+[m[32m    List<Map<String, dynamic>> eventRows = const [],[m
+[32m+[m[32m  }) {[m
+[32m+[m[32m    return Order([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      date: DateTime.parse(row['created_at'] as String).toLocal(),[m
+[32m+[m[32m      status: OrderStatus.values.byName(row['status'] as String),[m
+[32m+[m[32m      branch: row['branch_name'] as String,[m
+[32m+[m[32m      isDelivery: row['is_delivery'] as bool,[m
+[32m+[m[32m      items: itemRows.map(OrderItem.fromRow).toList(),[m
+[32m+[m[32m      discount: (row['discount'] as num).toDouble(),[m
+[32m+[m[32m      deliveryFee: (row['delivery_fee'] as num).toDouble(),[m
+[32m+[m[32m      paymentMethod: row['payment_method'] as String,[m
+[32m+[m[32m      pointsEarned: row['points_earned'] as int,[m
+[32m+[m[32m      riderName: row['rider_name'] as String?,[m
+[32m+[m[32m      etaLabel: row['eta_label'] as String?,[m
+[32m+[m[32m      timeline: OrderTimelineStep.fromEventRows(eventRows),[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+[1mdiff --git a/lib/data/models/payment.dart b/lib/data/models/payment.dart[m
+[1mindex 527785c..9529997 100644[m
+[1m--- a/lib/data/models/payment.dart[m
+[1m+++ b/lib/data/models/payment.dart[m
+[36m@@ -95,4 +95,16 @@[m [mclass PaymentTransaction {[m
+     required this.amount,[m
+     required this.referenceNumber,[m
+   });[m
+[32m+[m
+[32m+[m[32m  factory PaymentTransaction.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return PaymentTransaction([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      orderId: row['order_id'] as String,[m
+[32m+[m[32m      date: DateTime.parse(row['created_at'] as String).toLocal(),[m
+[32m+[m[32m      method: PaymentMethod.values.byName(row['method'] as String),[m
+[32m+[m[32m      status: PaymentStatus.values.byName(row['status'] as String),[m
+[32m+[m[32m      amount: (row['amount'] as num).toDouble(),[m
+[32m+[m[32m      referenceNumber: row['reference_number'] as String,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+[1mdiff --git a/lib/data/models/product.dart b/lib/data/models/product.dart[m
+[1mindex 3d0f3e3..85a83e5 100644[m
+[1m--- a/lib/data/models/product.dart[m
+[1m+++ b/lib/data/models/product.dart[m
+[36m@@ -1,4 +1,5 @@[m
+ import 'package:flutter/material.dart';[m
+[32m+[m[32mimport '../repositories/icon_registry.dart';[m
+ [m
+ /// A single purchasable size/packaging option for a [Product][m
+ /// (e.g. "100g Retail Foil" vs "250g Standup Pouch").[m
+[36m@@ -35,6 +36,19 @@[m [mclass ProductVariant {[m
+       costPrice == null || price == 0 ? 0 : ((price - costPrice!) / price) * 100;[m
+ [m
+   double get netProfit => costPrice == null ? 0 : price - costPrice!;[m
+[32m+[m
+[32m+[m[32m  /// Builds a variant from a `product_variants` row, optionally folding in[m
+[32m+[m[32m  /// the stock on hand for one branch (summed from `branch_inventory`).[m
+[32m+[m[32m  factory ProductVariant.fromRow(Map<String, dynamic> row, {int? stockOnHand}) {[m
+[32m+[m[32m    return ProductVariant([m
+[32m+[m[32m      label: row['label'] as String,[m
+[32m+[m[32m      price: (row['price'] as num).toDouble(),[m
+[32m+[m[32m      badge: row['badge'] as String?,[m
+[32m+[m[32m      costPrice: (row['cost_price'] as num?)?.toDouble(),[m
+[32m+[m[32m      sku: row['sku'] as String?,[m
+[32m+[m[32m      stockOnHand: stockOnHand,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+ [m
+ /// A product category (e.g. Garlic Nuts, Sweet Peanuts).[m
+[36m@@ -50,6 +64,16 @@[m [mclass ProductCategory {[m
+     required this.icon,[m
+     required this.color,[m
+   });[m
+[32m+[m
+[32m+[m[32m  /// Builds a category from a `product_categories` row.[m
+[32m+[m[32m  factory ProductCategory.fromRow(Map<String, dynamic> row) {[m
+[32m+[m[32m    return ProductCategory([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      name: row['label'] as String,[m
+[32m+[m[32m      icon: IconRegistry.icon(row['icon_name'] as String?),[m
+[32m+[m[32m      color: const Color(0xFF8D6E63),[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+ [m
+ /// Dummy/static product used throughout the customer storefront.[m
+[36m@@ -128,4 +152,38 @@[m [mclass Product {[m
+   double get netProfitPerUnit => price - costPrice;[m
+ [m
+   double get monthlyRevenue => price * unitsSoldLast30Days;[m
+[32m+[m
+[32m+[m[32m  /// Builds a product from a `products` row plus its already-fetched[m
+[32m+[m[32m  /// `product_variants` rows and per-branch stock. There is no review system[m
+[32m+[m[32m  /// backing this app yet, so rating/reviewCount stay at 0 (honestly "no[m
+[32m+[m[32m  /// reviews yet") rather than a made-up number.[m
+[32m+[m[32m  factory Product.fromRow([m
+[32m+[m[32m    Map<String, dynamic> row, {[m
+[32m+[m[32m    required List<Map<String, dynamic>> variantRows,[m
+[32m+[m[32m    required Map<String, int> stockByVariantId,[m
+[32m+[m[32m    required List<String> branchAvailability,[m
+[32m+[m[32m  }) {[m
+[32m+[m[32m    final totalStock = stockByVariantId.values.fold<int>(0, (a, b) => a + b);[m
+[32m+[m[32m    final variants = variantRows[m
+[32m+[m[32m        .map((v) => ProductVariant.fromRow(v, stockOnHand: stockByVariantId[v['id']]))[m
+[32m+[m[32m        .toList();[m
+[32m+[m[32m    return Product([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      name: row['name'] as String,[m
+[32m+[m[32m      variantLabel: variants.isNotEmpty ? variants.first.label : '',[m
+[32m+[m[32m      categoryId: (row['category_id'] as String?) ?? '',[m
+[32m+[m[32m      price: (row['price'] as num).toDouble(),[m
+[32m+[m[32m      rating: 0,[m
+[32m+[m[32m      reviewCount: 0,[m
+[32m+[m[32m      stockLabel: totalStock <= 0[m
+[32m+[m[32m          ? 'Out of Stock'[m
+[32m+[m[32m          : (totalStock <= 10 ? 'Low Stock' : 'In Stock'),[m
+[32m+[m[32m      description: (row['description'] as String?) ?? '',[m
+[32m+[m[32m      branchAvailability: branchAvailability,[m
+[32m+[m[32m      variants: variants,[m
+[32m+[m[32m      icon: IconRegistry.icon(row['icon_name'] as String?, fallback: Icons.eco_rounded),[m
+[32m+[m[32m      color: IconRegistry.color(row['color_hex'] as String?),[m
+[32m+[m[32m      isActive: (row['is_active'] as bool?) ?? true,[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+ }[m
+[1mdiff --git a/lib/data/models/refund.dart b/lib/data/models/refund.dart[m
+[1mindex 8a7a0bf..db4b272 100644[m
+[1m--- a/lib/data/models/refund.dart[m
+[1m+++ b/lib/data/models/refund.dart[m
+[36m@@ -72,4 +72,43 @@[m [mclass RefundRequest {[m
+   });[m
+ [m
+   int get itemCount => items.fold(0, (sum, i) => sum + i.quantity);[m
+[32m+[m
+[32m+[m[32m  factory RefundRequest.fromRow([m
+[32m+[m[32m    Map<String, dynamic> row, {[m
+[32m+[m[32m    required List<Map<String, dynamic>> itemRows,[m
+[32m+[m[32m    List<Map<String, dynamic>> eventRows = const [],[m
+[32m+[m[32m  }) {[m
+[32m+[m[32m    return RefundRequest([m
+[32m+[m[32m      id: row['id'] as String,[m
+[32m+[m[32m      orderId: row['order_id'] as String,[m
+[32m+[m[32m      requestedDate: DateTime.parse(row['created_at'] as String).toLocal(),[m
+[32m+[m[32m      status: RefundStatus.values.byName(row['status'] as String),[m
+[32m+[m[32m      reason: row['reason'] as String,[m
+[32m+[m[32m      notes: (row['notes'] as String?) ?? '',[m
+[32m+[m[32m      items: itemRows.map(OrderItem.fromRow).toList(),[m
+[32m+[m[32m      amount: (row['amount'] as num).toDouble(),[m
+[32m+[m[32m      paymentMethod: row['payment_method'] as String,[m
+[32m+[m[32m      timeline: _timelineFromEvents(eventRows),[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  static List<OrderTimelineStep> _timelineFromEvents(List<Map<String, dynamic>> rows) {[m
+[32m+[m[32m    final steps = <OrderTimelineStep>[];[m
+[32m+[m[32m    for (var i = 0; i < rows.length; i++) {[m
+[32m+[m[32m      final row = rows[i];[m
+[32m+[m[32m      final status = RefundStatus.values.byName(row['status'] as String);[m
+[32m+[m[32m      final isLast = i == rows.length - 1;[m
+[32m+[m[3

@@ -4,7 +4,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/dummy_data/dummy_products.dart';
 import '../../../data/models/order.dart';
+import '../cart_controller.dart';
 import '../widgets/order_status_badge.dart';
 import 'repeat_order_screen.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -18,6 +20,27 @@ class OrderDetailsScreen extends StatelessWidget {
   final Order order;
 
   const OrderDetailsScreen({super.key, required this.order});
+
+  void _reorderItem(BuildContext context, OrderItem item) {
+    final matches = kProducts.where((p) => p.name == item.productName);
+    if (matches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${item.productName} is no longer available.')),
+      );
+      return;
+    }
+    final product = matches.first;
+    final variantMatches = product.variants.where((v) => v.label == item.variantLabel);
+    final variant = variantMatches.isEmpty ? product.variants.first : variantMatches.first;
+    final added = CartController.instance.addProduct(product, variant, quantity: item.quantity);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added > 0 ? 'Added $added x ${item.productName} to cart' : '${item.productName} is out of stock',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,9 +135,7 @@ class OrderDetailsScreen extends StatelessWidget {
                       Align(
                         alignment: Alignment.centerRight,
                         child: OutlinedButton.icon(
-                          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Simulated reorder of ${item.productName}')),
-                          ),
+                          onPressed: () => _reorderItem(context, item),
                           icon: const Icon(Icons.shopping_cart_outlined, size: 16),
                           label: const Text('Reorder SKU'),
                         ),

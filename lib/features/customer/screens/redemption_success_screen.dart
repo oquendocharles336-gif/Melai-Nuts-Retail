@@ -10,9 +10,9 @@ class RedemptionSuccessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reward = ModalRoute.of(context)!.settings.arguments as RewardItem;
-    const userPointsBefore = 250;
-    final userPointsAfter = userPointsBefore - reward.pointsRequired;
+    final result = ModalRoute.of(context)!.settings.arguments as RedemptionResult;
+    final reward = result.reward;
+    final userPointsAfter = result.pointsAfter;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,

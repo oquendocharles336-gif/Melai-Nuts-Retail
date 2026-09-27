@@ -7,6 +7,7 @@ import '../../data/models/app_user.dart';
 import '../../data/models/user_role.dart';
 import '../../features/customer/cart_controller.dart';
 import '../constants/app_constants.dart';
+import 'customer_data_store.dart';
 import 'data_sync_service.dart';
 import 'email_verification_service.dart';
 
@@ -452,7 +453,8 @@ class AuthService {
   Future<void> signOut() async {
     _userInitiatedSignOut = true;
     _currentProfile = null;
-    CartController.instance.clear();
+    CartController.instance.endSession();
+    CustomerDataStore.instance.clear();
     await DataSyncService.instance.syncPendingWrites();
     await _auth.signOut();
   }
@@ -509,6 +511,26 @@ class AuthService {
       );
     }
     _currentProfile = appUser;
+
+    if (appUser.role == UserRole.customer) {
+      // Business data lives in Supabase, keyed by this same Firebase UID.
+      // Best-effort: a slow/offline connection here must not block sign-in
+      // itself (the screens that need this data load it themselves too).
+      try {
+        await CustomerDataStore.instance.ensureProfile(
+          firebaseUid: appUser.uid,
+          fallbackName: appUser.name,
+          fallbackEmail: appUser.email,
+        );
+        await Future.wait([
+          CartController.instance.hydrate(appUser.uid),
+          CustomerDataStore.instance.loadForCustomer(appUser.uid),
+        ]);
+      } catch (_) {
+        // Non-fatal — individual screens retry their own data on open.
+      }
+    }
+
     return appUser;
   }
 

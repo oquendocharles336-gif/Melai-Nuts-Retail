@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
+import '../repositories/icon_registry.dart';
 
 enum LoyaltyTransactionType { earn, redeem }
+
+/// Passed as route arguments to [RedemptionSuccessScreen] once a redemption
+/// has actually been recorded server-side — [pointsAfter] is the real new
+/// balance returned by the `redeem_reward` Supabase function, never a guess.
+class RedemptionResult {
+  final RewardItem reward;
+  final int pointsAfter;
+
+  const RedemptionResult({required this.reward, required this.pointsAfter});
+}
 
 class LoyaltyPointTransaction {
   final String id;
@@ -16,6 +27,16 @@ class LoyaltyPointTransaction {
     required this.type,
     required this.description,
   });
+
+  factory LoyaltyPointTransaction.fromRow(Map<String, dynamic> row) {
+    return LoyaltyPointTransaction(
+      id: row['id'] as String,
+      date: DateTime.parse(row['created_at'] as String).toLocal(),
+      points: (row['points'] as int).abs(),
+      type: LoyaltyTransactionType.values.byName(row['type'] as String),
+      description: row['description'] as String,
+    );
+  }
 }
 
 /// A redeemable loyalty reward.
@@ -41,4 +62,16 @@ class RewardItem {
     required this.icon,
     required this.color,
   });
+
+  factory RewardItem.fromRow(Map<String, dynamic> row) {
+    return RewardItem(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      description: (row['description'] as String?) ?? '',
+      pointsRequired: row['points_required'] as int,
+      badgeLabel: (row['badge_label'] as String?) ?? '',
+      icon: IconRegistry.icon(row['icon_name'] as String?, fallback: Icons.redeem_rounded),
+      color: IconRegistry.color(row['color_hex'] as String?),
+    );
+  }
 }

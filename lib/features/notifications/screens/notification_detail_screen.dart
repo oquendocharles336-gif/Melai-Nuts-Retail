@@ -6,6 +6,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/models/notification_item.dart';
+import '../../../data/repositories/notifications_repository.dart';
 
 class NotificationDetailScreen extends StatelessWidget {
   final NotificationItem item;
@@ -14,6 +15,7 @@ class NotificationDetailScreen extends StatelessWidget {
 
   void _delete(BuildContext context) {
     kNotifications.removeWhere((n) => n.id == item.id);
+    NotificationsRepository.instance.delete(item.id).catchError((_) {});
     Navigator.of(context).pop();
   }
 
