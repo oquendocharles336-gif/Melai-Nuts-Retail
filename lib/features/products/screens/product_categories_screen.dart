@@ -5,7 +5,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
-import 'product_list_screen.dart';
+import '../../../app/routes.dart';
 
 /// Dedicated "browse by category" screen — a grid of every product
 /// category. Tapping a category opens [ProductListScreen] filtered to it.
@@ -32,10 +32,9 @@ class ProductCategoriesScreen extends StatelessWidget {
             final count = productsByCategory(cat.id).length;
             return InkWell(
               borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ProductListScreen(categoryId: cat.id),
-                ),
+              onTap: () => Navigator.of(context).pushNamed(
+                AppRoutes.customerProductList,
+                arguments: cat.id,
               ),
               child: Container(
                 padding: const EdgeInsets.all(14),

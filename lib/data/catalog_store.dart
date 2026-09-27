@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
 import 'models/product.dart';
+import 'models/promotion.dart';
 
 /// In-memory cache of the real product catalog, populated exclusively by
 /// [ProductsRepository.loadCatalog] from Supabase (`product_categories` /
@@ -11,15 +12,16 @@ import 'models/product.dart';
 /// storefront's existing empty-state UI rather than fake placeholder rows.
 List<ProductCategory> kProductCategories = <ProductCategory>[];
 
+/// Real staff-managed promotions loaded from Supabase.
+final List<Promotion> kPromotions = <Promotion>[];
+
 /// Real product catalog — starts empty until loaded from Supabase.
 final List<Product> kProducts = <Product>[];
 
 /// "Popular Near You" ranking for the customer Home dashboard, ranked by
-/// real units sold across all branches (see
-/// `ProductsRepository.loadCatalog` / `public.get_popular_products`).
-/// Starts empty; falls back to staff-curated [Product.isFeatured] products,
-/// then to the first few active products, only once nothing has sold yet —
-/// never to a fabricated ranking.
+/// real units sold across all branches through the Supabase RPC
+/// `get_popular_products`. It stays empty until the backend has real sales
+/// data; no fallback products are fabricated.
 final List<Product> kPopularProducts = <Product>[];
 
 /// Placeholder shown when a product id can't be found (e.g. it was

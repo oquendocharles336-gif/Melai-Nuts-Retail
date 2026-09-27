@@ -8,7 +8,6 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/dummy_data/dummy_promotions.dart';
 import '../../../data/models/notification_item.dart';
 import '../../../data/models/order.dart';
 import '../../../data/models/product.dart';

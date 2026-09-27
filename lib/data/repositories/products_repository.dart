@@ -1,8 +1,7 @@
-import 'package:melai_nuts/data/catalog_store.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/supabase_service.dart';
-import '../dummy_data/dummy_promotions.dart';
+import '../catalog_store.dart';
 import '../models/product.dart';
 import '../models/promotion.dart';
 
@@ -37,64 +36,39 @@ class ProductsRepository {
           .select()
           .eq('is_active', true)
           .order('sort_order');
-      final branchesRaw = await _client.from('branches').select().eq('is_active', true);
+
+      final branchesRaw = await _client
+          .from('branches')
+          .select()
+          .eq('is_active', true);
+
       final productsRaw = await _client
           .from('products')
           .select()
           .eq('is_active', true)
           .order('name');
-      final variantsRaw = await _client
-          .from('product_variants')
-          .select()
-          .order('sort_order');
-      final inventoryRaw = branchId == null
-          ? await _client.from('branch_inventory').select()
-          : await _client.from('branch_inventory').select().eq('branch_id', branchId);
 
-      final branchNameById = <String, String>{
-        for (final b in List<Map<String, dynamic>>.from(branchesRaw)) b['id'] as String: b['name'] as String,
-      };
+      final products = await _hydrateProducts(
+        List<Map<String, dynamic>>.from(productsRaw),
+        branchId: branchId,
+        branchesRaw: List<Map<String, dynamic>>.from(branchesRaw),
+      );
 
-      final variantsByProduct = <String, List<Map<String, dynamic>>>{};
-      for (final v in List<Map<String, dynamic>>.from(variantsRaw)) {
-        variantsByProduct.putIfAbsent(v['product_id'] as String, () => []).add(v);
-      }
-
-      // Stock per variant id, total stock per product (regardless of
-      // whether a row is tied to a specific variant), and which branches
-      // carry each product at all.
-      final stockByVariant = <String, int>{};
-      final stockByProduct = <String, int>{};
-      final branchesByProduct = <String, Set<String>>{};
-      for (final inv in List<Map<String, dynamic>>.from(inventoryRaw)) {
-        final variantId = inv['variant_id'] as String?;
-        final productId = inv['product_id'] as String;
-        final qty = inv['quantity'] as int;
-        if (variantId != null) {
-          stockByVariant[variantId] = (stockByVariant[variantId] ?? 0) + qty;
-        }
-        stockByProduct[productId] = (stockByProduct[productId] ?? 0) + qty;
-        if (qty > 0) {
-          final branchName = branchNameById[inv['branch_id'] as String];
-          if (branchName != null) {
-            branchesByProduct.putIfAbsent(productId, () => {}).add(branchName);
-          }
+      final categoryCounts = <String, int>{};
+      for (final product in products) {
+        if (product.categoryId.isNotEmpty) {
+          categoryCounts[product.categoryId] =
+              (categoryCounts[product.categoryId] ?? 0) + 1;
         }
       }
-
-      final products = List<Map<String, dynamic>>.from(productsRaw).map((row) {
-        final id = row['id'] as String;
-        return Product.fromRow(
-          row,
-          variantRows: variantsByProduct[id] ?? const [],
-          stockByVariantId: stockByVariant,
-          branchAvailability: (branchesByProduct[id] ?? const <String>{}).toList()..sort(),
-          totalStock: stockByProduct[id] ?? 0,
-        );
-      }).toList();
 
       final categories = List<Map<String, dynamic>>.from(categoriesRaw)
+          .map((row) => <String, dynamic>{
+                ...row,
+                'product_count': categoryCounts[row['id'] as String] ?? 0,
+              })
           .map(ProductCategory.fromRow)
+          .where((category) => category.isActive)
           .toList();
 
       kProductCategories
@@ -104,21 +78,192 @@ class ProductsRepository {
         ..clear()
         ..addAll(products);
 
-      // These depend on `products` already being populated above, and are
-      // each independently best-effort: a failure in either must not wipe
-      // out the catalog we just loaded.
       await Future.wait([
         _loadPromotions(),
         _loadPopularProducts(),
       ]);
     } catch (_) {
-      // Offline or the schema isn't set up yet — leave whatever's already
-      // cached (the fallback categories, and any previously loaded
-      // products) so the storefront's existing empty-state UI handles it
-      // gracefully instead of crashing.
+      // Network/schema failures leave the last successful live catalog in
+      // place. Screens that need a strict loading/error state use the
+      // dedicated fetch methods below.
     } finally {
       _loading = false;
     }
+  }
+
+  /// Fetches active categories and their current active-product counts
+  /// directly from Supabase. The returned categories are also copied into
+  /// the shared catalog cache so existing screens remain compatible.
+  Future<List<ProductCategory>> fetchActiveCategoriesWithCounts() async {
+    final categoriesRaw = await _client
+        .from('product_categories')
+        .select()
+        .eq('is_active', true)
+        .order('sort_order');
+
+    final productsRaw = await _client
+        .from('products')
+        .select('id,category_id')
+        .eq('is_active', true);
+
+    final counts = <String, int>{};
+    for (final row in List<Map<String, dynamic>>.from(productsRaw)) {
+      final categoryId = row['category_id'] as String?;
+      if (categoryId != null && categoryId.isNotEmpty) {
+        counts[categoryId] = (counts[categoryId] ?? 0) + 1;
+      }
+    }
+
+    final categories = List<Map<String, dynamic>>.from(categoriesRaw)
+        .map((row) => <String, dynamic>{
+              ...row,
+              'product_count': counts[row['id'] as String] ?? 0,
+            })
+        .map(ProductCategory.fromRow)
+        .toList();
+
+    kProductCategories
+      ..clear()
+      ..addAll(categories);
+    return categories;
+  }
+
+  /// Searches active products in Supabase using the database search function.
+  ///
+  /// Search is performed against product name, category name, product SKU,
+  /// variant SKU, and partial tag text. Optional category IDs and price
+  /// bounds are also applied server-side.
+  Future<List<Product>> searchProducts({
+    required String query,
+    Set<String> categoryIds = const {},
+    double? minPrice,
+    double? maxPrice,
+    String? branchId,
+  }) async {
+    final q = query.trim();
+    final params = <String, dynamic>{
+      'p_query': q,
+      'p_category_ids':
+          categoryIds.isEmpty ? null : categoryIds.toList(growable: false),
+      'p_min_price': minPrice,
+      'p_max_price': maxPrice,
+      'p_limit': 100,
+    };
+
+    final raw = await _client.rpc('search_customer_products', params: params);
+    final rows = List<Map<String, dynamic>>.from(raw as List);
+
+    if (rows.isEmpty) return const [];
+
+    final branchesRaw = await _client
+        .from('branches')
+        .select()
+        .eq('is_active', true);
+
+    final products = await _hydrateProducts(
+      rows,
+      branchId: branchId,
+      branchesRaw: List<Map<String, dynamic>>.from(branchesRaw),
+    );
+
+    return products;
+  }
+
+  /// Loads one category's current active products straight from Supabase.
+  Future<List<Product>> fetchProductsByCategory(
+    String categoryId, {
+    String? branchId,
+  }) async {
+    final raw = await _client
+        .from('products')
+        .select()
+        .eq('is_active', true)
+        .eq('category_id', categoryId)
+        .order('name');
+
+    if (raw.isEmpty) return const [];
+
+    final branchesRaw = await _client
+        .from('branches')
+        .select()
+        .eq('is_active', true);
+
+    return _hydrateProducts(
+      List<Map<String, dynamic>>.from(raw),
+      branchId: branchId,
+      branchesRaw: List<Map<String, dynamic>>.from(branchesRaw),
+    );
+  }
+
+  Future<List<Product>> _hydrateProducts(
+    List<Map<String, dynamic>> productRows, {
+    String? branchId,
+    required List<Map<String, dynamic>> branchesRaw,
+  }) async {
+    if (productRows.isEmpty) return const [];
+
+    final ids = productRows.map((row) => row['id'] as String).toList();
+
+    final variantsRaw = await _client
+        .from('product_variants')
+        .select()
+        .inFilter('product_id', ids)
+        .order('sort_order');
+
+    final inventoryQuery = _client.from('branch_inventory').select();
+    final inventoryRaw = branchId == null
+        ? await inventoryQuery.inFilter('product_id', ids)
+        : await inventoryQuery
+            .eq('branch_id', branchId)
+            .inFilter('product_id', ids);
+
+    final branchNameById = <String, String>{
+      for (final b in branchesRaw)
+        b['id'] as String: b['name'] as String,
+    };
+
+    final variantsByProduct = <String, List<Map<String, dynamic>>>{};
+    for (final variant in List<Map<String, dynamic>>.from(variantsRaw)) {
+      variantsByProduct
+          .putIfAbsent(variant['product_id'] as String, () => [])
+          .add(variant);
+    }
+
+    final stockByVariant = <String, int>{};
+    final stockByProduct = <String, int>{};
+    final branchesByProduct = <String, Set<String>>{};
+
+    for (final inventory in List<Map<String, dynamic>>.from(inventoryRaw)) {
+      final variantId = inventory['variant_id'] as String?;
+      final productId = inventory['product_id'] as String;
+      final quantity = (inventory['quantity'] as num).toInt();
+
+      if (variantId != null) {
+        stockByVariant[variantId] =
+            (stockByVariant[variantId] ?? 0) + quantity;
+      }
+      stockByProduct[productId] =
+          (stockByProduct[productId] ?? 0) + quantity;
+
+      if (quantity > 0) {
+        final branchName = branchNameById[inventory['branch_id'] as String];
+        if (branchName != null) {
+          branchesByProduct.putIfAbsent(productId, () => {}).add(branchName);
+        }
+      }
+    }
+
+    return productRows.map((row) {
+      final id = row['id'] as String;
+      return Product.fromRow(
+        row,
+        variantRows: variantsByProduct[id] ?? const [],
+        stockByVariantId: stockByVariant,
+        branchAvailability:
+            (branchesByProduct[id] ?? const <String>{}).toList()..sort(),
+        totalStock: stockByProduct[id] ?? 0,
+      );
+    }).toList();
   }
 
   /// Fetches active, in-date-window promo banners for the Home dashboard.
@@ -148,12 +293,9 @@ class ProductsRepository {
     }
   }
 
-  /// Ranks the just-loaded [kProducts] by real units sold (via the
-  /// `get_popular_products` RPC, which aggregates across every branch and
-  /// every customer's orders — data no single customer's RLS grant can see
-  /// directly). Falls back to staff-curated [Product.isFeatured] products,
-  /// then to the first few active products, only when nothing has sold yet
-  /// (e.g. a brand-new store) rather than leaving the section empty.
+  /// Ranks the just-loaded [kProducts] by real units sold via the
+  /// `get_popular_products` RPC. An empty result stays empty; the app never
+  /// invents a popularity ranking when there is no sales data yet.
   Future<void> _loadPopularProducts() async {
     List<Product> ranked = const [];
     try {
@@ -165,14 +307,7 @@ class ProductsRepository {
           .whereType<Product>()
           .toList();
     } catch (_) {
-      // RPC not available yet (older schema) or offline — fall through.
-    }
-
-    if (ranked.isEmpty) {
-      ranked = kProducts.where((p) => p.isFeatured).toList();
-    }
-    if (ranked.isEmpty) {
-      ranked = kProducts.take(4).toList();
+      // RPC unavailable/offline — keep the ranking empty instead of inventing it.
     }
 
     kPopularProducts

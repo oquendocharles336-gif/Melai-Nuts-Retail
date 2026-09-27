@@ -1,17 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/primary_button.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
+import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import '../widgets/product_card.dart';
 import 'cart_screen.dart';
 import 'product_details_screen.dart';
 
-/// Search + filter results (matches the prototype's Search Results &
-/// Filters screen, including the "Filter & Refine" bottom sheet).
+/// Customer product search backed by Supabase.
+///
+/// Queries are executed against the real `products`, `product_categories`,
+/// `product_variants`, and `branch_inventory` data through
+/// [ProductsRepository.searchProducts]. No prototype/dummy catalog is used.
 class SearchResultsScreen extends StatefulWidget {
   final String query;
 
@@ -22,32 +28,99 @@ class SearchResultsScreen extends StatefulWidget {
 }
 
 class _SearchResultsScreenState extends State<SearchResultsScreen> {
-  late final TextEditingController _controller = TextEditingController(text: widget.query);
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.query);
+
   final Set<String> _selectedCategories = {};
   RangeValues _priceRange = const RangeValues(50, 300);
 
-  List<Product> get _results {
-    var list = kProducts.where((p) {
-      final query = _controller.text.trim().toLowerCase();
-      final matchesQuery = query.isEmpty ||
-          p.name.toLowerCase().contains(query) ||
-          p.categoryId.toLowerCase().contains(query);
-      final matchesCategory = _selectedCategories.isEmpty || _selectedCategories.contains(p.categoryId);
-      final matchesPrice = p.price >= _priceRange.start && p.price <= _priceRange.end;
-      return matchesQuery && matchesCategory && matchesPrice;
-    }).toList();
-    return list;
+  Timer? _searchDebounce;
+  int _requestVersion = 0;
+  bool _loading = true;
+  String? _error;
+  List<Product> _results = const [];
+  List<ProductCategory> _categories = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCategoriesAndSearch();
+  }
+
+  Future<void> _loadCategoriesAndSearch() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final categories =
+          await ProductsRepository.instance.fetchActiveCategoriesWithCounts();
+      if (!mounted) return;
+      setState(() => _categories = categories);
+      await _runSearch();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'We could not load the product catalog. Please try again.';
+      });
+    }
+  }
+
+  void _scheduleSearch() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), _runSearch);
+  }
+
+  Future<void> _runSearch() async {
+    final request = ++_requestVersion;
+    final query = _controller.text.trim();
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final results = await ProductsRepository.instance.searchProducts(
+        query: query,
+        categoryIds: _selectedCategories,
+        minPrice: _priceRange.start,
+        maxPrice: _priceRange.end,
+        branchId: BranchController.instance.selectedBranch?.id,
+      );
+
+      if (!mounted || request != _requestVersion) return;
+      setState(() {
+        _results = results;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || request != _requestVersion) return;
+      setState(() {
+        _loading = false;
+        _error = 'We could not search products right now. Please try again.';
+      });
+    }
   }
 
   Future<void> _openFilters() async {
+    final categories = _categories;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
+        var temporaryCategories = <String>{..._selectedCategories};
+        var temporaryPriceRange = _priceRange;
+
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
               child: DraggableScrollableSheet(
                 initialChildSize: 0.75,
                 minChildSize: 0.5,
@@ -61,52 +134,63 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Filter & Refine', style: AppTextStyles.headlineSm),
+                          Text('Filter & Refine',
+                              style: AppTextStyles.headlineSm),
                           TextButton(
                             onPressed: () => setSheetState(() {
-                              _selectedCategories.clear();
-                              _priceRange = const RangeValues(50, 300);
+                              temporaryCategories.clear();
+                              temporaryPriceRange =
+                                  const RangeValues(50, 300);
                             }),
                             child: const Text('Reset All'),
                           ),
                         ],
                       ),
                       const SizedBox(height: 10),
-                      Text('Product Category', style: AppTextStyles.titleMd),
+                      Text('Product Category',
+                          style: AppTextStyles.titleMd),
                       const SizedBox(height: 8),
-                      for (final cat in kProductCategories)
+                      for (final category in categories)
                         CheckboxListTile(
-                          value: _selectedCategories.contains(cat.id),
-                          title: Text(cat.name),
-                          secondary: Text('(${productsByCategory(cat.id).length})'),
+                          value: temporaryCategories.contains(category.id),
+                          title: Text(category.name),
+                          secondary: Text('(${category.productCount})'),
                           activeColor: AppColors.primary,
-                          onChanged: (v) => setSheetState(() {
-                            if (v == true) {
-                              _selectedCategories.add(cat.id);
+                          onChanged: (selected) => setSheetState(() {
+                            if (selected == true) {
+                              temporaryCategories.add(category.id);
                             } else {
-                              _selectedCategories.remove(cat.id);
+                              temporaryCategories.remove(category.id);
                             }
                           }),
                         ),
                       const SizedBox(height: 10),
                       Text('Price Range', style: AppTextStyles.titleMd),
                       RangeSlider(
-                        values: _priceRange,
+                        values: temporaryPriceRange,
                         min: 30,
                         max: 300,
                         activeColor: AppColors.primary,
                         labels: RangeLabels(
-                          '₱${_priceRange.start.toStringAsFixed(0)}',
-                          '₱${_priceRange.end.toStringAsFixed(0)}',
+                          '₱${temporaryPriceRange.start.toStringAsFixed(0)}',
+                          '₱${temporaryPriceRange.end.toStringAsFixed(0)}',
                         ),
-                        onChanged: (v) => setSheetState(() => _priceRange = v),
+                        onChanged: (value) => setSheetState(
+                          () => temporaryPriceRange = value,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       PrimaryButton(
-                        label: 'Apply Filters (${_results.length} Results Found)',
+                        label: 'Apply Filters',
                         onPressed: () {
-                          setState(() {});
+                          setState(() {
+                            _selectedCategories
+                              ..clear()
+                              ..addAll(temporaryCategories);
+                            _priceRange = temporaryPriceRange;
+                          });
                           Navigator.of(context).pop();
+                          _runSearch();
                         },
                       ),
                     ],
@@ -122,6 +206,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -129,21 +214,26 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final cart = CartController.instance;
-    final results = _results;
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
         title: TextField(
           controller: _controller,
           autofocus: widget.query.isEmpty,
-          onChanged: (_) => setState(() {}),
+          textInputAction: TextInputAction.search,
+          onChanged: (_) => _scheduleSearch(),
+          onSubmitted: (_) => _runSearch(),
           decoration: const InputDecoration(
             border: InputBorder.none,
             hintText: 'Search Melai Nuts products...',
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
         ],
       ),
       body: SafeArea(
@@ -153,50 +243,33 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             return Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: 8,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('${results.length} results found', style: AppTextStyles.bodyMd),
+                      Text(
+                        _loading ? 'Searching…' : '${_results.length} results found',
+                        style: AppTextStyles.bodyMd,
+                      ),
                       OutlinedButton.icon(
-                        onPressed: _openFilters,
+                        onPressed: _loading && _categories.isEmpty
+                            ? null
+                            : _openFilters,
                         icon: const Icon(Icons.tune_rounded, size: 16),
                         label: Text(
-                          _selectedCategories.isEmpty ? 'Filters' : 'Filters (${_selectedCategories.length})',
+                          _selectedCategories.isEmpty
+                              ? 'Filters'
+                              : 'Filters (${_selectedCategories.length})',
                         ),
                       ),
                     ],
                   ),
                 ),
                 Expanded(
-                  child: results.isEmpty
-                      ? const Center(
-                    child: Text('No products match your search.'),
-                  )
-                      : GridView.builder(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    itemCount: results.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 0.68,
-                    ),
-                    itemBuilder: (context, i) {
-                      final product = results[i];
-                      final defaultVariant = product.variants.first;
-                      return ProductCard(
-                        product: product,
-                        quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ProductDetailsScreen(product: product),
-                          ),
-                        ),
-                        onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
-                      );
-                    },
-                  ),
+                  child: _buildResults(),
                 ),
                 ListenableBuilder(
                   listenable: cart,
@@ -221,7 +294,9 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                             label: 'View Cart (${cart.itemCount})',
                             icon: Icons.shopping_bag_outlined,
                             onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const CartScreen()),
+                              MaterialPageRoute(
+                                builder: (_) => const CartScreen(),
+                              ),
                             ),
                           ),
                         ),
@@ -234,6 +309,111 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildResults() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_rounded, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _loadCategoriesAndSearch,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try Again'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_results.isEmpty) {
+      final query = _controller.text.trim();
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.search_off_rounded, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                query.isEmpty
+                    ? 'No products are currently available.'
+                    : 'No products match “$query”.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd,
+              ),
+              if (_selectedCategories.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Try removing a category or price filter.',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodySm,
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    final cart = CartController.instance;
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      itemCount: _results.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.68,
+      ),
+      itemBuilder: (context, i) {
+        final product = _results[i];
+        if (product.variants.isEmpty) {
+          return ProductCard(
+            product: product,
+            quantityInCart: 0,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ProductDetailsScreen(product: product),
+              ),
+            ),
+            onAdd: () {},
+          );
+        }
+
+        final defaultVariant = product.variants.first;
+        return ProductCard(
+          product: product,
+          quantityInCart:
+              cart.quantityFor(product.id, defaultVariant.label),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ProductDetailsScreen(product: product),
+            ),
+          ),
+          onAdd: () =>
+              addToCartWithFeedback(context, product, defaultVariant),
+        );
+      },
     );
   }
 }

@@ -78,6 +78,9 @@ class ProductCategory {
   /// is hardcoded.
   final bool isActive;
 
+  /// Number of active products currently assigned to this category.
+  final int productCount;
+
   /// Real, staff-uploaded category photo (Supabase Storage/CDN URL). Null
   /// until one is uploaded — screens fall back to [icon]/[color] rather
   /// than a fake stock photo.
@@ -89,6 +92,7 @@ class ProductCategory {
     required this.icon,
     required this.color,
     this.isActive = true,
+    this.productCount = 0,
     this.imageUrl,
   });
 
@@ -100,12 +104,13 @@ class ProductCategory {
       icon: IconRegistry.icon(row['icon_name'] as String?),
       color: const Color(0xFF8D6E63),
       isActive: (row['is_active'] as bool?) ?? true,
+      productCount: (row['product_count'] as num?)?.toInt() ?? 0,
       imageUrl: row['image_url'] as String?,
     );
   }
 }
 
-/// Dummy/static product used throughout the customer storefront.
+/// Product record used throughout the customer storefront. Values come from Supabase.
 ///
 /// There are no bundled product photos in this frontend-only build, so
 /// [icon] + [color] are used to render a consistent, on-brand placeholder

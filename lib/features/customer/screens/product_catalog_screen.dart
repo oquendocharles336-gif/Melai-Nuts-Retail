@@ -146,7 +146,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: CategoryChip(
-                        label: '${cat.name} (${productsByCategory(cat.id).length})',
+                        label: '${cat.name} (${cat.productCount})',
                         selected: _selectedCategory == cat.id,
                         onTap: () => setState(() => _selectedCategory = cat.id),
                       ),

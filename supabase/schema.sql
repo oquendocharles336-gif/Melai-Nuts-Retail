@@ -598,7 +598,68 @@ as $$
   limit greatest(p_limit, 0)
 $$;
 
+
 grant execute on function public.get_popular_products(int) to anon, authenticated;
+
+-- =============================================================================
+-- Customer catalog search
+-- =============================================================================
+-- Searches only active products and active categories. The query covers
+-- product name, product SKU, variant SKU, partial tags, and category name.
+-- Category ids and price bounds are optional server-side filters.
+create or replace function public.search_customer_products(
+  p_query text default '',
+  p_category_ids uuid[] default null,
+  p_min_price numeric default null,
+  p_max_price numeric default null,
+  p_limit int default 100
+)
+returns setof public.products
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select p.*
+  from public.products p
+  where p.is_active
+    and (
+      nullif(trim(p_query), '') is null
+      or p.name ilike '%' || trim(p_query) || '%'
+      or coalesce(p.sku, '') ilike '%' || trim(p_query) || '%'
+      or exists (
+        select 1
+        from unnest(coalesce(p.tags, '{}'::text[])) as tag
+        where tag ilike '%' || trim(p_query) || '%'
+      )
+      or exists (
+        select 1
+        from public.product_variants pv
+        where pv.product_id = p.id
+          and coalesce(pv.sku, '') ilike '%' || trim(p_query) || '%'
+      )
+      or exists (
+        select 1
+        from public.product_categories pc
+        where pc.id = p.category_id
+          and pc.is_active
+          and pc.label ilike '%' || trim(p_query) || '%'
+      )
+    )
+    and (
+      p_category_ids is null
+      or cardinality(p_category_ids) = 0
+      or p.category_id = any(p_category_ids)
+    )
+    and (p_min_price is null or p.price >= p_min_price)
+    and (p_max_price is null or p.price <= p_max_price)
+  order by p.name
+  limit greatest(coalesce(p_limit, 100), 0);
+$$;
+
+grant execute on function public.search_customer_products(
+  text, uuid[], numeric, numeric, int
+) to anon, authenticated;
 
 -- =============================================================================
 -- Row Level Security
