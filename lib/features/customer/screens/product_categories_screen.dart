@@ -4,6 +4,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
+import '../../../data/models/product.dart';
 import 'product_list_screen.dart';
 
 /// Dedicated "browse by category" screen — a grid of every product
@@ -47,15 +48,7 @@ class ProductCategoriesScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: cat.color.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(cat.icon, color: cat.color),
-                    ),
+                    _CategoryAvatar(category: cat),
                     const Spacer(),
                     Text(cat.name, style: AppTextStyles.titleMd),
                     Text('$count items', style: AppTextStyles.bodySm),
@@ -66,6 +59,45 @@ class ProductCategoriesScreen extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+/// Category "photo": the real staff-uploaded image
+/// (`product_categories.image_url`) when one exists, otherwise the on-brand
+/// icon/color placeholder — never a fake stock photo.
+class _CategoryAvatar extends StatelessWidget {
+  final ProductCategory category;
+
+  const _CategoryAvatar({required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = category.imageUrl;
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          imageUrl,
+          width: 44,
+          height: 44,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _placeholder(),
+        ),
+      );
+    }
+    return _placeholder();
+  }
+
+  Widget _placeholder() {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: category.color.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(category.icon, color: category.color),
     );
   }
 }
