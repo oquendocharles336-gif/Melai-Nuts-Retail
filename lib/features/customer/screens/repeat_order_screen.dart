@@ -7,41 +7,149 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/order.dart';
+import '../../../data/models/product.dart';
 import '../cart_controller.dart';
 import 'cart_screen.dart';
+
+/// Outcome of trying to re-add one line from the original order: either it
+/// was added (optionally at a reduced quantity, if stock ran short) or it
+/// was skipped, with a real, specific reason the customer can see —
+/// `order_items` only stores a denormalized product name/variant label, so
+/// there's no id to look up directly, and re-adding blindly (an unmatched
+/// variant silently swapped for whichever one happens to be first, or an
+/// out-of-stock item added anyway) would misrepresent what's actually in
+/// the cart.
+class _RepeatLineResult {
+  final OrderItem item;
+  final bool added;
+  final int quantityAdded;
+  final String? note;
+
+  const _RepeatLineResult({
+    required this.item,
+    required this.added,
+    this.quantityAdded = 0,
+    this.note,
+  });
+}
 
 /// Confirmation step for "Repeat Order": review the previous order's items
 /// and add them all back to the cart in one tap.
 ///
-/// Matches each item to a current [Product] + [ProductVariant] by name so
-/// it can be added through the same [CartController] used everywhere else.
+/// Matches each item to a current [Product] + [ProductVariant] by exact
+/// name so it can be added through the same [CartController] used
+/// everywhere else — verifying, for each line, that the product still
+/// exists and is active, that the exact variant still exists, and that
+/// there's real stock for it at the current branch, and always adding at
+/// today's price (never the order's old `unitPrice`) since [Product] and
+/// [ProductVariant] here come straight from the live, branch-scoped
+/// catalog in `kProducts`.
 class RepeatOrderScreen extends StatelessWidget {
   final Order order;
 
   const RepeatOrderScreen({super.key, required this.order});
 
-  void _repeat(BuildContext context) {
-    int matched = 0;
+  List<_RepeatLineResult> _repeat() {
+    final results = <_RepeatLineResult>[];
     for (final item in order.items) {
-      for (final product in kProducts) {
-        if (product.name.toLowerCase().contains(item.productName.toLowerCase()) ||
-            item.productName.toLowerCase().contains(product.name.toLowerCase())) {
-          final variant = product.variants.firstWhere(
-                (v) => v.label == item.variantLabel,
-            orElse: () => product.variants.first,
-          );
-          CartController.instance.addProduct(product, variant, quantity: item.quantity);
-          matched++;
+      Product? product;
+      for (final p in kProducts) {
+        // kProducts only ever holds active products for the currently
+        // selected branch (see ProductsRepository.loadCatalog), so simply
+        // not finding a match here already covers "no longer exists" and
+        // "no longer active" — no separate isActive check needed.
+        if (p.name.toLowerCase() == item.productName.toLowerCase()) {
+          product = p;
           break;
         }
       }
+      if (product == null) {
+        results.add(_RepeatLineResult(item: item, added: false, note: 'No longer available'));
+        continue;
+      }
+
+      ProductVariant? variant;
+      for (final v in product.variants) {
+        if (v.label.toLowerCase() == item.variantLabel.toLowerCase()) {
+          variant = v;
+          break;
+        }
+      }
+      if (variant == null) {
+        results.add(_RepeatLineResult(
+          item: item,
+          added: false,
+          note: '"${item.variantLabel}" option is no longer available',
+        ));
+        continue;
+      }
+
+      if (variant.isOutOfStock) {
+        results.add(_RepeatLineResult(item: item, added: false, note: 'Out of stock right now'));
+        continue;
+      }
+
+      final stock = variant.stockOnHand;
+      final quantityToAdd = (stock != null && item.quantity > stock) ? stock : item.quantity;
+      CartController.instance.addProduct(product, variant, quantity: quantityToAdd);
+      final capped = quantityToAdd < item.quantity;
+      results.add(_RepeatLineResult(
+        item: item,
+        added: true,
+        quantityAdded: quantityToAdd,
+        note: capped ? 'Only $quantityToAdd of ${item.quantity} in stock — added what\'s available' : null,
+      ));
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Added $matched item(s) from ${order.id} to your cart')),
-    );
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const CartScreen()),
-    );
+    return results;
+  }
+
+  void _handleRepeat(BuildContext context) {
+    final results = _repeat();
+    final addedCount = results.where((r) => r.added).length;
+    final unavailable = results.where((r) => !r.added).toList();
+    final capped = results.where((r) => r.added && r.note != null).toList();
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(addedCount == 0 ? 'Nothing could be added' : 'Added to your cart'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (addedCount > 0)
+                Text('$addedCount item(s) from ${order.id} were added at today\'s prices.'),
+              for (final r in capped)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text('• ${r.item.productName}: ${r.note}', style: AppTextStyles.bodySm.copyWith(color: AppColors.warning)),
+                ),
+              if (unavailable.isNotEmpty) ...[
+                const Padding(padding: EdgeInsets.only(top: 8), child: Divider()),
+                Text('Could not add:', style: AppTextStyles.labelLg),
+                for (final r in unavailable)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('• ${r.item.productName} (${r.item.variantLabel}): ${r.note}', style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+                  ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    ).then((_) {
+      if (addedCount == 0) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const CartScreen()),
+      );
+    });
   }
 
   @override
@@ -130,7 +238,7 @@ class RepeatOrderScreen extends StatelessWidget {
             PrimaryButton(
               label: 'Add All to Cart',
               icon: Icons.shopping_cart_checkout_rounded,
-              onPressed: () => _repeat(context),
+              onPressed: () => _handleRepeat(context),
             ),
             const SizedBox(height: 10),
             SecondaryButton(
