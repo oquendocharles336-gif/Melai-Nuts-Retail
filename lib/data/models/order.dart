@@ -2,7 +2,17 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 
 /// Lifecycle status of a customer order.
-enum OrderStatus { pending, confirmed, preparing, outForDelivery, completed, cancelled }
+enum OrderStatus {
+  pending,
+  confirmed,
+  preparing,
+  readyForPickup,
+  outForDelivery,
+  completed,
+  cancelled,
+  refundRequested,
+  refunded,
+}
 
 extension OrderStatusX on OrderStatus {
   String get label {
@@ -13,17 +23,26 @@ extension OrderStatusX on OrderStatus {
         return 'Confirmed';
       case OrderStatus.preparing:
         return 'Preparing';
+      case OrderStatus.readyForPickup:
+        return 'Ready for Pickup';
       case OrderStatus.outForDelivery:
         return 'Out for Delivery';
       case OrderStatus.completed:
         return 'Completed';
       case OrderStatus.cancelled:
         return 'Cancelled';
+      case OrderStatus.refundRequested:
+        return 'Refund Requested';
+      case OrderStatus.refunded:
+        return 'Refunded';
     }
   }
 
-  bool get isActive =>
-      this != OrderStatus.completed && this != OrderStatus.cancelled;
+  bool get isActive => this == OrderStatus.pending ||
+      this == OrderStatus.confirmed ||
+      this == OrderStatus.preparing ||
+      this == OrderStatus.readyForPickup ||
+      this == OrderStatus.outForDelivery;
 
   Color get color {
     switch (this) {
@@ -33,12 +52,18 @@ extension OrderStatusX on OrderStatus {
         return AppColors.primary;
       case OrderStatus.preparing:
         return AppColors.primary;
+      case OrderStatus.readyForPickup:
+        return AppColors.success;
       case OrderStatus.outForDelivery:
         return AppColors.success;
       case OrderStatus.completed:
         return AppColors.textSecondary;
       case OrderStatus.cancelled:
         return AppColors.error;
+      case OrderStatus.refundRequested:
+        return AppColors.warning;
+      case OrderStatus.refunded:
+        return AppColors.textSecondary;
     }
   }
 }
