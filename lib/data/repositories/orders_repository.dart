@@ -12,10 +12,23 @@ class OrdersRepository {
 
   SupabaseClient get _client => SupabaseService.instance.client;
 
+  /// Places the order through the `place_order` Postgres function instead
+  /// of inserting `orders`/`order_items` directly. That function is the
+  /// only place stock is genuinely, atomically checked and decremented for
+  /// real: it locks each item's `branch_inventory` row, rejects the whole
+  /// order (nothing is written) if any line now asks for more than what's
+  /// actually on the shelf at [branchId] or the product has since gone
+  /// inactive, and otherwise decrements stock and creates the order in one
+  /// transaction. This is the "trust the server, not the client's cached
+  /// stock number" step for checkout — the app never assumes the catalog
+  /// it loaded a few screens ago is still accurate.
+  ///
+  /// Throws with a customer-readable message (e.g. "Only 2 of Roasted
+  /// Cashew left at this branch") when a line can no longer be fulfilled.
   Future<Order> createOrder({
     required String firebaseUid,
     required String branchName,
-    String? branchId,
+    required String branchId,
     required bool isDelivery,
     String? deliveryAddressId,
     required List<OrderItem> items,
@@ -25,46 +38,45 @@ class OrdersRepository {
     required double total,
     required String paymentMethod,
   }) async {
-    final orderRow = await _client
-        .from('orders')
-        .insert({
-          'firebase_uid': firebaseUid,
-          'branch_id': branchId,
-          'branch_name': branchName,
-          'is_delivery': isDelivery,
-          'delivery_address_id': deliveryAddressId,
-          'status': 'pending',
-          'subtotal': subtotal,
-          'discount': discount,
-          'delivery_fee': deliveryFee,
-          'total': total,
-          'payment_method': paymentMethod,
-        })
-        .select()
-        .single();
+    String orderId;
+    try {
+      final result = await _client.rpc('place_order', params: {
+        'p_firebase_uid': firebaseUid,
+        'p_branch_id': branchId,
+        'p_branch_name': branchName,
+        'p_is_delivery': isDelivery,
+        'p_delivery_address_id': deliveryAddressId,
+        'p_items': [
+          for (final item in items)
+            {
+              'product_id': item.productId,
+              'variant_id': item.variantId,
+              'product_name': item.productName,
+              'variant_label': item.variantLabel,
+              'quantity': item.quantity,
+              'unit_price': item.unitPrice,
+            },
+        ],
+        'p_subtotal': subtotal,
+        'p_discount': discount,
+        'p_delivery_fee': deliveryFee,
+        'p_total': total,
+        'p_payment_method': paymentMethod,
+      });
+      orderId = result as String;
+    } on PostgrestException catch (e) {
+      // Re-throw with just the human-readable message the `place_order`
+      // function raised (e.g. a stock/availability check failing) — the
+      // Postgres error code/detail noise isn't useful to the customer.
+      throw Exception(e.message);
+    }
 
-    final orderId = orderRow['id'] as String;
-
-    await _client.from('order_items').insert([
-      for (final item in items)
-        {
-          'order_id': orderId,
-          'product_name': item.productName,
-          'variant_label': item.variantLabel,
-          'quantity': item.quantity,
-          'unit_price': item.unitPrice,
-        },
-    ]);
-
+    final orderRow = await _client.from('orders').select().eq('id', orderId).single();
+    final itemRows = await _client.from('order_items').select().eq('order_id', orderId);
     final events = await _fetchEvents(orderId);
     return Order.fromRow(
       orderRow,
-      itemRows: items.map((i) => {
-            'product_name': i.productName,
-            'variant_label': i.variantLabel,
-            'quantity': i.quantity,
-            'unit_price': i.unitPrice,
-          }).toList(),
+      itemRows: List<Map<String, dynamic>>.from(itemRows),
       eventRows: events,
     );
   }

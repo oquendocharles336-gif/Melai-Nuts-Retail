@@ -50,11 +50,22 @@ class OrderItem {
   final int quantity;
   final double unitPrice;
 
+  /// `products.id` / `product_variants.id` this line was ordered from.
+  /// Only needed transiently, to place the order (see
+  /// [OrdersRepository.createOrder] / the `place_order` RPC), which uses
+  /// them to look up and decrement the exact `branch_inventory` row —
+  /// `order_items` itself still stores the denormalized name/label, not
+  /// these ids, matching the existing schema.
+  final String? productId;
+  final String? variantId;
+
   const OrderItem({
     required this.productName,
     required this.variantLabel,
     required this.quantity,
     required this.unitPrice,
+    this.productId,
+    this.variantId,
   });
 
   double get total => unitPrice * quantity;

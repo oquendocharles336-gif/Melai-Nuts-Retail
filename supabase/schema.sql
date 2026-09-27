@@ -776,3 +776,157 @@ insert into public.rewards (title, description, points_required, badge_label, ic
   ('Free 100g Roasted Cashew', 'Redeem a free small pack of roasted cashew.', 350, 'Most Popular', 'redeem', '#6D4C41'),
   ('Free Delivery Voucher', 'Waive the delivery fee on your next order.', 150, 'Instant Voucher', 'local_shipping', '#A1887F')
 on conflict do nothing;
+
+-- =============================================================================
+-- Migration: real category management + product-targeted promotions +
+-- server-side stock enforcement (customer catalog/checkout hardening)
+-- =============================================================================
+-- Safe to re-run: every statement below is idempotent (IF NOT EXISTS /
+-- CREATE OR REPLACE / DROP POLICY IF EXISTS before CREATE POLICY).
+
+-- -----------------------------------------------------------------------------
+-- Categories: real active/inactive state + optional real photo
+-- -----------------------------------------------------------------------------
+
+alter table public.product_categories add column if not exists is_active boolean not null default true;
+alter table public.product_categories add column if not exists image_url text;
+
+-- Categories follow the same rule as products: only what's currently
+-- active is visible to the storefront (and to any other client using this
+-- same anon/authenticated connection — there is no separate admin role
+-- defined yet, matching how `products.is_active` already works above).
+drop policy if exists "catalog is publicly readable" on public.product_categories;
+create policy "catalog is publicly readable" on public.product_categories for select
+  using (is_active);
+
+-- -----------------------------------------------------------------------------
+-- Promotions: let a banner/offer target one specific product or category,
+-- so Product Details can show real "Applicable Promotions" instead of
+-- nothing. Existing sitewide promos (both columns null) are unaffected —
+-- they keep showing on the Home dashboard as before.
+-- -----------------------------------------------------------------------------
+
+alter table public.promotions add column if not exists product_id uuid references public.products(id) on delete cascade;
+alter table public.promotions add column if not exists category_id uuid references public.product_categories(id) on delete cascade;
+
+-- -----------------------------------------------------------------------------
+-- Atomic, server-enforced checkout: validates every line against real,
+-- current `branch_inventory` (locking the rows so two simultaneous
+-- checkouts can't both oversell the same last unit), rejects the whole
+-- order if a product has gone inactive or any line now exceeds what's
+-- actually on the shelf, and only then decrements stock and creates the
+-- order + items in one transaction. The client (`OrdersRepository`) never
+-- writes to `orders`/`order_items`/`branch_inventory` directly for a
+-- checkout — this function is the only path, so a stale/cached client-side
+-- stock number can never actually oversell.
+-- -----------------------------------------------------------------------------
+
+create or replace function public.place_order(
+  p_firebase_uid text,
+  p_branch_id uuid,
+  p_branch_name text,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_items jsonb,
+  p_subtotal numeric,
+  p_discount numeric,
+  p_delivery_fee numeric,
+  p_total numeric,
+  p_payment_method text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_order_id text;
+  v_item jsonb;
+  v_product_id uuid;
+  v_variant_id uuid;
+  v_quantity int;
+  v_available int;
+  v_product_name text;
+  v_is_active boolean;
+begin
+  if v_uid is null or v_uid <> p_firebase_uid then
+    raise exception 'You must be signed in as this customer to place this order.';
+  end if;
+  if p_branch_id is null then
+    raise exception 'Please select a branch before checking out.';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Your cart is empty.';
+  end if;
+
+  -- Pass 1: validate + lock every line's stock row before writing anything.
+  -- If any single line fails, the whole function raises and Postgres rolls
+  -- back everything this transaction touched so far — no partial orders.
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_product_id := nullif(v_item->>'product_id', '')::uuid;
+    v_variant_id := nullif(v_item->>'variant_id', '')::uuid;
+    v_quantity := (v_item->>'quantity')::int;
+    v_product_name := coalesce(v_item->>'product_name', 'This item');
+
+    if v_product_id is null then
+      raise exception '% could not be identified — please refresh your cart and try again.', v_product_name;
+    end if;
+    if v_quantity is null or v_quantity <= 0 then
+      raise exception 'Invalid quantity for %.', v_product_name;
+    end if;
+
+    select is_active into v_is_active from public.products where id = v_product_id;
+    if v_is_active is null or not v_is_active then
+      raise exception '% is no longer available.', v_product_name;
+    end if;
+
+    if v_variant_id is null then
+      raise exception '% is missing a size/packaging selection — please refresh your cart and try again.', v_product_name;
+    end if;
+
+    select quantity into v_available
+      from public.branch_inventory
+      where branch_id = p_branch_id and product_id = v_product_id and variant_id = v_variant_id
+      for update;
+
+    if v_available is null then
+      raise exception '% is not available at this branch.', v_product_name;
+    end if;
+    if v_available < v_quantity then
+      raise exception 'Only % of % left at this branch.', v_available, v_product_name;
+    end if;
+  end loop;
+
+  -- Pass 2: every line checked out fine above — now actually decrement.
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    update public.branch_inventory
+      set quantity = quantity - (v_item->>'quantity')::int
+      where branch_id = p_branch_id
+        and product_id = (v_item->>'product_id')::uuid
+        and variant_id = (v_item->>'variant_id')::uuid;
+  end loop;
+
+  insert into public.orders (
+    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
+    subtotal, discount, delivery_fee, total, payment_method
+  ) values (
+    p_firebase_uid, p_branch_id, p_branch_name, p_is_delivery, p_delivery_address_id,
+    p_subtotal, p_discount, p_delivery_fee, p_total, p_payment_method
+  ) returning id into v_order_id;
+
+  insert into public.order_items (order_id, product_name, variant_label, quantity, unit_price)
+  select v_order_id,
+         v_item->>'product_name',
+         coalesce(v_item->>'variant_label', 'Regular'),
+         (v_item->>'quantity')::int,
+         (v_item->>'unit_price')::numeric
+  from jsonb_array_elements(p_items) as v_item;
+
+  return v_order_id;
+end;
+$$;
+
+grant execute on function public.place_order(
+  text, uuid, text, boolean, uuid, jsonb, numeric, numeric, numeric, numeric, text
+) to authenticated;

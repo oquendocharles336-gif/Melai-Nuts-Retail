@@ -389,7 +389,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                             onTap: () => Navigator.of(context).push(
                               MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: product)),
                             ),
-                            onAdd: () => cart.addProduct(product, defaultVariant),
+                            onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
                             quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
                           );
                         },
@@ -446,7 +446,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: product)),
                           ),
-                          onAdd: () => cart.addProduct(product, defaultVariant),
+                          onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
                           quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
                         );
                       },

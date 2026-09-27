@@ -217,7 +217,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                         product: product,
                         quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
                         onTap: () => _openProduct(product),
-                        onAdd: () => cart.addProduct(product, defaultVariant),
+                        onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
                       );
                     },
                   );

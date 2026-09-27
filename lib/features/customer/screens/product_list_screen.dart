@@ -51,7 +51,7 @@ class ProductListScreen extends StatelessWidget {
                       builder: (_) => ProductDetailsScreen(product: product),
                     ),
                   ),
-                  onAdd: () => cart.addProduct(product, defaultVariant),
+                  onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
                 );
               },
             );
