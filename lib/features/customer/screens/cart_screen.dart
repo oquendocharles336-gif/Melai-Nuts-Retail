@@ -120,13 +120,14 @@ class _CartScreenState extends State<CartScreen> {
                       onChanged: cart.isSyncing || cart.loyaltyPointsBalance <= 0
                           ? null
                           : (v) async {
-                              final error = await cart.setRedeemPoints(v);
-                              if (!mounted) return;
-                              if (error == null) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(error)),
-                              );
-                            },
+                        final messenger = ScaffoldMessenger.of(context);
+                        final error = await cart.setRedeemPoints(v);
+                        if (!mounted) return;
+                        if (error == null) return;
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(error)),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -158,13 +159,14 @@ class _CartScreenState extends State<CartScreen> {
                     onPressed: cart.isSyncing
                         ? null
                         : () async {
-                            final error = await cart.applyVoucher(_voucherController.text);
-                            if (!mounted) return;
-                            if (error == null) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(error)),
-                            );
-                          },
+                      final messenger = ScaffoldMessenger.of(context);
+                      final error = await cart.applyVoucher(_voucherController.text);
+                      if (!mounted) return;
+                      if (error == null) return;
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(error)),
+                      );
+                    },
                     child: cart.isSyncing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Apply'),
                   ),
                 ],
