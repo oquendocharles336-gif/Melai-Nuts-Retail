@@ -84,7 +84,18 @@ class OrderDetailsScreen extends StatelessWidget {
                     label: 'Fulfillment Mode',
                     value: order.isDelivery ? 'Home delivery from ${order.branch}' : 'Picked up at ${order.branch}',
                   ),
-                  _InfoRow(label: 'Payment Method', value: order.paymentMethod),
+                  if (order.isDelivery && (order.deliveryAddressText?.isNotEmpty ?? false))
+                    _InfoRow(label: 'Delivery Address', value: order.deliveryAddressText!),
+                  if (order.contactPhone.isNotEmpty)
+                    _InfoRow(label: 'Contact Number', value: order.contactPhone),
+                  _InfoRow(
+                    label: 'Payment Method',
+                    value: order.paymentStatus == null
+                        ? order.paymentMethod
+                        : '${order.paymentMethod} (${_paymentStatusLabel(order.paymentStatus!)})',
+                  ),
+                  if (order.customerNotes.isNotEmpty)
+                    _InfoRow(label: 'Special Instructions', value: order.customerNotes),
                 ],
               ),
             ),
@@ -261,6 +272,25 @@ class OrderDetailsScreen extends StatelessWidget {
     final ampm = d.hour >= 12 ? 'PM' : 'AM';
     final minute = d.minute.toString().padLeft(2, '0');
     return '${months[d.month - 1]} ${d.day}, ${d.year} at $hour:$minute $ampm';
+  }
+
+  /// Human label for a real `payments.status` value. Never invents a
+  /// status the row doesn't actually have.
+  String _paymentStatusLabel(String status) {
+    switch (status) {
+      case 'pending':
+        return 'Awaiting confirmation';
+      case 'processing':
+        return 'Processing';
+      case 'success':
+        return 'Paid';
+      case 'failed':
+        return 'Failed';
+      case 'refunded':
+        return 'Refunded';
+      default:
+        return status;
+    }
   }
 }
 
