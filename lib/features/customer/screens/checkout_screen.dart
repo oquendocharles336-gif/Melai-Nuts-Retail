@@ -15,6 +15,7 @@ import '../../../data/models/order.dart';
 import '../../../data/models/payment.dart' as pay;
 import '../../../data/repositories/orders_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
+import '../../../data/repositories/products_repository.dart';
 import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
 import 'order_confirmation_screen.dart';
@@ -65,6 +66,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (firebaseUid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please sign in again before checking out.')),
+      );
+      return;
+    }
+    final branch = BranchController.instance.selectedBranch;
+    if (branch == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a branch before checking out.')),
       );
       return;
     }
