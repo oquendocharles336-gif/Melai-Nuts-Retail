@@ -1346,3 +1346,244 @@ grant execute on function public.get_customer_cart(uuid) to authenticated;
 grant execute on function public.get_cart_pricing(uuid, boolean) to authenticated;
 grant execute on function public.sync_customer_cart(uuid, jsonb, text, boolean) to authenticated;
 grant execute on function public.place_order(uuid, boolean, uuid, text) to authenticated;
+
+-- =============================================================================
+-- Migration: atomic payment record on checkout, real customer notes,
+-- denormalized delivery contact snapshot, and payment-status hardening.
+-- =============================================================================
+-- Safe to re-run. Closes three real gaps in the checkout flow:
+--   1. The Flutter client used to insert the `payments` row itself, in a
+--      second network call made *after* `place_order` had already
+--      committed the order. If that second call failed (dropped
+--      connection, app killed), the order existed with no payment record
+--      at all — a partially-succeeded checkout. The payment row is now
+--      created inside `place_order`'s own transaction, so an order and its
+--      payment record always come into existence together or not at all.
+--   2. The previous "create own payments" policy let a signed-in customer
+--      insert a payments row with ANY status, including 'success' —
+--      nothing stopped a modified client from writing a fake "paid"
+--      receipt straight into the database. Client-initiated inserts are
+--      now restricted to status = 'pending' (the only truthful status a
+--      client can assert about its own not-yet-confirmed payment); moving
+--      it to 'success'/'failed'/'refunded' requires a real gateway
+--      webhook or staff action running with elevated privileges, not this
+--      policy.
+--   3. The "Special Instructions" field on Checkout and the customer's
+--      real contact number/delivery address were never persisted on the
+--      order — the notes field silently discarded whatever the customer
+--      typed, and the address/phone were only reachable via a
+--      foreign key that could later be edited or deleted out from under
+--      the order. Both are now captured as an immutable snapshot at the
+--      moment the order is placed, and a customer with no phone on file
+--      can no longer complete checkout at all (staff need a real number
+--      to reach them for both pickup and delivery orders).
+-- -----------------------------------------------------------------------------
+
+alter table public.orders add column if not exists customer_notes text not null default '';
+alter table public.orders add column if not exists contact_phone text not null default '';
+alter table public.orders add column if not exists delivery_address_text text;
+
+-- Direct client inserts may only ever assert 'pending' — anything further
+-- along the payment lifecycle has to come from `place_order` (security
+-- definer, bypasses RLS) or a future real gateway integration running with
+-- its own elevated credentials.
+drop policy if exists "create own payments" on public.payments;
+create policy "create own payments" on public.payments for insert
+  with check (firebase_uid = current_firebase_uid() and status = 'pending');
+
+-- The 4-argument place_order is being replaced by a 5-argument version
+-- (adds p_customer_notes). Postgres treats that as a different overload
+-- rather than a replacement, so the old signature is dropped explicitly —
+-- otherwise both would exist and the client could still reach the one
+-- that skips notes/phone/payment-record creation.
+drop function if exists public.place_order(uuid, boolean, uuid, text);
+
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text default ''
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_item record;
+  v_available int;
+  v_order_id text;
+  v_subtotal numeric;
+  v_voucher_discount numeric;
+  v_loyalty_discount numeric;
+  v_delivery_fee numeric;
+  v_total numeric;
+  v_discount numeric;
+  v_points_used int := 0;
+  v_balance int := 0;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
+  v_address record;
+  v_profile_phone text;
+  v_contact_phone text;
+  v_delivery_address_text text;
+  v_payment_method_code text;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open'
+  for update;
+  if not found then raise exception 'Your cart is no longer available.'; end if;
+
+  if p_payment_method not in ('GCash E-Wallet', 'Maya / Credit Card', 'Cash on Counter Pickup') then
+    raise exception 'Unsupported payment method.';
+  end if;
+  v_payment_method_code := case p_payment_method
+    when 'GCash E-Wallet' then 'gcash'
+    when 'Maya / Credit Card' then 'card'
+    else 'cash'
+  end;
+
+  select phone into v_profile_phone from public.customer_profiles where firebase_uid = v_uid;
+
+  if p_is_delivery then
+    if p_delivery_address_id is null then raise exception 'Please provide a delivery address.'; end if;
+    select * into v_address from public.customer_addresses
+      where id = p_delivery_address_id and firebase_uid = v_uid;
+    if not found then raise exception 'The selected delivery address is invalid.'; end if;
+    select delivery_fee into v_delivery_fee from public.branches where id=v_cart.branch_id and supports_delivery and is_active;
+    if not found then raise exception 'Delivery is not available for this branch.'; end if;
+    v_contact_phone := nullif(trim(v_address.phone), '');
+    v_delivery_address_text := trim(
+      v_address.recipient_name || ', ' || v_address.line1 || ', ' || v_address.city ||
+      case when coalesce(v_address.province, '') <> '' then ', ' || v_address.province else '' end ||
+      case when coalesce(v_address.postal_code, '') <> '' then ' ' || v_address.postal_code else '' end
+    );
+  else
+    if not exists (select 1 from public.branches where id=v_cart.branch_id and supports_pickup and is_active) then
+      raise exception 'Pickup is not available for this branch.';
+    end if;
+    v_delivery_fee := 0;
+    v_contact_phone := nullif(trim(coalesce(v_profile_phone, '')), '');
+    v_delivery_address_text := null;
+  end if;
+
+  if v_contact_phone is null then
+    raise exception 'Please add a contact phone number to your profile before checking out.';
+  end if;
+
+  update public.cart_items ci
+  set current_price = pv.price, variant_label = pv.label, updated_at = now()
+  from public.product_variants pv
+  join public.products p on p.id = pv.product_id
+  where ci.cart_id=v_cart.id and ci.variant_id=pv.id and p.is_active;
+
+  if not exists (select 1 from public.cart_items where cart_id=v_cart.id) then
+    raise exception 'Your cart is empty.';
+  end if;
+
+  for v_item in select ci.*, p.name, p.is_active from public.cart_items ci join public.products p on p.id=ci.product_id where ci.cart_id=v_cart.id loop
+    if not v_item.is_active then raise exception '% is no longer available.', v_item.name; end if;
+    select quantity into v_available
+    from public.branch_inventory bi
+    where bi.branch_id=v_cart.branch_id and bi.product_id=v_item.product_id and bi.variant_id=v_item.variant_id
+    for update;
+    if v_available is null then raise exception '% is not available at this branch.', v_item.name; end if;
+    if v_available < v_item.quantity then raise exception 'Only % of % left at this branch.', v_available, v_item.name; end if;
+  end loop;
+
+  -- Lock the loyalty account before recomputing so points cannot be spent twice.
+  insert into public.loyalty_accounts(firebase_uid) values(v_uid) on conflict(firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid=v_uid for update;
+
+  select * into v_voucher from public.vouchers v
+  where v.id is not null and upper(v.code)=upper(trim(v_cart.voucher_code))
+    and v_cart.voucher_code is not null
+    and v.is_active and (v.starts_at is null or v.starts_at<=now()) and (v.ends_at is null or v.ends_at>=now())
+  for update;
+  if v_cart.voucher_code is not null and not found then raise exception 'Voucher is invalid or expired.'; end if;
+
+  select coalesce(sum(current_price*quantity),0) into v_subtotal from public.cart_items where cart_id=v_cart.id;
+  if v_cart.voucher_code is not null then
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then raise exception 'This voucher has reached its usage limit.'; end if;
+    if v_subtotal < v_voucher.minimum_subtotal then raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal; end if;
+    if v_voucher.discount_type='percent' then v_voucher_discount := round(v_subtotal*v_voucher.discount_value/100,2); else v_voucher_discount := v_voucher.discount_value; end if;
+    if v_voucher.maximum_discount is not null then v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount); end if;
+    v_voucher_discount := least(v_voucher_discount,v_subtotal);
+  else
+    v_voucher_discount := 0;
+  end if;
+
+  if v_cart.redeem_points then
+    select points_per_peso, max_discount_percent into v_points_per_peso, v_max_discount_percent from public.loyalty_cart_settings where id='default';
+    if v_points_per_peso is null then raise exception 'Loyalty point redemption is not configured yet.'; end if;
+    if v_balance <= 0 then raise exception 'You do not have loyalty points available to redeem.'; end if;
+    v_points_used := least(
+      v_balance,
+      floor(greatest(0,least(v_subtotal-v_voucher_discount,v_subtotal*(v_max_discount_percent)/100))*v_points_per_peso)::int
+    );
+    v_loyalty_discount := round(v_points_used/v_points_per_peso,2);
+  else
+    v_loyalty_discount := 0;
+  end if;
+
+  v_discount := v_voucher_discount + v_loyalty_discount;
+  v_total := greatest(0,v_subtotal-v_discount+v_delivery_fee);
+
+  for v_item in select * from public.cart_items where cart_id=v_cart.id loop
+    update public.branch_inventory
+    set quantity=quantity-v_item.quantity
+    where branch_id=v_cart.branch_id and product_id=v_item.product_id and variant_id=v_item.variant_id;
+  end loop;
+
+  insert into public.orders(
+    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
+    subtotal, discount, delivery_fee, total, payment_method,
+    customer_notes, contact_phone, delivery_address_text
+  )
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery, p_delivery_address_id,
+    v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method,
+    coalesce(trim(p_customer_notes), ''), v_contact_phone, v_delivery_address_text
+  from public.branches b where b.id=v_cart.branch_id
+  returning id into v_order_id;
+
+  insert into public.order_items(order_id,product_name,variant_label,quantity,unit_price)
+  select v_order_id,p.name,ci.variant_label,ci.quantity,ci.current_price
+  from public.cart_items ci join public.products p on p.id=ci.product_id where ci.cart_id=v_cart.id;
+
+  -- The payment record is created here, in the same transaction as the
+  -- order, so a checkout can never leave an order without one. No real
+  -- payment-gateway integration exists yet (that needs a provider — e.g.
+  -- PayMongo/GCash for Business — plus API keys/webhooks this project
+  -- doesn't have), so this honestly records a payment awaiting
+  -- confirmation rather than fabricating an instant "paid" result. A
+  -- future gateway webhook is the only thing that should ever move it
+  -- past 'pending'.
+  insert into public.payments(order_id, firebase_uid, method, status, amount, reference_number)
+  values (v_order_id, v_uid, v_payment_method_code, 'pending', v_total, v_order_id);
+
+  if v_points_used > 0 then
+    update public.loyalty_accounts set points_balance=points_balance-v_points_used where firebase_uid=v_uid;
+    insert into public.loyalty_transactions(firebase_uid,type,points,description,order_id)
+    values(v_uid,'redeem',-v_points_used,'Applied to order '||v_order_id,v_order_id);
+  end if;
+
+  if v_cart.voucher_code is not null then
+    update public.vouchers set used_count=used_count+1 where id=v_voucher.id;
+  end if;
+
+  delete from public.cart_items where cart_id=v_cart.id;
+  update public.carts set status='checked_out', voucher_code=null, redeem_points=false, updated_at=now() where id=v_cart.id;
+
+  return v_order_id;
+end;
+$$;
+
+revoke all on function public.place_order(uuid, boolean, uuid, text, text) from public;
+grant execute on function public.place_order(uuid, boolean, uuid, text, text) to authenticated;
