@@ -35,6 +35,7 @@ class ProductsRepository {
       final categoriesRaw = await _client
           .from('product_categories')
           .select()
+          .eq('is_active', true)
           .order('sort_order');
       final branchesRaw = await _client.from('branches').select().eq('is_active', true);
       final productsRaw = await _client
@@ -184,6 +185,78 @@ class ProductsRepository {
     try {
       final raw = await _client.from('branches').select('name').eq('is_active', true).order('name');
       return List<Map<String, dynamic>>.from(raw).map((r) => r['name'] as String).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Re-checks *right now* how many units of one product/variant are on the
+  /// shelf, straight from `branch_inventory` — never from the [kProducts]
+  /// cache, which may be stale (loaded at app-boot or the last branch
+  /// switch, and never updated by another customer's purchase in the
+  /// meantime). Used by [CartController.addProductWithLiveCheck] so
+  /// "available stock" always means "available right now", not "available
+  /// when the catalog last loaded".
+  ///
+  /// When [branchId] is given, only that branch's stock counts (matching
+  /// what the customer actually sees once they've picked a branch). With no
+  /// branch chosen yet, stock is summed across every branch that carries
+  /// this variant, same as the aggregate view [loadCatalog] shows at boot.
+  ///
+  /// Returns `null` (not zero) when the check itself fails — e.g. offline —
+  /// so the caller can fall back to the last-known cached stock instead of
+  /// wrongly reporting "0 available" during a network hiccup.
+  Future<int?> fetchLiveStock({
+    required String productId,
+    required String variantId,
+    String? branchId,
+  }) async {
+    if (variantId.isEmpty) return null;
+    try {
+      var query = _client
+          .from('branch_inventory')
+          .select('quantity')
+          .eq('product_id', productId)
+          .eq('variant_id', variantId);
+      if (branchId != null) {
+        query = query.eq('branch_id', branchId);
+      }
+      final raw = await query;
+      final rows = List<Map<String, dynamic>>.from(raw);
+      return rows.fold<int>(0, (sum, r) => sum + (r['quantity'] as int));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Real, staff-configured promotions that specifically call out this
+  /// product (`promotions.product_id`) or its category
+  /// (`promotions.category_id`) — shown on the Product Details screen's
+  /// "Applicable Promotions" section. Only currently-active, in-date-window
+  /// rows are returned; on any failure (or when none apply) this returns an
+  /// empty list rather than a fabricated offer.
+  Future<List<Promotion>> fetchApplicablePromotions({
+    required String productId,
+    required String categoryId,
+  }) async {
+    try {
+      final filter = categoryId.isEmpty
+          ? 'product_id.eq.$productId'
+          : 'product_id.eq.$productId,category_id.eq.$categoryId';
+      final raw = await _client
+          .from('promotions')
+          .select()
+          .eq('is_active', true)
+          .or(filter)
+          .order('sort_order');
+      final now = DateTime.now();
+      return List<Map<String, dynamic>>.from(raw).where((row) {
+        final startsAt = row['starts_at'] as String?;
+        final endsAt = row['ends_at'] as String?;
+        if (startsAt != null && DateTime.parse(startsAt).isAfter(now)) return false;
+        if (endsAt != null && DateTime.parse(endsAt).isBefore(now)) return false;
+        return true;
+      }).map(Promotion.fromRow).toList();
     } catch (_) {
       return const [];
     }
