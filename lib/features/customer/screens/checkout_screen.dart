@@ -10,13 +10,12 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/models/payment.dart' as pay;
 import '../../../data/repositories/orders_repository.dart';
 import '../../../data/repositories/customer_profile_repository.dart';
-import '../../../data/repositories/payments_repository.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
+import 'edit_profile_screen.dart';
 import 'order_confirmation_screen.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
@@ -87,6 +86,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
       return;
     }
+    // Staff need a real number to reach the customer for both pickup and
+    // delivery orders. Delivery collects one via the contact field below;
+    // pickup relies on the profile's phone, so check it up front rather
+    // than letting the RPC reject the order after everything else already
+    // validated. (The RPC still enforces this itself — this is just a
+    // faster, friendlier failure for the common case of an incomplete
+    // profile.)
+    if (_fulfillment == _FulfillmentMethod.pickup) {
+      final profilePhone = CustomerDataStore.instance.profile?.phone.trim() ?? '';
+      if (profilePhone.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Please add a contact phone number to your profile before checking out.'),
+            action: SnackBarAction(
+              label: 'Add Phone',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
     setState(() => _placingOrder = true);
 
@@ -94,11 +117,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _PaymentMethod.gcash => 'GCash E-Wallet',
       _PaymentMethod.card => 'Maya / Credit Card',
       _PaymentMethod.cash => 'Cash on Counter Pickup',
-    };
-    final paymentMethodEnum = switch (_payment) {
-      _PaymentMethod.gcash => pay.PaymentMethod.gcash,
-      _PaymentMethod.card => pay.PaymentMethod.card,
-      _PaymentMethod.cash => pay.PaymentMethod.cash,
     };
 
     try {
@@ -140,19 +158,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
       }
       final itemCount = cart.itemCount;
+      // `place_order` creates the order, its items, and its payment record
+      // together in one database transaction — there is no separate,
+      // second network call to record the payment here, so a dropped
+      // connection right after checkout can never leave an order with no
+      // payment record behind.
       final order = await OrdersRepository.instance.createOrderFromCart(
         cartId: cartId,
         isDelivery: isDelivery,
         deliveryAddressId: deliveryAddressId,
         paymentMethod: paymentLabel,
-      );
-
-      await PaymentsRepository.instance.recordPayment(
-        orderId: order.id,
-        firebaseUid: firebaseUid,
-        method: paymentMethodEnum,
-        amount: order.total,
-        referenceNumber: order.id,
+        customerNotes: _notesController.text.trim(),
       );
 
       await cart.completeCheckout();
