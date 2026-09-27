@@ -1,45 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
-import '../models/product.dart';
+import '../core/theme/app_colors.dart';
+import 'models/product.dart';
 
-/// Live category + product catalog, backed by Supabase
-/// (`product_categories` / `products` tables — see
-/// `lib/data/repositories/products_repository.dart`).
-///
-/// These lists start with a small fallback so the storefront never looks
-/// broken for the instant before the first real fetch resolves; that fetch
-/// then replaces the contents in place, and every screen that already reads
-/// these globals directly (product catalog, categories, product list,
-/// search, home) picks up the real data automatically.
-List<ProductCategory> kProductCategories = [
-  ProductCategory(
-    id: 'garlic',
-    name: 'Garlic Nuts',
-    icon: Icons.eco_rounded,
-    color: AppColors.success,
-  ),
-  ProductCategory(
-    id: 'sweet',
-    name: 'Sweet Peanuts',
-    icon: Icons.cookie_rounded,
-    color: AppColors.warning,
-  ),
-  ProductCategory(
-    id: 'spicy',
-    name: 'Spicy Nuts',
-    icon: Icons.local_fire_department_rounded,
-    color: AppColors.error,
-  ),
-  ProductCategory(
-    id: 'classic',
-    name: 'Classic Roasted',
-    icon: Icons.grain_rounded,
-    color: AppColors.primary,
-  ),
-];
+/// In-memory cache of the real product catalog, populated exclusively by
+/// [ProductsRepository.loadCatalog] from Supabase (`product_categories` /
+/// `products` / `product_variants` / `branch_inventory` tables). Nothing in
+/// this file is hardcoded or fabricated: both lists start empty and stay
+/// empty until a real fetch succeeds, so an empty catalog renders the
+/// storefront's existing empty-state UI rather than fake placeholder rows.
+List<ProductCategory> kProductCategories = <ProductCategory>[];
 
-/// Real product catalog — starts empty until connected to a backend.
+/// Real product catalog — starts empty until loaded from Supabase.
 final List<Product> kProducts = <Product>[];
 
 /// "Popular Near You" ranking for the customer Home dashboard, ranked by
@@ -75,12 +47,21 @@ Product findProductById(String id) {
   return kProducts.firstWhere((p) => p.id == id, orElse: () => _unknownProduct(id));
 }
 
-/// Returns the category with [id], falling back to the first fixed
-/// category if not found.
+/// Placeholder shown when a category id can't be found (e.g. categories
+/// haven't loaded yet, or the category was deleted). Never a real record.
+const _unknownCategory = ProductCategory(
+  id: '',
+  name: 'Uncategorized',
+  icon: Icons.help_outline_rounded,
+  color: AppColors.textMuted,
+);
+
+/// Returns the category with [id], or a clearly-labeled placeholder if no
+/// matching category exists.
 ProductCategory findCategoryById(String id) {
   return kProductCategories.firstWhere(
     (c) => c.id == id,
-    orElse: () => kProductCategories.first,
+    orElse: () => _unknownCategory,
   );
 }
 

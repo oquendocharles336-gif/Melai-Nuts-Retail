@@ -1,6 +1,7 @@
+import 'package:melai_nuts/data/catalog_store.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/services/supabase_service.dart';
-import '../dummy_data/dummy_products.dart';
 import '../dummy_data/dummy_promotions.dart';
 import '../models/product.dart';
 import '../models/promotion.dart';
@@ -58,8 +59,11 @@ class ProductsRepository {
         variantsByProduct.putIfAbsent(v['product_id'] as String, () => []).add(v);
       }
 
-      // stock per variant id, and which branches carry each product at all.
+      // Stock per variant id, total stock per product (regardless of
+      // whether a row is tied to a specific variant), and which branches
+      // carry each product at all.
       final stockByVariant = <String, int>{};
+      final stockByProduct = <String, int>{};
       final branchesByProduct = <String, Set<String>>{};
       for (final inv in List<Map<String, dynamic>>.from(inventoryRaw)) {
         final variantId = inv['variant_id'] as String?;
@@ -68,6 +72,7 @@ class ProductsRepository {
         if (variantId != null) {
           stockByVariant[variantId] = (stockByVariant[variantId] ?? 0) + qty;
         }
+        stockByProduct[productId] = (stockByProduct[productId] ?? 0) + qty;
         if (qty > 0) {
           final branchName = branchNameById[inv['branch_id'] as String];
           if (branchName != null) {
@@ -83,6 +88,7 @@ class ProductsRepository {
           variantRows: variantsByProduct[id] ?? const [],
           stockByVariantId: stockByVariant,
           branchAvailability: (branchesByProduct[id] ?? const <String>{}).toList()..sort(),
+          totalStock: stockByProduct[id] ?? 0,
         );
       }).toList();
 
@@ -90,11 +96,9 @@ class ProductsRepository {
           .map(ProductCategory.fromRow)
           .toList();
 
-      if (categories.isNotEmpty) {
-        kProductCategories
-          ..clear()
-          ..addAll(categories);
-      }
+      kProductCategories
+        ..clear()
+        ..addAll(categories);
       kProducts
         ..clear()
         ..addAll(products);

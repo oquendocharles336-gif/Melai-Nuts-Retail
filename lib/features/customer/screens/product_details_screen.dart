@@ -110,17 +110,20 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ],
               ],
             ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
-                const SizedBox(width: 4),
-                Text(
-                  '${product.rating} · ${product.reviewCount} verified Laguna customer reviews',
-                  style: AppTextStyles.bodySm,
-                ),
-              ],
-            ),
+            // Only shown once real reviews exist — no fabricated rating.
+            if (product.reviewCount > 0) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${product.rating.toStringAsFixed(1)} · ${product.reviewCount} verified Laguna customer reviews',
+                    style: AppTextStyles.bodySm,
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             Container(
               padding: const EdgeInsets.all(14),

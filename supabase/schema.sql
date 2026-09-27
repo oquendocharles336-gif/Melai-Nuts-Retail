@@ -73,8 +73,20 @@ create table if not exists public.products (
   category_id uuid references public.product_categories(id) on delete set null,
   name text not null,
   price numeric(10, 2) not null check (price >= 0),
+  -- Pre-discount reference price shown struck-through next to `price` on
+  -- the storefront. Null means "no discount is running" (never fabricated).
+  original_price numeric(10, 2) check (original_price is null or original_price >= price),
   unit text not null default 'pack',
   description text not null default '',
+  -- Master/product-level SKU, e.g. "MN-GP-CORE" (distinct from each
+  -- variant's own optional SKU on `product_variants.sku`).
+  sku text,
+  -- Ordered photo URLs (Supabase Storage public URLs or any external CDN
+  -- link). Empty until staff upload real photos — the storefront falls
+  -- back to the icon/color placeholder rather than showing a fake image.
+  images text[] not null default '{}',
+  -- Free-form merchandising tags, e.g. "Laguna Heritage", "Bestseller".
+  tags text[] not null default '{}',
   icon_name text not null default 'nuts',
   color_hex text not null default '#8D6E63',
   is_active boolean not null default true,
@@ -87,6 +99,12 @@ create table if not exists public.products (
 );
 create trigger products_set_updated_at before update on public.products
   for each row execute function public.set_updated_at();
+
+-- Safe to re-run against a project created before these columns existed.
+alter table public.products add column if not exists original_price numeric(10, 2);
+alter table public.products add column if not exists sku text;
+alter table public.products add column if not exists images text[] not null default '{}';
+alter table public.products add column if not exists tags text[] not null default '{}';
 
 -- One row per purchasable pack size/SKU of a product. `price` is the full
 -- shelf price for that variant (not a delta) — it's what the customer pays

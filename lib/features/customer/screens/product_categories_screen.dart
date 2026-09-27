@@ -3,7 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
-import '../../../data/dummy_data/dummy_products.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import 'product_list_screen.dart';
 
 /// Dedicated "browse by category" screen — a grid of every product

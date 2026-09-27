@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../core/services/branch_controller.dart';
-import '../../data/dummy_data/dummy_products.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import '../../data/models/product.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/products_repository.dart';

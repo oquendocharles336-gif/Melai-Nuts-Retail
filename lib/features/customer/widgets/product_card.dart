@@ -4,9 +4,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/product.dart';
 
-/// On-brand placeholder "photo" for a product — a soft gradient tile with
-/// the product's icon. Used everywhere a real product photo would normally
-/// appear (no bundled product photography in this frontend-only build).
+/// Product "photo" tile: the real uploaded product image when one exists,
+/// otherwise an on-brand gradient placeholder with the product's icon —
+/// never a fake/stock photo standing in for a real product picture.
 class ProductThumbnail extends StatelessWidget {
   final Product product;
   final double size;
@@ -21,11 +21,34 @@ class ProductThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final radius = borderRadius ?? BorderRadius.circular(14);
+    if (product.images.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: radius,
+        child: Image.network(
+          product.images.first,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          // A broken/expired image URL falls back to the placeholder
+          // instead of Flutter's default error icon.
+          errorBuilder: (context, error, stackTrace) => _placeholder(radius),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return _placeholder(radius);
+          },
+        ),
+      );
+    }
+    return _placeholder(radius);
+  }
+
+  Widget _placeholder(BorderRadius radius) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: borderRadius ?? BorderRadius.circular(14),
+        borderRadius: radius,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -131,17 +154,21 @@ class ProductCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.labelLg,
             ),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                const Icon(Icons.star_rounded, size: 14, color: AppColors.warning),
-                const SizedBox(width: 2),
-                Text(
-                  '${product.rating} (${product.reviewCount})',
-                  style: AppTextStyles.bodySm,
-                ),
-              ],
-            ),
+            // Only shown once real reviews exist — a "0.0 (0)" rating on
+            // every card would look like fabricated star ratings.
+            if (product.reviewCount > 0) ...[
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  const Icon(Icons.star_rounded, size: 14, color: AppColors.warning),
+                  const SizedBox(width: 2),
+                  Text(
+                    '${product.rating.toStringAsFixed(1)} (${product.reviewCount})',
+                    style: AppTextStyles.bodySm,
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

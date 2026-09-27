@@ -6,7 +6,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_inventory.dart';
-import '../../../data/dummy_data/dummy_products.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 
 /// Low-stock batches across every branch, each with a restock
 /// recommendation, matching the spec's "Current 25 → +10 → New 35" style

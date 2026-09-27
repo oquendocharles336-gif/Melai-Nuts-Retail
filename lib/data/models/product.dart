@@ -102,6 +102,11 @@ class Product {
   final IconData icon;
   final Color color;
 
+  /// Ordered real photo URLs from Supabase Storage/CDN. Empty means no
+  /// photos have been uploaded yet — [ProductCard] and detail screens fall
+  /// back to the [icon]/[color] placeholder rather than a fake image.
+  final List<String> images;
+
   // --- Product Management / Pricing Hub fields (Owner & Staff) ---------
   // All optional with sensible defaults so existing customer-facing code
   // (Batch 2) keeps working unchanged.
@@ -146,6 +151,7 @@ class Product {
     this.spiceLevels = const [],
     required this.icon,
     required this.color,
+    this.images = const [],
     this.sku = '',
     this.costPrice = 0,
     this.isActive = true,
@@ -185,8 +191,8 @@ class Product {
     required List<Map<String, dynamic>> variantRows,
     required Map<String, int> stockByVariantId,
     required List<String> branchAvailability,
+    required int totalStock,
   }) {
-    final totalStock = stockByVariantId.values.fold<int>(0, (a, b) => a + b);
     final variants = variantRows
         .map((v) => ProductVariant.fromRow(v, stockOnHand: stockByVariantId[v['id']]))
         .toList();
@@ -196,6 +202,7 @@ class Product {
       variantLabel: variants.isNotEmpty ? variants.first.label : '',
       categoryId: (row['category_id'] as String?) ?? '',
       price: (row['price'] as num).toDouble(),
+      originalPrice: (row['original_price'] as num?)?.toDouble(),
       rating: 0,
       reviewCount: 0,
       stockLabel: totalStock <= 0
@@ -206,7 +213,10 @@ class Product {
       variants: variants,
       icon: IconRegistry.icon(row['icon_name'] as String?, fallback: Icons.eco_rounded),
       color: IconRegistry.color(row['color_hex'] as String?),
+      images: List<String>.from((row['images'] as List?) ?? const []),
+      sku: (row['sku'] as String?) ?? '',
       isActive: (row['is_active'] as bool?) ?? true,
+      tags: List<String>.from((row['tags'] as List?) ?? const []),
       isFeatured: (row['is_featured'] as bool?) ?? false,
     );
   }

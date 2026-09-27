@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../data/dummy_data/dummy_products.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/repositories/products_repository.dart';
 
 /// Ensures the shared product catalog ([kProducts]/[kProductCategories]) is
