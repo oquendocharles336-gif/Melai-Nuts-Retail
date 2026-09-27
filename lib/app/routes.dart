@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/models/user_role.dart';
 import 'route_guard.dart';
 import '../data/models/product.dart';
+import '../data/catalog_store.dart';
 import '../data/models/order.dart';
 import '../features/auth/screens/splash_screen.dart';
 import '../features/auth/screens/login_screen.dart';
@@ -717,8 +718,9 @@ class AppRoutes {
         );
       case productDetails:
         final productId = settings.arguments as String;
+        final product = findProductById(productId);
         return MaterialPageRoute(
-          builder: (_) => pm.ProductDetailsScreen(productId: productId),
+          builder: (_) => pm.ProductDetailsScreen(product: product),
         );
       case productEdit:
         final productId = settings.arguments as String;
