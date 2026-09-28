@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
+import '../../../data/dummy_data/dummy_branches.dart';
 import '../../../data/models/order.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../cart_controller.dart';
 import '../widgets/order_status_badge.dart';
 import 'repeat_order_screen.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -14,10 +20,57 @@ import '../../refunds/screens/refund_request_screen.dart';
 /// Full order receipt — items, per-item "Reorder SKU", billing summary,
 /// branch info, and "Repeat Entire Order" (matches the prototype's Order
 /// Details / Reorder screen).
+/// The fulfilling branch's real address from the `branches` table.
+String _branchAddress(String branchName) {
+  for (final b in kBranches) {
+    if (b.name == branchName && b.address.isNotEmpty) return b.address;
+  }
+  return 'Branch address not available';
+}
+
 class OrderDetailsScreen extends StatelessWidget {
   final Order order;
 
   const OrderDetailsScreen({super.key, required this.order});
+
+  void _reorderItem(BuildContext context, OrderItem item) {
+    void say(String message) =>
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+
+    // Don't call an item "no longer available" just because the catalog
+    // hasn't loaded (or failed to load) — say that, and retry in the background.
+    final catalog = ProductsRepository.instance;
+    if (!catalog.hasLoaded) {
+      say(catalog.error?.message ??
+          'Products are still loading. Please try again in a moment.');
+      catalog.loadCatalog(branchId: BranchController.instance.selectedBranch?.id);
+      return;
+    }
+
+    final matches = kProducts.where((p) => p.name == item.productName);
+    if (matches.isEmpty) {
+      say('${item.productName} is no longer available.');
+      return;
+    }
+    final product = matches.first;
+    if (!product.isActive || product.variants.isEmpty) {
+      say('${item.productName} is no longer available.');
+      return;
+    }
+    // Never quietly swap in a different size/price than the one that was
+    // originally ordered.
+    final variantMatches = product.variants.where((v) => v.label == item.variantLabel);
+    if (variantMatches.isEmpty) {
+      say('The ${item.variantLabel} option of ${item.productName} is no longer available.');
+      return;
+    }
+    try {
+      final added = CartController.instance.addProduct(product, variantMatches.first, quantity: item.quantity);
+      say(added > 0 ? 'Added $added x ${item.productName} to cart' : '${item.productName} is out of stock.');
+    } catch (e) {
+      AppErrors.showSnack(context, e, scope: ErrorScope.cart);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,10 +114,44 @@ class OrderDetailsScreen extends StatelessWidget {
                     label: 'Fulfillment Mode',
                     value: order.isDelivery ? 'Home delivery from ${order.branch}' : 'Picked up at ${order.branch}',
                   ),
-                  _InfoRow(label: 'Payment Method', value: order.paymentMethod),
+                  if (order.isDelivery && (order.deliveryAddressText?.isNotEmpty ?? false))
+                    _InfoRow(label: 'Delivery Address', value: order.deliveryAddressText!),
+                  if (order.contactPhone.isNotEmpty)
+                    _InfoRow(label: 'Contact Number', value: order.contactPhone),
+                  _InfoRow(
+                    label: 'Payment Method',
+                    value: order.paymentStatus == null
+                        ? order.paymentMethod
+                        : '${order.paymentMethod} (${_paymentStatusLabel(order.paymentStatus!)})',
+                  ),
+                  if (order.customerNotes.isNotEmpty)
+                    _InfoRow(label: 'Special Instructions', value: order.customerNotes),
                 ],
               ),
             ),
+            if (order.paymentStatus == 'failed') ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.errorBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Your payment didn\'t go through. Please contact ${order.branch} or place a new order.',
+                        style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.lg),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -112,9 +199,7 @@ class OrderDetailsScreen extends StatelessWidget {
                       Align(
                         alignment: Alignment.centerRight,
                         child: OutlinedButton.icon(
-                          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Simulated reorder of ${item.productName}')),
-                          ),
+                          onPressed: () => _reorderItem(context, item),
                           icon: const Icon(Icons.shopping_cart_outlined, size: 16),
                           label: const Text('Reorder SKU'),
                         ),
@@ -189,11 +274,10 @@ class OrderDetailsScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Melai Nuts ${order.branch}', style: AppTextStyles.labelLg),
-                        Text('Laguna, Philippines', style: AppTextStyles.bodySm),
+                        Text(_branchAddress(order.branch), style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
-                  TextButton(onPressed: () {}, child: const Text('Get Directions')),
                 ],
               ),
             ),
@@ -240,6 +324,25 @@ class OrderDetailsScreen extends StatelessWidget {
     final ampm = d.hour >= 12 ? 'PM' : 'AM';
     final minute = d.minute.toString().padLeft(2, '0');
     return '${months[d.month - 1]} ${d.day}, ${d.year} at $hour:$minute $ampm';
+  }
+
+  /// Human label for a real `payments.status` value. Never invents a
+  /// status the row doesn't actually have.
+  String _paymentStatusLabel(String status) {
+    switch (status) {
+      case 'pending':
+        return 'Awaiting confirmation';
+      case 'processing':
+        return 'Processing';
+      case 'success':
+        return 'Paid';
+      case 'failed':
+        return 'Failed';
+      case 'refunded':
+        return 'Refunded';
+      default:
+        return status;
+    }
   }
 }
 

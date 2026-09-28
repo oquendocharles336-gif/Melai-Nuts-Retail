@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,6 +9,8 @@ import '../../data/models/app_user.dart';
 import '../../data/models/user_role.dart';
 import '../../features/customer/cart_controller.dart';
 import '../constants/app_constants.dart';
+import 'branch_controller.dart';
+import 'customer_data_store.dart';
 import 'data_sync_service.dart';
 import 'email_verification_service.dart';
 
@@ -452,7 +456,9 @@ class AuthService {
   Future<void> signOut() async {
     _userInitiatedSignOut = true;
     _currentProfile = null;
-    CartController.instance.clear();
+    CartController.instance.endSession();
+    CustomerDataStore.instance.clear();
+    BranchController.instance.clear();
     await DataSyncService.instance.syncPendingWrites();
     await _auth.signOut();
   }
@@ -509,6 +515,38 @@ class AuthService {
       );
     }
     _currentProfile = appUser;
+
+    if (appUser.role == UserRole.customer) {
+      // Business data lives in Supabase, keyed by this same Firebase UID.
+      // Best-effort: a slow/offline connection here must not block sign-in
+      // itself (the screens that need this data load it themselves too).
+      CustomerDataStore.instance.rememberCustomer(
+        firebaseUid: appUser.uid,
+        fallbackName: appUser.name,
+        fallbackEmail: appUser.email,
+      );
+      try {
+        await CustomerDataStore.instance.ensureProfile(
+          firebaseUid: appUser.uid,
+          fallbackName: appUser.name,
+          fallbackEmail: appUser.email,
+        );
+        await Future.wait([
+          CartController.instance.hydrate(appUser.uid),
+          CustomerDataStore.instance.loadForCustomer(appUser.uid),
+        ]);
+        // Needs CustomerDataStore.profile (just loaded above) to restore
+        // the customer's saved default branch.
+        unawaited(BranchController.instance.hydrate());
+      } catch (_) {
+        // Non-fatal — never block sign-in. But make sure a load is still
+        // attempted and its outcome recorded, so customer screens show an
+        // error state with a Retry button instead of staying silently empty.
+        unawaited(CustomerDataStore.instance.loadForCustomer(appUser.uid));
+        unawaited(BranchController.instance.hydrate());
+      }
+    }
+
     return appUser;
   }
 

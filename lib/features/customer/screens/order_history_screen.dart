@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import '../widgets/category_chip.dart';
@@ -55,26 +59,57 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     super.dispose();
   }
 
+  /// Pull-to-refresh. Reloads real orders and tells the customer plainly if
+  /// that failed (offline, expired session, ...) instead of failing silently.
+  Future<void> _refresh() async {
+    try {
+      await AppErrors.guard(() async {
+        await CustomerDataStore.instance.refresh(throwOnError: true);
+      }, scope: ErrorScope.order);
+    } catch (e) {
+      if (!mounted) return;
+      AppErrors.showSnack(context, e, scope: ErrorScope.order);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final orders = _filtered;
-    final active = activeOrder;
-
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(title: const Text('My Orders')),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search_rounded),
-                hintText: 'Search branch, or order ID...',
-              ),
-            ),
+        child: ListenableBuilder(
+          listenable: CustomerDataStore.instance,
+          builder: (context, _) {
+            final store = CustomerDataStore.instance;
+            final orders = _filtered;
+            final active = activeOrder;
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              // loading / error (+ retry) / empty / success — an empty list
+              // is only shown once the load has actually finished OK.
+              child: DataStateView(
+              isLoading: store.isLoading,
+              error: store.error,
+              isEmpty: kOrders.isEmpty,
+              onRetry: () => store.retry(),
+              errorScope: ErrorScope.order,
+              emptyIcon: Icons.receipt_long_outlined,
+              emptyTitle: 'No orders yet',
+              emptyMessage: 'Your orders will show up here once you place one.',
+              loadingMessage: 'Loading your orders...',
+              builder: (context) => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.md),
+              children: [
+                TextField(
+                  controller: _searchController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search_rounded),
+                    hintText: 'Search branch, or order ID...',
+                  ),
+                ),
             const SizedBox(height: AppSpacing.sm),
             SizedBox(
               height: 42,
@@ -132,7 +167,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                             children: [
                               Text(active.id, style: AppTextStyles.titleMd),
                               Text(
-                                '${active.itemCount} items • ${active.isDelivery ? 'Laguna Delivery' : 'Pickup'}',
+                                '${active.itemCount} items • ${active.isDelivery ? 'Delivery' : 'Pickup'}',
                                 style: AppTextStyles.bodySm,
                               ),
                             ],
@@ -213,7 +248,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                   child: Text('No orders found.'),
                 ),
               ),
-          ],
+              ],
+              ),
+              ),
+            );
+          },
         ),
       ),
     );

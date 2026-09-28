@@ -5,7 +5,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/state_views.dart';
 import '../cart_controller.dart';
 import '../widgets/cart_item.dart';
 import 'checkout_screen.dart';
@@ -43,14 +45,24 @@ class _CartScreenState extends State<CartScreen> {
           actions: [
             if (cart.lines.isNotEmpty)
               TextButton(
-                onPressed: cart.clear,
+                onPressed: cart.isSyncing ? null : () => cart.clear(),
                 child: const Text('Clear cart'),
               ),
           ],
         ),
         body: SafeArea(
           child: cart.lines.isEmpty
-              ? const _EmptyCart()
+              // loading -> error (+ retry) -> genuinely empty, in that order,
+              // so an unfinished or failed load never reads as "cart is empty".
+              ? (cart.isHydrating
+                  ? const StateLoadingView(message: 'Loading your cart...')
+                  : cart.hasLoadError
+                      ? StateErrorView(
+                          message: cart.lastError,
+                          scope: ErrorScope.cart,
+                          onRetry: () => cart.retryLoad(),
+                        )
+                      : const _EmptyCart())
               : ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
@@ -110,18 +122,36 @@ class _CartScreenState extends State<CartScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Redeem Golden Kernel Points', style: AppTextStyles.labelLg),
-                          Text('Balance: 250 pts', style: AppTextStyles.bodySm),
+                          Text('Balance: ${cart.loyaltyPointsBalance} pts', style: AppTextStyles.bodySm),
                         ],
                       ),
                     ),
                     Switch(
                       value: cart.redeemPoints,
                       activeThumbColor: AppColors.primary,
-                      onChanged: (v) => setState(() => cart.redeemPoints = v),
+                      onChanged: cart.isSyncing || cart.loyaltyPointsBalance <= 0
+                          ? null
+                          : (v) async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final error = await cart.setRedeemPoints(v);
+                        if (!mounted) return;
+                        if (error == null) return;
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(error)),
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
+              if (cart.lastError != null && cart.isSyncing == false)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    cart.lastError!,
+                    style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                  ),
+                ),
               const SizedBox(height: AppSpacing.sm),
               Text('Pasalubong Voucher', style: AppTextStyles.labelLg),
               const SizedBox(height: 6),
@@ -132,14 +162,24 @@ class _CartScreenState extends State<CartScreen> {
                       controller: _voucherController,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.confirmation_number_outlined, size: 20),
-                        hintText: 'PASALUBONG15',
+                        hintText: 'Enter voucher code',
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: () => setState(() => cart.applyVoucher(_voucherController.text)),
-                    child: const Text('Apply'),
+                    onPressed: cart.isSyncing
+                        ? null
+                        : () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final error = await cart.applyVoucher(_voucherController.text);
+                      if (!mounted) return;
+                      if (error == null) return;
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(error)),
+                      );
+                    },
+                    child: cart.isSyncing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Apply'),
                   ),
                 ],
               ),
@@ -214,7 +254,7 @@ class _CartScreenState extends State<CartScreen> {
                               content: Text('Please sign in to place your order.'),
                             ),
                           );
-                          Navigator.of(context).pushNamed(AppRoutes.customerAccess);
+                          Navigator.of(context).pushNamed(AppRoutes.login);
                           return;
                         }
                         Navigator.of(context).push(

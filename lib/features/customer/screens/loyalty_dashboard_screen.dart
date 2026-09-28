@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../../../data/models/loyalty.dart';
 import '../widgets/loyalty_points_card.dart';
 import '../widgets/reward_card.dart';
+import '../widgets/reward_redeem_action.dart';
 
 /// "Golden Kernel Club" — the customer loyalty home. Matches the
 /// prototype's Customer Loyalty Dashboard: profile row, membership card,
@@ -15,13 +18,24 @@ import '../widgets/reward_card.dart';
 class LoyaltyDashboardScreen extends StatelessWidget {
   const LoyaltyDashboardScreen({super.key});
 
-  static const int _availablePoints = 0;
-  static const int _lifetimeEarned = 0;
-  static const int _pointsSpent = 0;
-
   @override
   Widget build(BuildContext context) {
-    final claimableRewards = dummyRewards.where((r) => r.pointsRequired <= _availablePoints * 5).toList();
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final store = CustomerDataStore.instance;
+    final availablePoints = CustomerDataStore.instance.pointsBalance;
+    final lifetimeEarned = dummyLoyaltyTransactions
+        .where((t) => t.type == LoyaltyTransactionType.earn)
+        .fold<int>(0, (sum, t) => sum + t.points);
+    final pointsSpent = dummyLoyaltyTransactions
+        .where((t) => t.type == LoyaltyTransactionType.redeem)
+        .fold<int>(0, (sum, t) => sum + t.points);
+    final claimableRewards = dummyRewards.where((r) => r.pointsRequired <= availablePoints).toList();
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -44,7 +58,7 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                     const Icon(Icons.star_rounded, size: 14, color: AppColors.primaryDark),
                     const SizedBox(width: 4),
                     Text(
-                      '$_lifetimeEarned pts',
+                      '$lifetimeEarned pts',
                       style: AppTextStyles.labelMd.copyWith(color: AppColors.primaryDark),
                     ),
                   ],
@@ -55,7 +69,21 @@ class LoyaltyDashboardScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: ListView(
+        // loading / error (+ retry) until the rewards data has loaded; after
+        // that the sections below show their own real empty messages.
+        child: DataStateView(
+          isLoading: store.isLoading,
+          error: store.error,
+          isEmpty: !store.hasLoaded,
+          onRetry: () => store.retry(),
+          emptyIcon: Icons.workspace_premium_outlined,
+          emptyTitle: 'Rewards unavailable',
+          emptyMessage: 'Sign in to see your points and rewards.',
+          loadingMessage: 'Loading your rewards...',
+          builder: (context) => RefreshIndicator(
+          onRefresh: () => store.refresh(),
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -98,8 +126,8 @@ class LoyaltyDashboardScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.md),
-            const LoyaltyPointsCard(
-              points: _availablePoints,
+            LoyaltyPointsCard(
+              points: availablePoints,
               status: 'Kernel Member',
             ),
             const SizedBox(height: AppSpacing.md),
@@ -158,19 +186,19 @@ class LoyaltyDashboardScreen extends StatelessWidget {
               children: [
                 _LedgerTile(
                   label: 'AVAILABLE BALANCE',
-                  value: '$_availablePoints pts',
+                  value: '$availablePoints pts',
                   footer: 'Start earning points',
                   icon: Icons.savings_outlined,
                 ),
                 _LedgerTile(
                   label: 'LIFETIME EARNED',
-                  value: '+$_lifetimeEarned pts',
+                  value: '+$lifetimeEarned pts',
                   footer: 'Earn points to level up',
                   icon: Icons.workspace_premium_outlined,
                 ),
                 _LedgerTile(
                   label: 'POINTS SPENT',
-                  value: '$_pointsSpent pts',
+                  value: '$pointsSpent pts',
                   footer: 'Vouchers will appear here',
                   icon: Icons.shopping_bag_outlined,
                 ),
@@ -205,12 +233,8 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: RewardCard(
                     reward: reward,
-                    canRedeem: reward.pointsRequired <= _availablePoints,
-                    onRedeem: () => Navigator.pushNamed(
-                      context,
-                      '/customer/loyalty/redemption-success',
-                      arguments: reward,
-                    ),
+                    canRedeem: reward.pointsRequired <= availablePoints,
+                    onRedeem: () => redeemRewardAndNavigate(context, reward),
                   ),
                 ),
             const SizedBox(height: AppSpacing.md),
@@ -233,17 +257,19 @@ class LoyaltyDashboardScreen extends StatelessWidget {
               ),
               child: dummyLoyaltyTransactions.isEmpty
                   ? Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Center(child: Text('No activity yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
-                    )
+                padding: const EdgeInsets.all(24),
+                child: Center(child: Text('No activity yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
+              )
                   : Column(
-                      children: [
-                        for (final tx in dummyLoyaltyTransactions.take(3))
-                          _ActivityRow(tx: tx, isLast: tx == dummyLoyaltyTransactions.take(3).last),
-                      ],
-                    ),
+                children: [
+                  for (final tx in dummyLoyaltyTransactions.take(3))
+                    _ActivityRow(tx: tx, isLast: tx == dummyLoyaltyTransactions.take(3).last),
+                ],
+              ),
             ),
           ],
+        ),
+          ),
         ),
       ),
     );

@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/customer_data_store.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/dummy_data/dummy_refunds.dart';
 import '../../../data/models/order.dart';
+import '../../../data/repositories/refunds_repository.dart';
 import 'refund_confirmation_screen.dart';
 
 class RefundReviewScreen extends StatefulWidget {
@@ -33,19 +39,27 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
 
   Future<void> _submit() async {
     setState(() => _submitting = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => RefundConfirmationScreen(
-          order: widget.order,
-          items: widget.items,
-          reason: widget.reason,
-          notes: widget.notes,
-          amount: widget.amount,
-        ),
-      ),
-    );
+    try {
+      // Only the order, the chosen lines and the reason are sent. The server
+      // decides eligibility, the refund amount and the initial status.
+      final request = await RefundsRepository.instance.submitRequest(
+        orderId: widget.order.id,
+        reason: widget.reason,
+        notes: widget.notes,
+        items: widget.items,
+      );
+      kRefundRequests.insert(0, request);
+      unawaited(CustomerDataStore.instance.refresh());
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => RefundConfirmationScreen(request: request)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      AppErrors.showSnack(context, e, scope: ErrorScope.refund);
+    }
   }
 
   @override
@@ -85,7 +99,7 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Refund Amount', style: AppTextStyles.headlineSm),
+                      Text('Estimated Refund', style: AppTextStyles.headlineSm),
                       Text(
                         '₱${widget.amount.toStringAsFixed(0)}',
                         style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),

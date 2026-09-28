@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../notifications/screens/notification_center_screen.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
 import 'edit_profile_screen.dart';
+import 'saved_addresses_screen.dart';
 
 /// "Account" tab — profile header, loyalty summary, contact info, and
 /// settings list (matches the prototype's Account & Settings screen,
@@ -17,7 +21,27 @@ class CustomerProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final store = CustomerDataStore.instance;
     final unreadCount = kNotifications.where((n) => !n.read).length;
+    final profile = CustomerDataStore.instance.profile;
+    final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email ?? '';
+    final name = (profile?.fullName.isNotEmpty ?? false)
+        ? profile!.fullName
+        : (AuthService.instance.currentProfile?.name ?? 'Customer');
+    final phone = profile?.phone ?? '';
+    final points = CustomerDataStore.instance.pointsBalance;
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+    final emailVerified = AuthService.instance.currentFirebaseUser?.emailVerified ?? false;
+    final addresses = CustomerDataStore.instance.addresses;
+    final defaultAddress = CustomerDataStore.instance.defaultAddress;
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -48,7 +72,25 @@ class CustomerProfileScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: ListView(
+        child: Column(
+          children: [
+            // Loading / error (+ retry) for the account data. The details
+            // below are real, so if they couldn't be loaded say so instead of
+            // showing zero points / no addresses as if that were the truth.
+            if (store.isLoading) const LinearProgressIndicator(minHeight: 2),
+            if (store.error != null && !store.isLoading)
+              StaleDataBanner(
+                error: store.error!,
+                leadIn: store.hasLoaded
+                    ? 'Showing last saved data.'
+                    : 'Some account details could not be loaded.',
+                onRetry: () => store.retry(),
+              ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => store.refresh(),
+                child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -70,7 +112,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(
-                        'U',
+                        initial,
                         style: AppTextStyles.headlineSm.copyWith(color: Colors.white),
                       ),
                     ),
@@ -80,7 +122,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('User Profile', style: AppTextStyles.titleMd),
+                        Text(name, style: AppTextStyles.titleMd),
                         Text('Kernel Member', style: AppTextStyles.bodySm),
                       ],
                     ),
@@ -91,7 +133,10 @@ class CustomerProfileScreen extends StatelessWidget {
                       color: AppColors.border,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text('New Tier', style: AppTextStyles.labelMd.copyWith(color: AppColors.textMuted)),
+                    child: Text(
+                      points >= 500 ? 'Gold Tier' : (points >= 150 ? 'Silver Tier' : 'New Tier'),
+                      style: AppTextStyles.labelMd.copyWith(color: AppColors.textMuted),
+                    ),
                   ),
                 ],
               ),
@@ -113,7 +158,7 @@ class CustomerProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Golden Kernel Rewards', style: AppTextStyles.titleMd),
-                        Text('0 pts • Earn 1 pt per ₱10 spent', style: AppTextStyles.bodySm),
+                        Text('$points pts • Earn 1 pt per ₱50 spent', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
@@ -143,20 +188,25 @@ class CustomerProfileScreen extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppColors.successBg,
+                          color: emailVerified ? AppColors.successBg : AppColors.warningBg,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Text('Verified', style: AppTextStyles.labelSm.copyWith(color: AppColors.success)),
+                        child: Text(
+                          emailVerified ? 'Verified' : 'Email Not Verified',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: emailVerified ? AppColors.success : AppColors.warning,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                   const Divider(height: 20),
-                  const _FieldRow(label: 'FULL NAME', value: 'Not set'),
-                  const _FieldRow(label: 'EMAIL', value: 'Not set'),
-                  const _FieldRow(label: 'MOBILE NUMBER', value: 'Not set'),
-                  const _FieldRow(
+                  _FieldRow(label: 'FULL NAME', value: name.isEmpty ? 'Not set' : name),
+                  _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
+                  _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : phone),
+                  _FieldRow(
                     label: 'DELIVERY ADDRESS',
-                    value: 'Not set',
+                    value: defaultAddress == null ? 'Not set' : defaultAddress.fullAddress,
                   ),
                   const SizedBox(height: 10),
                   SecondaryButton(
@@ -205,9 +255,11 @@ class CustomerProfileScreen extends StatelessWidget {
                   _SettingsTile(
                     icon: Icons.location_on_outlined,
                     title: 'Saved Addresses',
-                    subtitle: 'No address saved',
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Saved addresses coming soon')),
+                    subtitle: addresses.isEmpty
+                        ? 'No address saved'
+                        : '${addresses.length} address${addresses.length == 1 ? '' : 'es'} saved',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SavedAddressesScreen()),
                     ),
                   ),
                   const Divider(height: 1),
@@ -226,6 +278,10 @@ class CustomerProfileScreen extends StatelessWidget {
               icon: Icons.logout_rounded,
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
+              ),
+            ),
+          ],
+        ),
               ),
             ),
           ],

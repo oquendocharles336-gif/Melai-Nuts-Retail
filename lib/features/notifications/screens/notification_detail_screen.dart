@@ -2,19 +2,46 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/models/notification_item.dart';
+import '../../../data/repositories/notifications_repository.dart';
 
-class NotificationDetailScreen extends StatelessWidget {
+class NotificationDetailScreen extends StatefulWidget {
   final NotificationItem item;
 
   const NotificationDetailScreen({super.key, required this.item});
 
-  void _delete(BuildContext context) {
-    kNotifications.removeWhere((n) => n.id == item.id);
-    Navigator.of(context).pop();
+  @override
+  State<NotificationDetailScreen> createState() => _NotificationDetailScreenState();
+}
+
+class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
+  bool _deleting = false;
+
+  NotificationItem get item => widget.item;
+
+  /// Deletes on the server first; the notification is only removed from the
+  /// list (and the screen closed) once that succeeded. On failure it stays,
+  /// and the customer is told why.
+  Future<void> _delete() async {
+    if (_deleting) return;
+    setState(() => _deleting = true);
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await AppErrors.guard(() => NotificationsRepository.instance.delete(item.id));
+      kNotifications.removeWhere((n) => n.id == item.id);
+      navigator.pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deleting = false);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(AppErrors.from(e).message)));
+    }
   }
 
   @override
@@ -66,9 +93,9 @@ class NotificationDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.lg),
             SecondaryButton(
-              label: 'Delete Notification',
+              label: _deleting ? 'Deleting...' : 'Delete Notification',
               icon: Icons.delete_outline_rounded,
-              onPressed: () => _delete(context),
+              onPressed: _deleting ? null : _delete,
             ),
           ],
         ),

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -6,9 +9,12 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../data/repositories/customer_profile_repository.dart';
 
-/// Edit the customer's profile details. Frontend-only: "Save" just pops
-/// back with a confirmation snackbar — nothing is persisted.
+/// Edits the customer's real profile (`customer_profiles` in Supabase).
+/// Email isn't editable here — it's the Firebase Auth login identity, so
+/// changing it belongs in Login & Security, not a plain text field that
+/// would silently drift from the account.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -18,32 +24,49 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
+  late final _nameController = TextEditingController(
+    text: CustomerDataStore.instance.profile?.fullName ??
+        AuthService.instance.currentProfile?.name ??
+        '',
+  );
+  late final _phoneController =
+      TextEditingController(text: CustomerDataStore.instance.profile?.phone ?? '');
+  final String _email = AuthService.instance.currentFirebaseUser?.email ??
+      CustomerDataStore.instance.profile?.email ??
+      '';
   bool _saving = false;
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
     _phoneController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
+    if (firebaseUid == null) return;
 
     setState(() => _saving = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Profile updated (simulated — no backend yet)')),
-    );
-    Navigator.of(context).pop();
+    try {
+      final updated = await CustomerProfileRepository.instance.updateProfile(
+        firebaseUid: firebaseUid,
+        fullName: _nameController.text.trim(),
+        phone: _phoneController.text.trim(),
+      );
+      CustomerDataStore.instance.updateCachedProfile(updated);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated.')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      AppErrors.showSnack(context, e, scope: ErrorScope.profile);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -70,36 +93,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
               Center(
-                child: Stack(
-                  children: [
-                    Container(
-                      width: 96,
-                      height: 96,
-                      decoration: const BoxDecoration(
-                        color: AppColors.primaryContainer,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.person, size: 48, color: AppColors.primary),
+                child: Container(
+                  width: 96,
+                  height: 96,
+                  decoration: const BoxDecoration(
+                    color: AppColors.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      _nameController.text.isNotEmpty ? _nameController.text[0].toUpperCase() : 'U',
+                      style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary),
                     ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Center(child: Text('Change Photo', style: AppTextStyles.labelLg.copyWith(color: AppColors.primary))),
-              Center(
-                child: Text('Recommended: 500x500 PNG or JPG', style: AppTextStyles.bodySm),
               ),
               const SizedBox(height: AppSpacing.lg),
               AppTextField(
@@ -109,12 +116,27 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
               ),
               const SizedBox(height: 14),
-              AppTextField(
-                label: 'Email Address',
-                controller: _emailController,
-                prefixIcon: Icons.email_outlined,
-                keyboardType: TextInputType.emailAddress,
-                validator: ValidationUtils.validateEmail,
+              Text('EMAIL ADDRESS', style: AppTextStyles.labelSm),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.email_outlined, size: 18, color: AppColors.textSecondary),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(_email.isEmpty ? 'Not set' : _email, style: AppTextStyles.bodyLg)),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('Managed in Login & Security.', style: AppTextStyles.bodySm),
               ),
               const SizedBox(height: 14),
               AppTextField(
@@ -125,19 +147,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 helperText: 'Used for SMS alerts and delivery updates.',
                 validator: ValidationUtils.validatePhone,
               ),
-              const SizedBox(height: 14),
-              AppTextField(
-                label: 'Delivery Address',
-                controller: _addressController,
-                prefixIcon: Icons.location_on_outlined,
-                validator: (v) => ValidationUtils.validateAddress(v, 'Delivery Address'),
-              ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(
                 label: 'Save Profile Changes',
                 icon: Icons.check_rounded,
                 loading: _saving,
-                onPressed: _save,
+                onPressed: _saving ? null : _save,
               ),
               const SizedBox(height: 10),
               SecondaryButton(
