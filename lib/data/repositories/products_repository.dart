@@ -388,6 +388,39 @@ class ProductsRepository extends ChangeNotifier {
     }
   }
 
+  /// The real lowest and highest selling price in the active catalog
+  /// (product base prices and variant prices), used to size the search
+  /// price-range slider. Returns `null` when the catalog is empty or the
+  /// lookup fails, so the UI can hide the slider rather than invent bounds.
+  Future<({double min, double max})?> fetchPriceBounds() async {
+    try {
+      Future<double?> edge(String table, {required bool ascending}) async {
+        final rows = await _client
+            .from(table)
+            .select('price')
+            .order('price', ascending: ascending)
+            .limit(1);
+        if (rows.isEmpty) return null;
+        return (rows.first['price'] as num).toDouble();
+      }
+
+      final lows = [
+        await edge('products', ascending: true),
+        await edge('product_variants', ascending: true),
+      ].whereType<double>();
+      final highs = [
+        await edge('products', ascending: false),
+        await edge('product_variants', ascending: false),
+      ].whereType<double>();
+      if (lows.isEmpty || highs.isEmpty) return null;
+      final low = lows.reduce((a, b) => a < b ? a : b);
+      final high = highs.reduce((a, b) => a > b ? a : b);
+      return (min: low, max: high);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Re-checks *right now* how many units of one product/variant are on the
   /// shelf, straight from `branch_inventory` — never from the [kProducts]
   /// cache, which may be stale (loaded at app-boot or the last branch

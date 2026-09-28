@@ -46,11 +46,13 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final option in const [
+            for (final option in [
               'Bestsellers',
               'Price: Low to High',
               'Price: High to Low',
-              'Highest Rated',
+              // Only offered once real customer reviews exist; until then
+              // every rating is 0 and this sort would be meaningless.
+              if (kProducts.any((p) => p.reviewCount > 0)) 'Highest Rated',
             ])
               ListTile(
                 title: Text(option),
@@ -106,6 +108,19 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
         products.sort((a, b) => b.rating.compareTo(a.rating));
         break;
       default:
+        // Bestsellers: real units sold (kPopularProducts, ranked server-side
+        // by get_popular_products). Products with no sales keep catalog order.
+        final rank = {
+          for (var i = 0; i < kPopularProducts.length; i++) kPopularProducts[i].id: i,
+        };
+        if (rank.isNotEmpty) {
+          final original = {for (var i = 0; i < products.length; i++) products[i].id: i};
+          products.sort((a, b) {
+            final ra = rank[a.id] ?? 1 << 30;
+            final rb = rank[b.id] ?? 1 << 30;
+            return ra != rb ? ra.compareTo(rb) : original[a.id]!.compareTo(original[b.id]!);
+          });
+        }
         break;
     }
 

@@ -32,7 +32,10 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       TextEditingController(text: widget.query);
 
   final Set<String> _selectedCategories = {};
-  RangeValues _priceRange = const RangeValues(50, 300);
+  // null = no price filter. The customer must choose a range; we never
+  // apply one silently. Bounds come from the real catalog prices.
+  RangeValues? _priceRange;
+  RangeValues? _priceBounds;
 
   Timer? _searchDebounce;
   int _requestVersion = 0;
@@ -57,7 +60,14 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       final categories =
           await ProductsRepository.instance.fetchActiveCategoriesWithCounts();
       if (!mounted) return;
-      setState(() => _categories = categories);
+      final bounds = await ProductsRepository.instance.fetchPriceBounds();
+      if (!mounted) return;
+      setState(() {
+        _categories = categories;
+        _priceBounds = (bounds == null || bounds.min >= bounds.max)
+            ? null
+            : RangeValues(bounds.min.floorToDouble(), bounds.max.ceilToDouble());
+      });
       await _runSearch();
     } catch (_) {
       if (!mounted) return;
@@ -86,8 +96,8 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       final results = await ProductsRepository.instance.searchProducts(
         query: query,
         categoryIds: _selectedCategories,
-        minPrice: _priceRange.start,
-        maxPrice: _priceRange.end,
+        minPrice: _priceRange?.start,
+        maxPrice: _priceRange?.end,
         branchId: BranchController.instance.selectedBranch?.id,
       );
 
@@ -113,7 +123,8 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       isScrollControlled: true,
       builder: (context) {
         var temporaryCategories = <String>{..._selectedCategories};
-        var temporaryPriceRange = _priceRange;
+        final bounds = _priceBounds;
+        RangeValues? temporaryPriceRange = _priceRange;
 
         return StatefulBuilder(
           builder: (context, setSheetState) {
@@ -139,8 +150,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                           TextButton(
                             onPressed: () => setSheetState(() {
                               temporaryCategories.clear();
-                              temporaryPriceRange =
-                                  const RangeValues(50, 300);
+                              temporaryPriceRange = null;
                             }),
                             child: const Text('Reset All'),
                           ),
@@ -165,20 +175,22 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                           }),
                         ),
                       const SizedBox(height: 10),
-                      Text('Price Range', style: AppTextStyles.titleMd),
-                      RangeSlider(
-                        values: temporaryPriceRange,
-                        min: 30,
-                        max: 300,
-                        activeColor: AppColors.primary,
-                        labels: RangeLabels(
-                          '₱${temporaryPriceRange.start.toStringAsFixed(0)}',
-                          '₱${temporaryPriceRange.end.toStringAsFixed(0)}',
+                      if (bounds != null) ...[
+                        Text('Price Range', style: AppTextStyles.titleMd),
+                        RangeSlider(
+                          values: temporaryPriceRange ?? bounds,
+                          min: bounds.start,
+                          max: bounds.end,
+                          activeColor: AppColors.primary,
+                          labels: RangeLabels(
+                            '₱${(temporaryPriceRange ?? bounds).start.toStringAsFixed(0)}',
+                            '₱${(temporaryPriceRange ?? bounds).end.toStringAsFixed(0)}',
+                          ),
+                          onChanged: (value) => setSheetState(
+                            () => temporaryPriceRange = value,
+                          ),
                         ),
-                        onChanged: (value) => setSheetState(
-                          () => temporaryPriceRange = value,
-                        ),
-                      ),
+                      ],
                       const SizedBox(height: 16),
                       PrimaryButton(
                         label: 'Apply Filters',
@@ -187,7 +199,13 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                             _selectedCategories
                               ..clear()
                               ..addAll(temporaryCategories);
-                            _priceRange = temporaryPriceRange;
+                            // A range spanning the whole catalog is no filter.
+                            _priceRange = (bounds != null &&
+                                    temporaryPriceRange != null &&
+                                    temporaryPriceRange!.start <= bounds.start &&
+                                    temporaryPriceRange!.end >= bounds.end)
+                                ? null
+                                : temporaryPriceRange;
                           });
                           Navigator.of(context).pop();
                           _runSearch();

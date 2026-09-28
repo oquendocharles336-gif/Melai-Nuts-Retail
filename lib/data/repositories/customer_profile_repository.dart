@@ -150,6 +150,7 @@ class CustomerProfileRepository {
           'is_default': isDefault,
         })
         .eq('id', id)
+        .eq('firebase_uid', firebaseUid)
         .select()
         .single();
     return CustomerAddress.fromRow(row);
@@ -162,7 +163,11 @@ class CustomerProfileRepository {
         .from('customer_addresses')
         .update({'is_default': false})
         .eq('firebase_uid', firebaseUid);
-    await _client.from('customer_addresses').update({'is_default': true}).eq('id', id);
+    await _client
+        .from('customer_addresses')
+        .update({'is_default': true})
+        .eq('id', id)
+        .eq('firebase_uid', firebaseUid);
   }
 
   Future<void> deleteAddress(String id) async {
