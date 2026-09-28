@@ -56,8 +56,15 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   }
 
   Future<void> _open(NotificationItem item) async {
+    final wasRead = item.read;
     setState(() => item.read = true);
-    NotificationsRepository.instance.markRead(item.id).catchError((_) {});
+    if (!wasRead) {
+      // Persist in the background; if the server rejects it, put the unread
+      // state back so the list never claims something the backend doesn't have.
+      NotificationsRepository.instance.markRead(item.id).catchError((Object _) {
+        if (mounted) setState(() => item.read = false);
+      });
+    }
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => NotificationDetailScreen(item: item)),
     );
