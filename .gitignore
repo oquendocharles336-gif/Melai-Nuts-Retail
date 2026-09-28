@@ -86,3 +86,8 @@ firestore-debug.log
 ui-debug.log
 # Rules-test tooling
 node_modules/
+
+# Firebase Functions
+functions/node_modules/
+functions/*.log
+service-account*.json
