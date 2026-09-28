@@ -3,6 +3,8 @@ import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
@@ -36,16 +38,20 @@ class CustomerHomeScreen extends StatefulWidget {
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   /// null = "All". Otherwise a real `product_categories.id` from Supabase.
   String? _selectedCategoryId;
-  late final Future<void> _catalogFuture;
 
   @override
   void initState() {
     super.initState();
     // Catalog is preloaded at app boot; only re-fetch here if that hasn't
-    // resolved yet (e.g. cold start was offline).
-    _catalogFuture =
-        kProducts.isEmpty ? ProductsRepository.instance.loadCatalog() : Future.value();
+    // succeeded yet (e.g. cold start was offline). Loading / error / retry
+    // state is read from ProductsRepository in build().
+    final catalog = ProductsRepository.instance;
+    if (!catalog.hasLoaded && !catalog.isLoading) _retryCatalog();
   }
+
+  Future<void> _retryCatalog() => ProductsRepository.instance.loadCatalog(
+        branchId: BranchController.instance.selectedBranch?.id,
+      );
 
   /// The dashboard's "Popular Near You" strip, ranked by real sales
   /// ([kPopularProducts]; falls further back inside the repository), then
@@ -77,7 +83,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: CustomerDataStore.instance,
+      listenable: Listenable.merge([
+        CustomerDataStore.instance,
+        ProductsRepository.instance,
+      ]),
       builder: (context, _) => _buildScaffold(context),
     );
   }
@@ -123,9 +132,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           ),
         ],
       ),
-      body: FutureBuilder(
-        future: _catalogFuture,
-        builder: (context, snapshot) {
+      body: Builder(
+        builder: (context) {
           return ListView(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.md,
@@ -178,6 +186,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   hintText: 'Search for garlic, spicy, or sweet...',
                 ),
               ),
+              // Loading indicator while the catalog or the customer's records
+              // are being fetched, so the screen never looks silently blank.
+              if (store.isLoading || ProductsRepository.instance.isLoading) ...[
+                const SizedBox(height: AppSpacing.xs),
+                const LinearProgressIndicator(minHeight: 2),
+              ],
+              // Customer records (orders / notifications / points) failed to
+              // load: say so, with a retry, instead of hiding the sections.
+              if (store.error != null && !store.isLoading) ...[
+                const SizedBox(height: AppSpacing.md),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: StateErrorView(
+                    compact: true,
+                    error: store.error,
+                    message: 'We couldn\'t load your orders and notifications.',
+                    onRetry: () => store.retry(),
+                  ),
+                ),
+              ],
               // Active Orders — real, from `orders`/`order_status_events`.
               // Hidden entirely when there's nothing in progress.
               if (_activeOrders.isNotEmpty) ...[
@@ -424,13 +456,20 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     final cart = CartController.instance;
                     final popular = _visiblePopularProducts;
                     if (popular.isEmpty) {
-                      return Center(
-                        child: Text(
-                          _selectedCategoryId == null
-                              ? 'No products available yet.'
-                              : 'No products in this category yet.',
-                          style: AppTextStyles.bodySm,
-                        ),
+                      final catalog = ProductsRepository.instance;
+                      return DataStateView(
+                        compact: true,
+                        isLoading: catalog.isLoading,
+                        error: catalog.error,
+                        isEmpty: true,
+                        onRetry: _retryCatalog,
+                        errorScope: ErrorScope.catalog,
+                        emptyIcon: Icons.inventory_2_outlined,
+                        emptyTitle: _selectedCategoryId == null
+                            ? 'No products available yet.'
+                            : 'No products in this category yet.',
+                        loadingMessage: 'Loading products...',
+                        builder: (_) => const SizedBox.shrink(),
                       );
                     }
                     return ListView.separated(

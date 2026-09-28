@@ -4,6 +4,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../widgets/reward_card.dart';
 import '../widgets/reward_redeem_action.dart';
@@ -20,6 +21,7 @@ class RedeemRewardsScreen extends StatelessWidget {
   }
 
   Widget _buildBody(BuildContext context) {
+    final store = CustomerDataStore.instance;
     final userPoints = CustomerDataStore.instance.pointsBalance;
 
     return Scaffold(
@@ -49,20 +51,20 @@ class RedeemRewardsScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: dummyRewards.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.card_giftcard_rounded, size: 64, color: AppColors.textMuted.withValues(alpha: 0.5)),
-                  const SizedBox(height: 16),
-                  Text('No rewards yet.', style: AppTextStyles.headlineSm.copyWith(color: AppColors.textMuted)),
-                  const SizedBox(height: 8),
-                  Text('Keep earning points to see available rewards.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
-                ],
-              ),
-            )
-          : ListView.separated(
+      body: DataStateView(
+        isLoading: store.isLoading,
+        error: store.error,
+        isEmpty: dummyRewards.isEmpty,
+        onRetry: () => store.retry(),
+        emptyIcon: Icons.card_giftcard_rounded,
+        emptyTitle: 'No rewards yet.',
+        emptyMessage: 'Keep earning points to see available rewards.',
+        loadingMessage: 'Loading rewards...',
+        builder: (context) => RefreshIndicator(
+          onRefresh: () => store.refresh(),
+          child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+
               padding: const EdgeInsets.all(AppSpacing.md),
               itemCount: dummyRewards.length,
               separatorBuilder: (context, index) => const SizedBox(height: 12),
@@ -75,6 +77,8 @@ class RedeemRewardsScreen extends StatelessWidget {
                 );
               },
             ),
+        ),
+      ),
     );
   }
 }

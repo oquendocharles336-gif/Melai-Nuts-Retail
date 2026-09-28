@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -8,6 +9,7 @@ import '../../../core/widgets/secondary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/order.dart';
 import '../../../data/models/product.dart';
+import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import 'cart_screen.dart';
 
@@ -104,6 +106,30 @@ class RepeatOrderScreen extends StatelessWidget {
   }
 
   Future<void> _handleRepeat(BuildContext context) async {
+    // Availability is judged against the live catalog, so never do it against
+    // one that failed to load — that would wrongly report every item as
+    // "no longer available". Try to load it, and say so plainly if we can't.
+    final catalog = ProductsRepository.instance;
+    if (!catalog.hasLoaded) {
+      await catalog.loadCatalog(
+        branchId: BranchController.instance.selectedBranch?.id,
+      );
+      if (!context.mounted) return;
+      if (!catalog.hasLoaded) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                catalog.error?.message ??
+                    'We couldn\'t load current products. Please try again.',
+              ),
+            ),
+          );
+        return;
+      }
+    }
+
     final results = _repeat();
     final addedCount = results.where((r) => r.added).length;
     final unavailable = results.where((r) => !r.added).toList();

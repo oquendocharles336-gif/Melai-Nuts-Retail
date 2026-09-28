@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_refunds.dart';
 import '../../../data/models/refund.dart';
 import 'refund_processing_screen.dart';
@@ -29,13 +32,32 @@ class RefundHistoryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
+    final store = CustomerDataStore.instance;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Refund History', showBack: true),
       body: SafeArea(
-        child: kRefundRequests.isEmpty
-            ? Center(child: Text('No refund requests yet.', style: AppTextStyles.bodyMd))
-            : ListView.separated(
+        child: DataStateView(
+          isLoading: store.isLoading,
+          error: store.error,
+          isEmpty: kRefundRequests.isEmpty,
+          onRetry: () => store.retry(),
+          errorScope: ErrorScope.refund,
+          emptyIcon: Icons.assignment_return_outlined,
+          emptyTitle: 'No refund requests yet.',
+          emptyMessage: 'Refund requests you submit for your orders will appear here.',
+          loadingMessage: 'Loading refund requests...',
+          builder: (context) => RefreshIndicator(
+            onRefresh: () => store.refresh(),
+            child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           itemCount: kRefundRequests.length,
           separatorBuilder: (context, index) => const SizedBox(height: 10),
@@ -85,6 +107,8 @@ class RefundHistoryScreen extends StatelessWidget {
               ),
             );
           },
+        ),
+          ),
         ),
       ),
     );

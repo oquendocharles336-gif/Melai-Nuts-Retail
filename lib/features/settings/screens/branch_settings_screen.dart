@@ -7,6 +7,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_branches.dart';
 import '../../../data/models/branch.dart';
 import '../../../data/models/user_role.dart';
@@ -52,14 +53,13 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
   }
 
   // --- Customer path --------------------------------------------------------
-  late Future<void> _loadFuture;
   String? _pendingBranchId;
 
   @override
   void initState() {
     super.initState();
     _pendingBranchId = BranchController.instance.selectedBranch?.id;
-    _loadFuture = kBranches.isEmpty ? BranchRepository.instance.loadBranches() : Future.value();
+    if (kBranches.isEmpty) BranchRepository.instance.loadBranches();
   }
 
   Future<void> _confirmCustomerSelection() async {
@@ -94,43 +94,50 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Select Branch', showBack: true),
       body: SafeArea(
-        child: FutureBuilder<void>(
-          future: _loadFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (kBranches.isEmpty) {
-              return Center(
-                child: Text('No branches are available right now.', style: AppTextStyles.bodySm),
-              );
-            }
-            return ListenableBuilder(
-              listenable: BranchController.instance,
-              builder: (context, _) {
-                return ListView(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  children: [
-                    Text('Choose your branch', style: AppTextStyles.titleMd),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Sets which branch\'s stock, pricing, and delivery options you see.',
-                      style: AppTextStyles.bodySm,
+        child: ListenableBuilder(
+          listenable: BranchRepository.instance,
+          builder: (context, _) {
+            final repo = BranchRepository.instance;
+            return DataStateView(
+              isLoading: repo.isLoading,
+              error: repo.error,
+              isEmpty: kBranches.isEmpty,
+              onRetry: () => repo.loadBranches(),
+              emptyIcon: Icons.storefront_outlined,
+              emptyTitle: 'No branches are available right now.',
+              emptyMessage: 'Please check back soon.',
+              loadingMessage: 'Loading branches...',
+              builder: (context) => ListenableBuilder(
+                listenable: BranchController.instance,
+                builder: (context, _) {
+                  return RefreshIndicator(
+                    onRefresh: () => repo.loadBranches(),
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      children: [
+                        Text('Choose your branch', style: AppTextStyles.titleMd),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Sets which branch\'s stock, pricing, and delivery options you see.',
+                          style: AppTextStyles.bodySm,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        for (final branch in kBranches) ...[
+                          _BranchCard(
+                            branch: branch,
+                            selected: _pendingBranchId == branch.id,
+                            onTap: branch.isActive
+                                ? () => setState(() => _pendingBranchId = branch.id)
+                                : null,
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    for (final branch in kBranches) ...[
-                      _BranchCard(
-                        branch: branch,
-                        selected: _pendingBranchId == branch.id,
-                        onTap: branch.isActive
-                            ? () => setState(() => _pendingBranchId = branch.id)
-                            : null,
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                  ],
-                );
-              },
+                  );
+                },
+              ),
             );
           },
         ),

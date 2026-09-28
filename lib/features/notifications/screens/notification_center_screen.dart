@@ -3,6 +3,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/models/notification_item.dart';
@@ -18,15 +21,37 @@ class NotificationCenterScreen extends StatefulWidget {
 }
 
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
-  void _markAllRead() {
+  @override
+  void initState() {
+    super.initState();
+    // Normally loaded at sign-in; (re)try here if that hasn't succeeded yet.
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    final store = CustomerDataStore.instance;
+    if (uid != null && !store.hasLoaded && !store.isLoading) {
+      store.loadForCustomer(uid);
+    }
+  }
+
+  Future<void> _markAllRead() async {
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    if (uid == null) return;
+    final previouslyUnread = kNotifications.where((n) => !n.read).toList();
     setState(() {
       for (final n in kNotifications) {
         n.read = true;
       }
     });
-    final uid = AuthService.instance.currentFirebaseUser?.uid;
-    if (uid != null) {
-      NotificationsRepository.instance.markAllRead(uid).catchError((_) {});
+    try {
+      await NotificationsRepository.instance.markAllRead(uid);
+    } catch (e) {
+      // Not saved: put the unread state back and tell the customer.
+      if (!mounted) return;
+      setState(() {
+        for (final n in previouslyUnread) {
+          n.read = false;
+        }
+      });
+      AppErrors.showSnack(context, e);
     }
   }
 
@@ -41,6 +66,14 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
+    final store = CustomerDataStore.instance;
     final unreadCount = kNotifications.where((n) => !n.read).length;
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -64,9 +97,19 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
         ],
       ),
       body: SafeArea(
-        child: kNotifications.isEmpty
-            ? Center(child: Text('No notifications yet.', style: AppTextStyles.bodyMd))
-            : ListView.separated(
+        child: DataStateView(
+          isLoading: store.isLoading,
+          error: store.error,
+          isEmpty: kNotifications.isEmpty,
+          onRetry: () => store.retry(),
+          emptyIcon: Icons.notifications_none_rounded,
+          emptyTitle: 'No notifications yet.',
+          emptyMessage: 'Updates about your orders, rewards and offers will appear here.',
+          loadingMessage: 'Loading notifications...',
+          builder: (context) => RefreshIndicator(
+            onRefresh: () => store.refresh(),
+            child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           itemCount: kNotifications.length,
           separatorBuilder: (context, index) => const SizedBox(height: 10),
@@ -117,6 +160,8 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
               ),
             );
           },
+        ),
+          ),
         ),
       ),
     );

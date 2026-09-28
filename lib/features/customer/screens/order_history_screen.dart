@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import '../widgets/category_chip.dart';
@@ -63,7 +64,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   Future<void> _refresh() async {
     try {
       await AppErrors.guard(() async {
-        await CustomerDataStore.instance.refresh();
+        await CustomerDataStore.instance.refresh(throwOnError: true);
       }, scope: ErrorScope.order);
     } catch (e) {
       if (!mounted) return;
@@ -80,11 +81,24 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         child: ListenableBuilder(
           listenable: CustomerDataStore.instance,
           builder: (context, _) {
+            final store = CustomerDataStore.instance;
             final orders = _filtered;
             final active = activeOrder;
             return RefreshIndicator(
               onRefresh: _refresh,
-              child: ListView(
+              // loading / error (+ retry) / empty / success — an empty list
+              // is only shown once the load has actually finished OK.
+              child: DataStateView(
+              isLoading: store.isLoading,
+              error: store.error,
+              isEmpty: kOrders.isEmpty,
+              onRetry: () => store.retry(),
+              errorScope: ErrorScope.order,
+              emptyIcon: Icons.receipt_long_outlined,
+              emptyTitle: 'No orders yet',
+              emptyMessage: 'Your orders will show up here once you place one.',
+              loadingMessage: 'Loading your orders...',
+              builder: (context) => ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.md),
               children: [
@@ -235,6 +249,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                 ),
               ),
               ],
+              ),
               ),
             );
           },

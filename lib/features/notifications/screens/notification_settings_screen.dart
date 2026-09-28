@@ -4,7 +4,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/repositories/notifications_repository.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
@@ -24,6 +26,8 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   bool _emailNotifications = false;
   bool _smsNotifications = false;
   bool _saving = false;
+  bool _loadingPrefs = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -33,18 +37,39 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
 
   Future<void> _loadPreferences() async {
     final uid = AuthService.instance.currentFirebaseUser?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+      setState(() => _loadingPrefs = false);
+      return;
+    }
+    setState(() {
+      _loadingPrefs = true;
+      _loadError = null;
+    });
     try {
-      final prefs = await NotificationsRepository.instance.fetchPreferences(uid);
-      if (prefs == null || !mounted) return;
+      final prefs = await AppErrors.guard(
+        () => NotificationsRepository.instance.fetchPreferences(uid),
+      );
+      if (!mounted) return;
+      if (prefs == null) {
+        // No saved preferences yet: the defaults on screen are the truth.
+        setState(() => _loadingPrefs = false);
+        return;
+      }
       setState(() {
+        _loadingPrefs = false;
         _orderUpdates = (prefs['order_updates'] as bool?) ?? _orderUpdates;
         _deliveryUpdates = (prefs['delivery_updates'] as bool?) ?? _deliveryUpdates;
         _loyaltyUpdates = (prefs['loyalty_updates'] as bool?) ?? _loyaltyUpdates;
         _promos = (prefs['promos'] as bool?) ?? _promos;
       });
-    } catch (_) {
-      // Keep the defaults; the save button will still work when back online.
+    } catch (e) {
+      // Saving now would overwrite the customer's real preferences with
+      // defaults, so block Save and offer a retry instead.
+      if (!mounted) return;
+      setState(() {
+        _loadingPrefs = false;
+        _loadError = e;
+      });
     }
   }
 
@@ -66,9 +91,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save preferences: ${e.toString()}')),
-      );
+      AppErrors.showSnack(context, e);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -80,7 +103,15 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Notification Settings', showBack: true),
       body: SafeArea(
-        child: ListView(
+        child: _loadingPrefs
+            ? const StateLoadingView(message: 'Loading your preferences...')
+            : _loadError != null
+                ? StateErrorView(
+                    error: _loadError,
+                    message: 'We couldn\'t load your notification preferences.',
+                    onRetry: _loadPreferences,
+                  )
+                : ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             _SectionCard(
@@ -172,7 +203,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
             label: 'Save Preferences',
             icon: Icons.check_rounded,
             loading: _saving,
-            onPressed: _saving ? null : _save,
+            onPressed: (_saving || _loadingPrefs || _loadError != null) ? null : _save,
           ),
         ),
       ),

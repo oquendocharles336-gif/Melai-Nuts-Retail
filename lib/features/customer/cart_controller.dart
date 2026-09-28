@@ -63,6 +63,25 @@ class CartController extends ChangeNotifier {
 
   String? lastError;
   bool get isSyncing => _syncing;
+
+  bool _hydrating = false;
+  bool _hydrateFailed = false;
+
+  /// True while the saved cart is being loaded from the server (e.g. right
+  /// after sign-in or a branch switch). The cart screen shows a loading state
+  /// instead of "Your cart is empty" while this is true.
+  bool get isHydrating => _hydrating;
+
+  /// True when loading the saved cart failed and nothing has succeeded since.
+  /// [lastError] holds the customer-safe message; call [retryLoad] to retry.
+  bool get hasLoadError => _hydrateFailed;
+
+  /// Retries loading the saved cart after a failure.
+  Future<void> retryLoad() async {
+    final uid = _firebaseUid;
+    if (uid == null) return;
+    await hydrate(uid, branchId: _branchId);
+  }
   int get loyaltyPointsBalance => _pricing.loyaltyPointsBalance;
   int get loyaltyPointsUsed => _pricing.loyaltyPointsUsed;
   double get subtotal => _pricing.subtotal;
@@ -101,6 +120,9 @@ class CartController extends ChangeNotifier {
     _storageKey = _keyFor(firebaseUid, resolvedBranch);
     await _loadLocalSnapshot();
 
+    _hydrating = true;
+    _hydrateFailed = false;
+    notifyListeners();
     try {
       final remote = await CartRepository.instance.loadOpenCart(branchId: resolvedBranch);
       if (remote != null && !_dirty) {
@@ -117,9 +139,13 @@ class CartController extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
+      _hydrateFailed = true;
       lastError = _messageFor(e);
       notifyListeners();
       _scheduleRetry();
+    } finally {
+      _hydrating = false;
+      notifyListeners();
     }
   }
 
@@ -345,6 +371,7 @@ class CartController extends ChangeNotifier {
         appliedVoucherCode = result.voucherCode;
         redeemPoints = result.redeemPoints;
         lastError = null;
+        _hydrateFailed = false;
         if (_revision == sentRevision) {
           _dirty = false;
           await _saveLocalSnapshot(dirty: false);

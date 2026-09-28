@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_payments.dart';
@@ -43,6 +44,7 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen> {
   PaymentTransaction? _txn;
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -52,12 +54,20 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final fresh = await PaymentsRepository.instance.fetchForOrder(widget.orderId);
       if (!mounted) return;
       setState(() => _txn = fresh ?? _txn);
-    } catch (_) {
-      // Keep whatever we already know; the status screen offers a retry.
+    } catch (e) {
+      // Keep whatever we already know, and say the latest details could not
+      // be loaded, with a retry.
+      if (mounted) setState(() => _error = AppErrors.from(e).message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -147,6 +157,25 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 ],
               ),
             ),
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded, size: 18, color: AppColors.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Could not load the latest payment details. $_error',
+                      style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _loading ? null : _load,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/customer_data_store.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_refunds.dart';
@@ -57,9 +58,7 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not submit refund request: ${e.toString()}')),
-      );
+      AppErrors.showSnack(context, e, scope: ErrorScope.refund);
     }
   }
 

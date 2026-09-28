@@ -3,6 +3,9 @@ import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/state_views.dart';
+import '../../../data/repositories/products_repository.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
 import '../cart_controller.dart';
@@ -64,7 +67,32 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    // Catalog is preloaded at app boot; retry here if that hasn't succeeded.
+    final catalog = ProductsRepository.instance;
+    if (!catalog.hasLoaded && !catalog.isLoading) _reload();
+  }
+
+  Future<void> _reload() => ProductsRepository.instance.loadCatalog(
+        branchId: BranchController.instance.selectedBranch?.id,
+      );
+
+  @override
   Widget build(BuildContext context) {
+    // Rebuild the whole screen (not just the grid) when the catalog load
+    // finishes/fails or the branch changes, because the filtered + sorted
+    // product list below is computed from the shared catalog in this build.
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        ProductsRepository.instance,
+        BranchController.instance,
+      ]),
+      builder: (context, _) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     final cart = CartController.instance;
     var products = List<Product>.from(_filtered);
     switch (_sortLabel) {
@@ -180,46 +208,50 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
             ),
             Expanded(
               child: ListenableBuilder(
-                listenable: Listenable.merge([cart, BranchController.instance]),
+                listenable: cart,
                 builder: (context, _) {
-                  if (products.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.inventory_2_outlined, size: 64, color: AppColors.textMuted.withValues(alpha: 0.5)),
-                          const SizedBox(height: 16),
-                          Text('No products yet.', style: AppTextStyles.headlineSm.copyWith(color: AppColors.textMuted)),
-                          const SizedBox(height: 8),
-                          Text('Check back soon for artisanal nut batches.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
-                        ],
+                  final catalog = ProductsRepository.instance;
+                  return DataStateView(
+                    isLoading: catalog.isLoading,
+                    error: catalog.error,
+                    isEmpty: products.isEmpty,
+                    onRetry: _reload,
+                    errorScope: ErrorScope.catalog,
+                    emptyIcon: Icons.inventory_2_outlined,
+                    emptyTitle: _selectedCategory == null
+                        ? 'No products yet.'
+                        : 'No products in this category yet.',
+                    emptyMessage: 'Check back soon for artisanal nut batches.',
+                    loadingMessage: 'Loading products...',
+                    builder: (context) => RefreshIndicator(
+                      onRefresh: _reload,
+                      child: GridView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.md,
+                          0,
+                          AppSpacing.md,
+                          AppSpacing.md,
+                        ),
+                        itemCount: products.length,
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.68,
+                        ),
+                        itemBuilder: (context, i) {
+                          final product = products[i];
+                          final defaultVariant = product.variants.first;
+                          return ProductCard(
+                            product: product,
+                            quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
+                            onTap: () => _openProduct(product),
+                            onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
+                          );
+                        },
                       ),
-                    );
-                  }
-                  return GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.md,
-                      0,
-                      AppSpacing.md,
-                      AppSpacing.md,
                     ),
-                    itemCount: products.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 0.68,
-                    ),
-                    itemBuilder: (context, i) {
-                      final product = products[i];
-                      final defaultVariant = product.variants.first;
-                      return ProductCard(
-                        product: product,
-                        quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
-                        onTap: () => _openProduct(product),
-                        onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
-                      );
-                    },
                   );
                 },
               ),

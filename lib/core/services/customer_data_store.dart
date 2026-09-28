@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import '../utils/app_error.dart';
 import '../../data/dummy_data/dummy_loyalty.dart';
 import '../../data/dummy_data/dummy_notifications.dart';
 import '../../data/dummy_data/dummy_orders.dart';
@@ -30,9 +33,38 @@ class CustomerDataStore extends ChangeNotifier {
   CustomerDataStore._();
   static final CustomerDataStore instance = CustomerDataStore._();
 
+  /// The customer whose records were last loaded *successfully*.
   String? _uid;
+
+  /// The customer a load was most recently requested for, whether or not it
+  /// succeeded — this is what [refresh]/[retry] reload after a failure.
+  String? _requestedUid;
+
+  Future<void>? _inFlight;
+  String? _inFlightUid;
+
+  /// Bumped by [clear] so a response that arrives after sign-out is dropped
+  /// instead of repopulating the shared lists with the previous customer's data.
+  int _generation = 0;
+
   bool _loading = false;
+
+  /// True while any customer record load is running.
   bool get isLoading => _loading;
+
+  /// True while loading and nothing has been loaded yet — screens should show
+  /// their loading state (not an empty state) in this case.
+  bool get isInitialLoading => _loading && !hasLoaded;
+
+  AppError? _error;
+
+  /// Customer-safe error from the most recent load, or null if it succeeded.
+  /// When non-null and [hasLoaded] is false, screens should show an error
+  /// state with a retry; when [hasLoaded] is true the last good data is still
+  /// in the lists and a stale-data notice is enough.
+  AppError? get error => _error;
+
+  /// True once the customer's records have loaded successfully.
   bool get hasLoaded => _uid != null;
 
   int pointsBalance = 0;
@@ -50,33 +82,93 @@ class CustomerDataStore extends ChangeNotifier {
     return addresses.first;
   }
 
+  String? _fallbackName;
+  String? _fallbackEmail;
+
+  /// Records who is signing in (no network) so that [refresh]/[retry] work
+  /// even if the very first load — or the profile-creation step before it —
+  /// failed. Call right after sign-in, before any load.
+  void rememberCustomer({
+    required String firebaseUid,
+    required String fallbackName,
+    required String fallbackEmail,
+  }) {
+    _requestedUid = firebaseUid;
+    _fallbackName = fallbackName;
+    _fallbackEmail = fallbackEmail;
+  }
+
   /// Loads (or reloads) everything for [firebaseUid]. Safe to call multiple
   /// times — screens call this from `initState` and it's a cheap no-op if
   /// already loaded for the same customer (use [refresh] to force a reload).
-  Future<void> loadForCustomer(String firebaseUid) async {
-    if (_uid == firebaseUid && !_loading) return;
-    await _load(firebaseUid);
+  /// Concurrent calls for the same customer share one request.
+  ///
+  /// Never throws; check [error] / [hasLoaded] for the outcome.
+  Future<void> loadForCustomer(String firebaseUid) {
+    if (_uid == firebaseUid && !_loading) return Future.value();
+    return _load(firebaseUid);
   }
 
-  Future<void> refresh() async {
-    final uid = _uid;
-    if (uid != null) await _load(uid);
+  /// Forces a reload for the current customer. Also works after a failed
+  /// first load (when [hasLoaded] is still false). With [throwOnError] the
+  /// [AppError] is rethrown so pull-to-refresh handlers can show a snackbar.
+  Future<void> refresh({bool throwOnError = false}) async {
+    final uid = _uid ?? _requestedUid;
+    if (uid == null) return;
+    await _load(uid);
+    final e = _error;
+    if (throwOnError && e != null) throw e;
   }
 
-  Future<void> _load(String firebaseUid) async {
+  /// Retry after a failed load (same as [refresh]).
+  Future<void> retry() => refresh();
+
+  Future<void> _load(String firebaseUid) {
+    final running = _inFlight;
+    if (running != null && _inFlightUid == firebaseUid) return running;
+    final future = _runLoad(firebaseUid);
+    _inFlight = future;
+    _inFlightUid = firebaseUid;
+    return future;
+  }
+
+  Future<void> _runLoad(String firebaseUid) async {
+    final generation = _generation;
+    _requestedUid = firebaseUid;
     _loading = true;
-    notifyListeners();
+    _error = null;
+    // Deferred: screens call this from `initState`, i.e. mid-build, and a
+    // synchronous notify there would throw "setState() called during build".
+    scheduleMicrotask(notifyListeners);
     try {
-      final results = await Future.wait([
-        OrdersRepository.instance.fetchOrders(firebaseUid),
-        LoyaltyRepository.instance.fetchBalance(firebaseUid),
-        LoyaltyRepository.instance.fetchTransactions(firebaseUid),
-        LoyaltyRepository.instance.fetchRewards(),
-        NotificationsRepository.instance.fetchAll(firebaseUid),
-        RefundsRepository.instance.fetchAll(firebaseUid),
-        PaymentsRepository.instance.fetchAll(firebaseUid),
-        CustomerProfileRepository.instance.fetchAddresses(firebaseUid),
-      ]);
+      final results = await AppErrors.guard(
+        () async {
+          // The profile row is created on first sign-in. If that step failed
+          // earlier (e.g. offline), redo it here so Retry recovers fully.
+          final fallbackEmail = _fallbackEmail;
+          if (profile == null && fallbackEmail != null) {
+            profile = await CustomerProfileRepository.instance.ensureProfile(
+              firebaseUid: firebaseUid,
+              fallbackName: _fallbackName ?? '',
+              fallbackEmail: fallbackEmail,
+            );
+          }
+          return Future.wait([
+            OrdersRepository.instance.fetchOrders(firebaseUid),
+            LoyaltyRepository.instance.fetchBalance(firebaseUid),
+            LoyaltyRepository.instance.fetchTransactions(firebaseUid),
+            LoyaltyRepository.instance.fetchRewards(),
+            NotificationsRepository.instance.fetchAll(firebaseUid),
+            RefundsRepository.instance.fetchAll(firebaseUid),
+            PaymentsRepository.instance.fetchAll(firebaseUid),
+            CustomerProfileRepository.instance.fetchAddresses(firebaseUid),
+          ]);
+        },
+        timeout: AppErrors.rpcTimeout,
+      );
+
+      // Signed out (or switched account) while this was loading: drop it.
+      if (generation != _generation) return;
 
       kOrders
         ..clear()
@@ -100,13 +192,20 @@ class CustomerDataStore extends ChangeNotifier {
       addresses = results[7] as List<CustomerAddress>;
 
       _uid = firebaseUid;
-    } catch (_) {
-      // Offline or not yet configured — keep whatever was last loaded (or
-      // the empty starting state) and let the existing empty-state UI
-      // handle it; nothing here should crash the app.
+      _error = null;
+    } catch (e) {
+      if (generation != _generation) return;
+      // Keep whatever was last loaded (or the empty starting state) and
+      // record the failure so screens can show an error + retry rather than
+      // pretending there is simply no data.
+      _error = AppErrors.from(e);
     } finally {
-      _loading = false;
-      notifyListeners();
+      if (generation == _generation) {
+        _loading = false;
+        _inFlight = null;
+        _inFlightUid = null;
+        notifyListeners();
+      }
     }
   }
 
@@ -144,7 +243,15 @@ class CustomerDataStore extends ChangeNotifier {
   /// signed-in account (on a shared device) never sees a previous
   /// customer's data.
   void clear() {
+    _generation++;
     _uid = null;
+    _requestedUid = null;
+    _fallbackName = null;
+    _fallbackEmail = null;
+    _inFlight = null;
+    _inFlightUid = null;
+    _loading = false;
+    _error = null;
     pointsBalance = 0;
     profile = null;
     addresses = [];

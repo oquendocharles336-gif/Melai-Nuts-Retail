@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../notifications/screens/notification_center_screen.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
@@ -27,6 +28,7 @@ class CustomerProfileScreen extends StatelessWidget {
   }
 
   Widget _buildBody(BuildContext context) {
+    final store = CustomerDataStore.instance;
     final unreadCount = kNotifications.where((n) => !n.read).length;
     final profile = CustomerDataStore.instance.profile;
     final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email ?? '';
@@ -70,7 +72,25 @@ class CustomerProfileScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: ListView(
+        child: Column(
+          children: [
+            // Loading / error (+ retry) for the account data. The details
+            // below are real, so if they couldn't be loaded say so instead of
+            // showing zero points / no addresses as if that were the truth.
+            if (store.isLoading) const LinearProgressIndicator(minHeight: 2),
+            if (store.error != null && !store.isLoading)
+              StaleDataBanner(
+                error: store.error!,
+                leadIn: store.hasLoaded
+                    ? 'Showing last saved data.'
+                    : 'Some account details could not be loaded.',
+                onRetry: () => store.retry(),
+              ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => store.refresh(),
+                child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -258,6 +278,10 @@ class CustomerProfileScreen extends StatelessWidget {
               icon: Icons.logout_rounded,
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
+              ),
+            ),
+          ],
+        ),
               ),
             ),
           ],

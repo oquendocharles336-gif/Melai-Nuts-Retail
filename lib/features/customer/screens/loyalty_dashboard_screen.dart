@@ -4,6 +4,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../../../data/models/loyalty.dart';
 import '../widgets/loyalty_points_card.dart';
@@ -26,6 +27,7 @@ class LoyaltyDashboardScreen extends StatelessWidget {
   }
 
   Widget _buildBody(BuildContext context) {
+    final store = CustomerDataStore.instance;
     final availablePoints = CustomerDataStore.instance.pointsBalance;
     final lifetimeEarned = dummyLoyaltyTransactions
         .where((t) => t.type == LoyaltyTransactionType.earn)
@@ -67,7 +69,21 @@ class LoyaltyDashboardScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: ListView(
+        // loading / error (+ retry) until the rewards data has loaded; after
+        // that the sections below show their own real empty messages.
+        child: DataStateView(
+          isLoading: store.isLoading,
+          error: store.error,
+          isEmpty: !store.hasLoaded,
+          onRetry: () => store.retry(),
+          emptyIcon: Icons.workspace_premium_outlined,
+          emptyTitle: 'Rewards unavailable',
+          emptyMessage: 'Sign in to see your points and rewards.',
+          loadingMessage: 'Loading your rewards...',
+          builder: (context) => RefreshIndicator(
+          onRefresh: () => store.refresh(),
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -252,6 +268,8 @@ class LoyaltyDashboardScreen extends StatelessWidget {
               ),
             ),
           ],
+        ),
+          ),
         ),
       ),
     );

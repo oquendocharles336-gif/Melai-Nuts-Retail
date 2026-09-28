@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../../../data/models/loyalty.dart';
 
@@ -10,6 +12,14 @@ class LoyaltyHistoryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CustomerDataStore.instance,
+      builder: (context, _) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
+    final store = CustomerDataStore.instance;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -18,20 +28,20 @@ class LoyaltyHistoryScreen extends StatelessWidget {
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
       ),
-      body: dummyLoyaltyTransactions.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history_rounded, size: 64, color: AppColors.textMuted.withValues(alpha: 0.5)),
-                  const SizedBox(height: 16),
-                  Text('No history yet.', style: AppTextStyles.headlineSm.copyWith(color: AppColors.textMuted)),
-                  const SizedBox(height: 8),
-                  Text('Your points activity will appear here.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted)),
-                ],
-              ),
-            )
-          : ListView.separated(
+      body: DataStateView(
+        isLoading: store.isLoading,
+        error: store.error,
+        isEmpty: dummyLoyaltyTransactions.isEmpty,
+        onRetry: () => store.retry(),
+        emptyIcon: Icons.history_rounded,
+        emptyTitle: 'No history yet.',
+        emptyMessage: 'Your points activity will appear here.',
+        loadingMessage: 'Loading your points history...',
+        builder: (context) => RefreshIndicator(
+          onRefresh: () => store.refresh(),
+          child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+
               padding: const EdgeInsets.all(AppSpacing.md),
               itemCount: dummyLoyaltyTransactions.length,
               separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
@@ -83,6 +93,8 @@ class LoyaltyHistoryScreen extends StatelessWidget {
                 );
               },
             ),
+        ),
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/dummy_data/dummy_payments.dart';
@@ -45,9 +46,9 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
         kPayments.insert(0, fresh);
       }
       setState(() => _txn = fresh ?? _txn);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Could not refresh the payment status. Check your connection and try again.');
+      setState(() => _error = AppErrors.from(e).message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -95,6 +96,24 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
                       _Row('Amount', '₱${txn.amount.toStringAsFixed(0)}'),
                     ] else if (_loading)
                       const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator()))
+                    else if (_error != null)
+                      // Failed to load and nothing cached: say so (with a
+                      // retry) rather than claiming there is no payment.
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'We couldn\'t load this payment right now.',
+                            style: AppTextStyles.bodyMd,
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _refresh,
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Try Again'),
+                          ),
+                        ],
+                      )
                     else
                       Text('No payment record found for this order.', style: AppTextStyles.bodyMd),
                   ],

@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
 import '../catalog_store.dart';
 import '../models/product.dart';
 import '../models/promotion.dart';
@@ -10,11 +14,34 @@ import '../models/promotion.dart';
 /// in sync — every existing customer/owner/staff screen that already reads
 /// those globals picks the real data up automatically, with no further
 /// changes needed on their end.
-class ProductsRepository {
+///
+/// It is also a [ChangeNotifier] that reports the *real* load status of the
+/// catalog ([isLoading], [error], [hasLoaded]) so screens can show a loading
+/// spinner, an error with a retry button, or a genuine empty state instead of
+/// treating "not loaded yet" and "failed to load" as "no products".
+class ProductsRepository extends ChangeNotifier {
   ProductsRepository._();
   static final ProductsRepository instance = ProductsRepository._();
 
-  bool _loading = false;
+  Future<void>? _inFlight;
+  String? _inFlightBranchId;
+
+  bool _isLoading = false;
+
+  /// True while a catalog fetch is running.
+  bool get isLoading => _isLoading;
+
+  AppError? _error;
+
+  /// The customer-safe error from the most recent failed fetch, or null if the
+  /// last fetch succeeded (or none has finished yet).
+  AppError? get error => _error;
+
+  bool _hasLoaded = false;
+
+  /// True once at least one fetch has succeeded. Distinguishes "not loaded
+  /// yet / failed" from "loaded and genuinely empty".
+  bool get hasLoaded => _hasLoaded;
 
   SupabaseClient get _client => SupabaseService.instance.client;
 
@@ -27,68 +54,104 @@ class ProductsRepository {
   /// real product availability/stock everywhere `kProducts` is read. With
   /// no [branchId] (the app-boot default, before any branch is chosen),
   /// stock is aggregated across every active branch, as before.
-  Future<void> loadCatalog({String? branchId}) async {
-    if (_loading) return;
-    _loading = true;
-    try {
-      final categoriesRaw = await _client
-          .from('product_categories')
-          .select()
-          .eq('is_active', true)
-          .order('sort_order');
-
-      final branchesRaw = await _client
-          .from('branches')
-          .select()
-          .eq('is_active', true);
-
-      final productsRaw = await _client
-          .from('products')
-          .select()
-          .eq('is_active', true)
-          .order('name');
-
-      final products = await _hydrateProducts(
-        List<Map<String, dynamic>>.from(productsRaw),
-        branchId: branchId,
-        branchesRaw: List<Map<String, dynamic>>.from(branchesRaw),
-      );
-
-      final categoryCounts = <String, int>{};
-      for (final product in products) {
-        if (product.categoryId.isNotEmpty) {
-          categoryCounts[product.categoryId] =
-              (categoryCounts[product.categoryId] ?? 0) + 1;
-        }
-      }
-
-      final categories = List<Map<String, dynamic>>.from(categoriesRaw)
-          .map((row) => <String, dynamic>{
-                ...row,
-                'product_count': categoryCounts[row['id'] as String] ?? 0,
-              })
-          .map(ProductCategory.fromRow)
-          .where((category) => category.isActive)
-          .toList();
-
-      kProductCategories
-        ..clear()
-        ..addAll(categories);
-      kProducts
-        ..clear()
-        ..addAll(products);
-
-      await Future.wait([
-        _loadPromotions(),
-        _loadPopularProducts(),
-      ]);
-    } catch (_) {
-      // Network/schema failures leave the last successful live catalog in
-      // place. Screens that need a strict loading/error state use the
-      // dedicated fetch methods below.
-    } finally {
-      _loading = false;
+  ///
+  /// Never throws: the outcome is reported through [isLoading], [error] and
+  /// [hasLoaded]. On failure the last successfully loaded catalog is kept in
+  /// place (so a flaky connection never blanks a screen that already has
+  /// data) and [error] is set so the UI can offer a retry.
+  ///
+  /// Concurrent calls for the same branch share one request. A call for a
+  /// *different* branch waits for the running request and then runs its own,
+  /// so a branch switch is never silently dropped.
+  Future<void> loadCatalog({String? branchId}) {
+    final running = _inFlight;
+    if (running != null) {
+      if (_inFlightBranchId == branchId) return running;
+      return running.then((_) => loadCatalog(branchId: branchId));
     }
+    final future = _runLoad(branchId);
+    _inFlight = future;
+    _inFlightBranchId = branchId;
+    return future;
+  }
+
+  Future<void> _runLoad(String? branchId) async {
+    _isLoading = true;
+    // Deferred: callers such as `initState` may invoke this while the widget
+    // tree is building, and notifying listeners synchronously there would
+    // trigger "setState() called during build".
+    scheduleMicrotask(notifyListeners);
+    try {
+      await AppErrors.guard(
+        () => _fetchAndStoreCatalog(branchId),
+        scope: ErrorScope.catalog,
+        timeout: AppErrors.rpcTimeout,
+      );
+      _error = null;
+      _hasLoaded = true;
+    } catch (e) {
+      // Keep whatever catalog was last loaded; report the failure instead.
+      _error = AppErrors.from(e, scope: ErrorScope.catalog);
+    } finally {
+      _isLoading = false;
+      _inFlight = null;
+      _inFlightBranchId = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _fetchAndStoreCatalog(String? branchId) async {
+    final categoriesRaw = await _client
+        .from('product_categories')
+        .select()
+        .eq('is_active', true)
+        .order('sort_order');
+
+    final branchesRaw = await _client
+        .from('branches')
+        .select()
+        .eq('is_active', true);
+
+    final productsRaw = await _client
+        .from('products')
+        .select()
+        .eq('is_active', true)
+        .order('name');
+
+    final products = await _hydrateProducts(
+      List<Map<String, dynamic>>.from(productsRaw),
+      branchId: branchId,
+      branchesRaw: List<Map<String, dynamic>>.from(branchesRaw),
+    );
+
+    final categoryCounts = <String, int>{};
+    for (final product in products) {
+      if (product.categoryId.isNotEmpty) {
+        categoryCounts[product.categoryId] =
+            (categoryCounts[product.categoryId] ?? 0) + 1;
+      }
+    }
+
+    final categories = List<Map<String, dynamic>>.from(categoriesRaw)
+        .map((row) => <String, dynamic>{
+              ...row,
+              'product_count': categoryCounts[row['id'] as String] ?? 0,
+            })
+        .map(ProductCategory.fromRow)
+        .where((category) => category.isActive)
+        .toList();
+
+    kProductCategories
+      ..clear()
+      ..addAll(categories);
+    kProducts
+      ..clear()
+      ..addAll(products);
+
+    await Future.wait([
+      _loadPromotions(),
+      _loadPopularProducts(),
+    ]);
   }
 
   /// Fetches active categories and their current active-product counts

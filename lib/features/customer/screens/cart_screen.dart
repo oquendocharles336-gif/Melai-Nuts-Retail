@@ -5,7 +5,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/state_views.dart';
 import '../cart_controller.dart';
 import '../widgets/cart_item.dart';
 import 'checkout_screen.dart';
@@ -50,7 +52,17 @@ class _CartScreenState extends State<CartScreen> {
         ),
         body: SafeArea(
           child: cart.lines.isEmpty
-              ? const _EmptyCart()
+              // loading -> error (+ retry) -> genuinely empty, in that order,
+              // so an unfinished or failed load never reads as "cart is empty".
+              ? (cart.isHydrating
+                  ? const StateLoadingView(message: 'Loading your cart...')
+                  : cart.hasLoadError
+                      ? StateErrorView(
+                          message: cart.lastError,
+                          scope: ErrorScope.cart,
+                          onRetry: () => cart.retryLoad(),
+                        )
+                      : const _EmptyCart())
               : ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [

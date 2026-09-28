@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
@@ -62,9 +63,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save profile: ${e.toString()}')),
-      );
+      AppErrors.showSnack(context, e, scope: ErrorScope.profile);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

@@ -520,6 +520,11 @@ class AuthService {
       // Business data lives in Supabase, keyed by this same Firebase UID.
       // Best-effort: a slow/offline connection here must not block sign-in
       // itself (the screens that need this data load it themselves too).
+      CustomerDataStore.instance.rememberCustomer(
+        firebaseUid: appUser.uid,
+        fallbackName: appUser.name,
+        fallbackEmail: appUser.email,
+      );
       try {
         await CustomerDataStore.instance.ensureProfile(
           firebaseUid: appUser.uid,
@@ -534,7 +539,11 @@ class AuthService {
         // the customer's saved default branch.
         unawaited(BranchController.instance.hydrate());
       } catch (_) {
-        // Non-fatal — individual screens retry their own data on open.
+        // Non-fatal — never block sign-in. But make sure a load is still
+        // attempted and its outcome recorded, so customer screens show an
+        // error state with a Retry button instead of staying silently empty.
+        unawaited(CustomerDataStore.instance.loadForCustomer(appUser.uid));
+        unawaited(BranchController.instance.hydrate());
       }
     }
 
