@@ -1,389 +1,256 @@
 import 'package:flutter/material.dart';
-import '../../../core/services/branch_controller.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_text_styles.dart';
-import '../../../core/utils/app_error.dart';
-import '../../../core/widgets/melai_app_bar.dart';
-import '../../../core/widgets/primary_button.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/dummy_data/dummy_branches.dart';
-import '../../../data/models/order.dart';
-import '../../../data/repositories/products_repository.dart';
-import '../cart_controller.dart';
-import '../widgets/order_status_badge.dart';
-import 'repeat_order_screen.dart';
-import '../../../core/widgets/secondary_button.dart';
-import '../../payments/screens/payment_status_screen.dart';
-import '../../refunds/screens/refund_request_screen.dart';
 
-/// Full order receipt — items, per-item "Reorder SKU", billing summary,
-/// branch info, and "Repeat Entire Order" (matches the prototype's Order
-/// Details / Reorder screen).
-/// The fulfilling branch's real address from the `branches` table.
-String _branchAddress(String branchName) {
-  for (final b in kBranches) {
-    if (b.name == branchName && b.address.isNotEmpty) return b.address;
-  }
-  return 'Branch address not available';
-}
+import 'package:melai_nuts/core/theme/app_colors.dart';
+import 'package:melai_nuts/core/theme/app_spacing.dart';
+import 'package:melai_nuts/core/theme/app_text_styles.dart';
+import 'package:melai_nuts/core/widgets/melai_app_bar.dart';
+import 'package:melai_nuts/data/models/order.dart';
+import 'package:melai_nuts/features/customer/widgets/order_status_badge.dart';
+import 'package:melai_nuts/features/customer/screens/order_tracking_screen.dart';
+import 'package:melai_nuts/features/customer/screens/repeat_order_screen.dart';
 
+/// Full order details screen: items list, totals breakdown, payment method,
+/// status timeline, and quick actions (Track, Repeat, Request Refund).
 class OrderDetailsScreen extends StatelessWidget {
   final Order order;
 
   const OrderDetailsScreen({super.key, required this.order});
-
-  void _reorderItem(BuildContext context, OrderItem item) {
-    void say(String message) =>
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-
-    // Don't call an item "no longer available" just because the catalog
-    // hasn't loaded (or failed to load) — say that, and retry in the background.
-    final catalog = ProductsRepository.instance;
-    if (!catalog.hasLoaded) {
-      say(catalog.error?.message ??
-          'Products are still loading. Please try again in a moment.');
-      catalog.loadCatalog(branchId: BranchController.instance.selectedBranch?.id);
-      return;
-    }
-
-    final matches = kProducts.where((p) => p.name == item.productName);
-    if (matches.isEmpty) {
-      say('${item.productName} is no longer available.');
-      return;
-    }
-    final product = matches.first;
-    if (!product.isActive || product.variants.isEmpty) {
-      say('${item.productName} is no longer available.');
-      return;
-    }
-    // Never quietly swap in a different size/price than the one that was
-    // originally ordered.
-    final variantMatches = product.variants.where((v) => v.label == item.variantLabel);
-    if (variantMatches.isEmpty) {
-      say('The ${item.variantLabel} option of ${item.productName} is no longer available.');
-      return;
-    }
-    try {
-      final added = CartController.instance.addProduct(product, variantMatches.first, quantity: item.quantity);
-      say(added > 0 ? 'Added $added x ${item.productName} to cart' : '${item.productName} is out of stock.');
-    } catch (e) {
-      AppErrors.showSnack(context, e, scope: ErrorScope.cart);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: MelaiAppBar(
-        title: 'Order ${order.id}',
+        title: 'Order #${order.id.length > 8 ? order.id.substring(0, 8) : order.id}',
         showBack: true,
-        actions: [
-          IconButton(icon: const Icon(Icons.share_outlined), onPressed: () {}),
-        ],
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                OrderStatusBadge(status: order.status),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              order.isDelivery ? 'Delivery Order' : 'Pickup Order',
-              style: AppTextStyles.headlineMd.copyWith(color: AppColors.primary),
-            ),
-            const SizedBox(height: 8),
+            // Header Card: ID, Date, Status
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _InfoRow(label: 'Placed on', value: _formatDate(order.date)),
-                  _InfoRow(
-                    label: 'Fulfillment Mode',
-                    value: order.isDelivery ? 'Home delivery from ${order.branch}' : 'Picked up at ${order.branch}',
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'ORDER ID',
+                              style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted),
+                            ),
+                            Text(order.id, style: AppTextStyles.titleMd),
+                          ],
+                        ),
+                      ),
+                      OrderStatusBadge(status: order.status),
+                    ],
                   ),
-                  if (order.isDelivery && (order.deliveryAddressText?.isNotEmpty ?? false))
-                    _InfoRow(label: 'Delivery Address', value: order.deliveryAddressText!),
-                  if (order.contactPhone.isNotEmpty)
-                    _InfoRow(label: 'Contact Number', value: order.contactPhone),
-                  _InfoRow(
-                    label: 'Payment Method',
-                    value: order.paymentStatus == null
-                        ? order.paymentMethod
-                        : '${order.paymentMethod} (${_paymentStatusLabel(order.paymentStatus!)})',
+                  const Divider(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('BRANCH', style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted)),
+                            Text(order.branch, style: AppTextStyles.bodyMd),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('DATE', style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted)),
+                            Text(
+                              '${order.date.month}/${order.date.day}/${order.date.year}',
+                              style: AppTextStyles.bodyMd,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  if (order.customerNotes.isNotEmpty)
-                    _InfoRow(label: 'Special Instructions', value: order.customerNotes),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('PAYMENT METHOD', style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted)),
+                            Text(order.paymentMethod, style: AppTextStyles.bodyMd),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('TYPE', style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted)),
+                            Text(
+                              order.isDelivery ? 'Delivery' : 'Store Pickup',
+                              style: AppTextStyles.bodyMd,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
-            if (order.paymentStatus == 'failed') ...[
-              const SizedBox(height: AppSpacing.sm),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.errorBg,
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Your payment didn\'t go through. Please contact ${order.branch} or place a new order.',
-                        style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
-                      ),
-                    ),
-                  ],
-                ),
+            const SizedBox(height: AppSpacing.md),
+
+            // Items Card
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Order Manifest', style: AppTextStyles.titleMd),
-                Text('${order.items.length} SKUs • ${order.itemCount} units', style: AppTextStyles.bodySm),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            for (final item in order.items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('ORDER ITEMS', style: AppTextStyles.labelLg),
+                  const Divider(height: 20),
+                  for (final item in order.items) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
                         children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${item.quantity}x',
+                              style: AppTextStyles.labelLg.copyWith(color: AppColors.primary),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(item.productName, style: AppTextStyles.labelLg),
-                                Text(item.variantLabel, style: AppTextStyles.bodySm),
-                                Text(
-                                  'Qty: ${item.quantity} • ₱${item.unitPrice.toStringAsFixed(0)} each',
-                                  style: AppTextStyles.bodySm,
-                                ),
+                                if (item.variantLabel.isNotEmpty)
+                                  Text(
+                                    item.variantLabel,
+                                    style: AppTextStyles.bodySm.copyWith(color: AppColors.textMuted),
+                                  ),
                               ],
                             ),
                           ),
                           Text(
-                            '₱${item.total.toStringAsFixed(0)}',
-                            style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
+                            '₱${(item.unitPrice * item.quantity).toStringAsFixed(0)}',
+                            style: AppTextStyles.labelLg.copyWith(color: AppColors.primary),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _reorderItem(context, item),
-                          icon: const Icon(Icons.shopping_cart_outlined, size: 16),
-                          label: const Text('Reorder SKU'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  ],
+                ],
               ),
+            ),
             const SizedBox(height: AppSpacing.md),
+
+            // Order Summary Totals
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: AppColors.surfaceContainerLow,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
+                boxShadow: AppShadows.sm,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Billing & Payment Summary', style: AppTextStyles.titleMd),
-                  const SizedBox(height: 10),
-                  _SummaryLine('Subtotal', '₱${order.subtotal.toStringAsFixed(0)}'),
-                  _SummaryLine(
-                    'Delivery / Fulfillment',
-                    order.deliveryFee == 0
-                        ? '₱0.00 (Store Pickup)'
-                        : '₱${order.deliveryFee.toStringAsFixed(0)}',
-                    color: AppColors.success,
-                  ),
-                  if (order.discount > 0)
-                    _SummaryLine('Discount', '-₱${order.discount.toStringAsFixed(0)}', color: AppColors.success),
+                  Text('PAYMENT SUMMARY', style: AppTextStyles.labelLg),
                   const Divider(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Total Paid', style: AppTextStyles.headlineSm),
+                      Text('Subtotal', style: AppTextStyles.bodyMd),
+                      Text('₱${order.subtotal.toStringAsFixed(0)}', style: AppTextStyles.bodyMd),
+                    ],
+                  ),
+                  if (order.discount > 0) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Discount', style: AppTextStyles.bodyMd.copyWith(color: AppColors.success)),
+                        Text('-₱${order.discount.toStringAsFixed(0)}', style: AppTextStyles.bodyMd.copyWith(color: AppColors.success)),
+                      ],
+                    ),
+                  ],
+                  if (order.isDelivery) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Delivery Fee', style: AppTextStyles.bodyMd),
+                        Text('₱${order.deliveryFee.toStringAsFixed(0)}', style: AppTextStyles.bodyMd),
+                      ],
+                    ),
+                  ],
+                  const Divider(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('TOTAL PAID', style: AppTextStyles.titleMd),
                       Text(
                         '₱${order.total.toStringAsFixed(0)}',
                         style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
                       ),
                     ],
                   ),
-                  if (order.pointsEarned > 0) ...[
-                    const SizedBox(height: 6),
-                    Text('+${order.pointsEarned} Golden Kernel Points credited', style: AppTextStyles.bodySm),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.storefront_outlined, color: AppColors.darkBrown),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Melai Nuts ${order.branch}', style: AppTextStyles.labelLg),
-                        Text(_branchAddress(order.branch), style: AppTextStyles.bodySm),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            PrimaryButton(
-              label: 'Repeat Entire Order (${order.items.length} items • ₱${order.total.toStringAsFixed(0)})',
-              icon: Icons.replay_rounded,
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => RepeatOrderScreen(order: order)),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SecondaryButton(
-              label: 'View Payment Status',
-              icon: Icons.receipt_long_rounded,
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => PaymentStatusScreen(orderId: order.id, amount: order.total),
-                ),
-              ),
-            ),
-            if (order.status == OrderStatus.completed) ...[
-              const SizedBox(height: 10),
-              SecondaryButton(
-                label: 'Request a Refund',
-                icon: Icons.assignment_return_outlined,
+
+            // Action Buttons
+            if (order.status.isActive)
+              ElevatedButton.icon(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => RefundRequestScreen(order: order)),
+                  MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: order)),
                 ),
+                icon: const Icon(Icons.local_shipping_outlined),
+                label: const Text('Track Order Status'),
+              ),
+            if (!order.status.isActive && order.status != OrderStatus.cancelled) ...[
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => RepeatOrderScreen(order: order)),
+                ),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Repeat Order'),
               ),
             ],
           ],
         ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime d) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    final ampm = d.hour >= 12 ? 'PM' : 'AM';
-    final minute = d.minute.toString().padLeft(2, '0');
-    return '${months[d.month - 1]} ${d.day}, ${d.year} at $hour:$minute $ampm';
-  }
-
-  /// Human label for a real `payments.status` value. Never invents a
-  /// status the row doesn't actually have.
-  String _paymentStatusLabel(String status) {
-    switch (status) {
-      case 'pending':
-        return 'Awaiting confirmation';
-      case 'processing':
-        return 'Processing';
-      case 'success':
-        return 'Paid';
-      case 'failed':
-        return 'Failed';
-      case 'refunded':
-        return 'Refunded';
-      default:
-        return status;
-    }
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InfoRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 130, child: Text(label, style: AppTextStyles.bodySm)),
-          Expanded(child: Text(value, style: AppTextStyles.labelLg)),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryLine extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? color;
-
-  const _SummaryLine(this.label, this.value, {this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: AppTextStyles.bodyMd),
-          Text(value, style: AppTextStyles.bodyMd.copyWith(color: color)),
-        ],
       ),
     );
   }

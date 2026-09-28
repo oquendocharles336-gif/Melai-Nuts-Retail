@@ -22,7 +22,7 @@ import '../features/customer/screens/cart_screen.dart';
 import '../features/customer/screens/checkout_screen.dart';
 import '../features/customer/screens/order_confirmation_screen.dart';
 import '../features/customer/screens/order_history_screen.dart';
-import '../features/customer/screens/order_details_screen.dart';
+import 'package:melai_nuts/features/customer/screens/order_details_screen.dart';
 import '../features/customer/screens/repeat_order_screen.dart';
 import '../features/customer/screens/order_tracking_screen.dart';
 import '../features/customer/screens/customer_profile_screen.dart';

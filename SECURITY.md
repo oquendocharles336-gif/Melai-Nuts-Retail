@@ -77,8 +77,13 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules or 
 
 **Run order** (Supabase SQL Editor, or `psql`): `supabase/schema.sql` →
 `supabase/migrations/20260928000000_customer_security_hardening.sql` →
-`supabase/tests/customer_rls_security_test.sql` (must end with 0 failed; it uses
-a rolled-back transaction, but run it on a dev/staging project, not production).
+`supabase/migrations/20260928010000_order_integrity.sql` (if you ever re-run the
+first migration, re-run the second afterwards). Then the tests, all on a
+**dev/staging** project, never production, each must finish with 0 failed:
+`supabase/tests/customer_rls_security_test.sql` (access control),
+`supabase/tests/order_integrity_test.sql` (atomicity and consistency; rolled
+back), and `supabase/tests/concurrency_test.sh` (real racing sessions; commits
+then removes its own `CONC-*`/`conc_*` rows).
 
 **One-time dashboard/Firebase steps (cannot be done in SQL):**
 
@@ -115,6 +120,37 @@ a rolled-back transaction, but run it on a dev/staging project, not production).
 New tables are **not** exposed by default (default privileges are revoked). When
 you add one the app must read, `grant` it and add a policy explicitly.
 
+**Data integrity (verified by `order_integrity_test.sql` and `concurrency_test.sh`):**
+
+- **Checkout is one transaction.** `place_order` validates customer, branch,
+  products, variants, stock, prices, voucher and loyalty, then writes order,
+  lines, stock deduction, payment, points ledger, voucher usage and cart
+  conversion together. The tests force *each* of those writes to fail in turn
+  and prove the database is left byte-for-byte unchanged; the customer's cart
+  survives so they can retry.
+- **No overselling / double spending.** Stock, the voucher and the loyalty
+  account are row-locked, in a fixed order. Racing sessions cannot take the
+  last unit twice, exceed a voucher limit, or spend points twice.
+- **Retries are safe.** The checkout key is serialised per customer: a
+  double-tap or a network retry returns the one real order rather than an error
+  or a duplicate. (The app creates one key per checkout attempt.)
+- **An order cannot exist half-created.** At COMMIT, any order (from any code
+  path, including future staff/POS tools) must have items adding up to its
+  subtotal and a payment for exactly its total; CHECKs pin
+  `total = subtotal - discount + delivery fee`.
+- **State machines** for orders, payments and refunds reject invalid moves for
+  every writer, including staff and the service role (no `cancelled → completed`,
+  no un-paying, no completing an unpaid order, no "out for delivery" on pickup).
+- **Immutable facts.** Order money fields, order lines, payment amount/method
+  and refund amount cannot be edited after the fact; the loyalty ledger is
+  append-only. `loyalty_ledger_drift` (owner-only view) lists any balance that
+  no longer equals the sum of its ledger; it should always be empty.
+- **Non-critical side effects** (notifications) can fail without rolling back a
+  checkout.
+- **Not atomic by design:** a delivery address is saved just before the order
+  in a separate call, so a failed checkout can leave an extra saved address.
+  It is customer-owned data, not part of the money/stock consistency.
+
 **Not solved by the database — do these before real money moves:**
 
 - **Payments.** There is no payment gateway. Every payment is created `pending`
@@ -126,7 +162,9 @@ you add one the app must read, `grant` it and add a policy explicitly.
   order spam are not rate-limited by Postgres. Add rate limiting (Edge Function
   or API gateway) and Firebase App Check.
 - **Staff/owner/delivery writes** to Supabase (confirming payments, moving order
-  status, restocking, approving refunds) do not exist yet. Build them as
+  status, restocking, approving refunds) do not exist yet. Orders can only be
+  completed after a payment is confirmed, so this tooling is required before
+  any order can finish. Build them as
   `SECURITY DEFINER` functions that verify a staff role server-side, or as Edge
   Functions using the service role. Do not loosen the customer policies.
 - **Reward fulfilment.** `redeem_reward()` deducts points and logs the

@@ -12,8 +12,9 @@
 -- It is fully self-contained: it creates its own test branch / product /
 -- customers / voucher inside ONE transaction and ROLLS EVERYTHING BACK at the
 -- end, so no data is left behind (sequence counters do advance — harmless).
--- Prerequisites: supabase/schema.sql, then
--- supabase/migrations/20260928000000_customer_security_hardening.sql.
+-- Prerequisites: supabase/schema.sql, then BOTH files in supabase/migrations/
+-- (20260928000000_customer_security_hardening.sql, 20260928010000_order_integrity.sql).
+-- Companion suites: order_integrity_test.sql and concurrency_test.sh.
 --
 -- Output: one PASS/FAIL row per attack. The script ends by raising an error if
 -- ANY check failed, so it can gate a CI pipeline.
@@ -55,6 +56,10 @@ begin
   execute 'reset role';
   perform set_config('request.jwt.claims', '', true);
 end $$;
+
+-- Called while the session is switched to a customer role, so it needs an explicit
+-- grant now that new functions are private by default (fail-closed).
+grant execute on function pg_temp.back_to_admin() to public;
 
 -- Runs p_sql as p_uid and records whether it behaved as expected.
 --   'error' : must raise (permission denied / RLS violation / business rule)
@@ -365,7 +370,9 @@ select pg_temp.chk('customer with enough points CAN redeem (atomic)', 'uid_rls_a
 select pg_temp.chk_true('redemption deducted exactly the reward cost (500 -> 400)',
   (select points_balance from public.loyalty_accounts where firebase_uid = 'uid_rls_a') = 400);
 
--- Staff completes Bob's order (simulated as the table owner, i.e. a trusted server path).
+-- Staff confirms the cash payment, then completes Bob's order (simulated as the table
+-- owner, i.e. a trusted server path). An unpaid order cannot be completed.
+update public.payments set status = 'success' where order_id = (select v from fx where k = 'order_b');
 update public.orders set status = 'completed' where id = (select v from fx where k = 'order_b');
 select pg_temp.chk_true('points ARE awarded once the order completes (200 / 50 = 4)',
   coalesce((select points_balance from public.loyalty_accounts where firebase_uid = 'uid_rls_b'), 0) = 4,
@@ -450,7 +457,16 @@ select pg_temp.chk('customer cannot edit refund lines', 'uid_rls_b', $$update pu
 update public.refund_requests set status = 'rejected' where id = (select v from fx where k = 'refund_b');
 select pg_temp.chk_true('rejected refund returns the order to completed',
   (select status from public.orders where id = (select v from fx where k = 'order_b')) = 'completed');
-update public.refund_requests set status = 'completed' where id = (select v from fx where k = 'refund_b');
+-- A rejected refund is final; the customer files a new one, which staff approve and complete.
+do $$
+begin
+  insert into fx values ('refund_b2', pg_temp.call_as('uid_rls_b', format(
+    $q$select request_refund(%L, 'Damaged again', '',
+         jsonb_build_array(jsonb_build_object('product_name','RLS-TEST Nut','variant_label','Regular','quantity',1)))$q$,
+    (select v from fx where k = 'order_b'))));
+end $$;
+update public.refund_requests set status = 'approved'  where id = (select v from fx where k = 'refund_b2');
+update public.refund_requests set status = 'completed' where id = (select v from fx where k = 'refund_b2');
 select pg_temp.chk_true('completed refund marks the order refunded',
   (select status from public.orders where id = (select v from fx where k = 'order_b')) = 'refunded');
 select pg_temp.chk_true('completed refund claws back the points that order earned (4 -> 0)',
