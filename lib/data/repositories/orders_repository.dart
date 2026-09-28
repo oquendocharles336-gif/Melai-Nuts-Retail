@@ -49,55 +49,47 @@ class OrdersRepository {
     return refetch(orderId);
   }
 
+  /// Columns fetched with every order: the order row plus its line items,
+  /// status history and payment, in ONE round trip (PostgREST embedded
+  /// resources) instead of three extra queries per order.
+  static const String _orderSelect =
+      '*, order_items(*), order_status_events(*), payments(*)';
+
   Future<List<Order>> fetchOrders(String firebaseUid) async {
     final raw = await _client
         .from('orders')
-        .select()
+        .select(_orderSelect)
         .eq('firebase_uid', firebaseUid)
         .order('created_at', ascending: false);
-    final orders = <Order>[];
-    for (final row in List<Map<String, dynamic>>.from(raw)) {
-      final id = row['id'] as String;
-      final items = await _client.from('order_items').select().eq('order_id', id);
-      final events = await _fetchEvents(id);
-      final payment = await _fetchPayment(id);
-      orders.add(Order.fromRow(
-        row,
-        itemRows: List<Map<String, dynamic>>.from(items),
-        eventRows: events,
-        paymentRow: payment,
-      ));
-    }
-    return orders;
+    return List<Map<String, dynamic>>.from(raw).map(_orderFromEmbeddedRow).toList();
   }
 
   Future<Order> refetch(String orderId) async {
-    final row = await _client.from('orders').select().eq('id', orderId).single();
-    final items = await _client.from('order_items').select().eq('order_id', orderId);
-    final events = await _fetchEvents(orderId);
-    final payment = await _fetchPayment(orderId);
-    return Order.fromRow(
-      row,
-      itemRows: List<Map<String, dynamic>>.from(items),
-      eventRows: events,
-      paymentRow: payment,
-    );
+    final row = await _client.from('orders').select(_orderSelect).eq('id', orderId).single();
+    return _orderFromEmbeddedRow(row);
   }
 
   Stream<List<Map<String, dynamic>>> watchOrder(String orderId) {
     return _client.from('orders').stream(primaryKey: ['id']).eq('id', orderId);
   }
 
-  Future<List<Map<String, dynamic>>> _fetchEvents(String orderId) async {
-    final raw = await _client
-        .from('order_status_events')
-        .select()
-        .eq('order_id', orderId)
-        .order('created_at');
-    return List<Map<String, dynamic>>.from(raw);
+  Order _orderFromEmbeddedRow(Map<String, dynamic> row) {
+    final events = _rows(row['order_status_events'])
+      ..sort((a, b) => (a['created_at'] as String).compareTo(b['created_at'] as String));
+    final payments = _rows(row['payments']);
+    return Order.fromRow(
+      row,
+      itemRows: _rows(row['order_items']),
+      eventRows: events,
+      paymentRow: payments.isEmpty ? null : payments.first,
+    );
   }
 
-  Future<Map<String, dynamic>?> _fetchPayment(String orderId) async {
-    return _client.from('payments').select().eq('order_id', orderId).maybeSingle();
+  /// An embedded resource comes back as a list for one-to-many and as a
+  /// single object (or null) for one-to-one — normalise both to a list.
+  List<Map<String, dynamic>> _rows(dynamic value) {
+    if (value == null) return <Map<String, dynamic>>[];
+    if (value is Map) return [Map<String, dynamic>.from(value)];
+    return List<Map<String, dynamic>>.from(value as List);
   }
 }

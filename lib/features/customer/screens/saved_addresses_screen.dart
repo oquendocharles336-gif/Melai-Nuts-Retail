@@ -272,7 +272,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   late final _line1Controller = TextEditingController(text: widget.existing?.line1 ?? '');
   late final _cityController = TextEditingController(text: widget.existing?.city ?? '');
   late final _provinceController =
-      TextEditingController(text: widget.existing?.province ?? 'Laguna');
+      TextEditingController(text: widget.existing?.province ?? '');
   late final _postalController = TextEditingController(text: widget.existing?.postalCode ?? '');
   late bool _isDefault = widget.existing?.isDefault ?? false;
   bool _saving = false;

@@ -136,7 +136,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                             children: [
                               Text(active.id, style: AppTextStyles.titleMd),
                               Text(
-                                '${active.itemCount} items • ${active.isDelivery ? 'Laguna Delivery' : 'Pickup'}',
+                                '${active.itemCount} items • ${active.isDelivery ? 'Delivery' : 'Pickup'}',
                                 style: AppTextStyles.bodySm,
                               ),
                             ],

@@ -86,7 +86,7 @@ class OrderConfirmationScreen extends StatelessWidget {
                   _InfoRow(
                     icon: Icons.storefront_outlined,
                     label: 'Fulfillment Type',
-                    value: order.isDelivery ? 'Laguna Home Delivery' : 'In-Store Express Pickup',
+                    value: order.isDelivery ? 'Home Delivery' : 'In-Store Express Pickup',
                   ),
                   _InfoRow(
                     icon: order.isDelivery ? Icons.location_on_outlined : Icons.storefront_outlined,

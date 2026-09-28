@@ -174,7 +174,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
                   const SizedBox(width: 4),
                   Text(
-                    '${product.rating.toStringAsFixed(1)} · ${product.reviewCount} verified Laguna customer reviews',
+                    '${product.rating.toStringAsFixed(1)} · ${product.reviewCount} customer reviews',
                     style: AppTextStyles.bodySm,
                   ),
                 ],
@@ -344,7 +344,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     children: [
                       const Icon(Icons.storefront_outlined, size: 18, color: AppColors.darkBrown),
                       const SizedBox(width: 8),
-                      Text('Laguna Branch Inventory', style: AppTextStyles.titleMd),
+                      Text('Branch Inventory', style: AppTextStyles.titleMd),
                       const Spacer(),
                       Text('● Live Sync', style: AppTextStyles.bodySm.copyWith(color: AppColors.success)),
                     ],

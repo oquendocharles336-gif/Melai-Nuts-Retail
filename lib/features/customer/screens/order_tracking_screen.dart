@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../data/dummy_data/dummy_branches.dart';
+import '../../../data/models/branch.dart';
 import '../../../data/models/order.dart';
 import '../../../data/repositories/orders_repository.dart';
 import 'order_details_screen.dart';
 
-/// Live order tracking — ETA banner, a simple decorative route panel, real
-/// order timeline, and rider info. The order's status/timeline come from
-/// Supabase and update live via realtime — there's no real GPS/maps
-/// package, so the route panel is clearly labeled as a preview, not a live
-/// map.
+/// Live order tracking — ETA banner, real order timeline, and rider info.
+/// Everything shown comes from Supabase and updates live via realtime. There
+/// is no GPS feed in the backend, so no map is drawn rather than showing a
+/// made-up van position.
 class OrderTrackingScreen extends StatefulWidget {
   final Order order;
 
@@ -79,6 +80,49 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
+  Branch? _branchForOrder() {
+    for (final b in kBranches) {
+      if (b.name == _order.branch) return b;
+    }
+    return null;
+  }
+
+  /// Shows the real contact details of the branch fulfilling this order.
+  void _showBranchContact(BuildContext context) {
+    final branch = _branchForOrder();
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Need help with ${_order.id}?', style: AppTextStyles.titleMd),
+              const SizedBox(height: 8),
+              if (branch == null)
+                Text('Contact details for ${_order.branch} are not available right now.',
+                    style: AppTextStyles.bodyMd)
+              else ...[
+                Text(branch.name, style: AppTextStyles.labelLg),
+                if (branch.address.isNotEmpty) Text(branch.address, style: AppTextStyles.bodyMd),
+                if (branch.contactPhone?.isNotEmpty == true)
+                  Text('Phone: ${branch.contactPhone}', style: AppTextStyles.bodyMd),
+                if (branch.operatingHours?.isNotEmpty == true)
+                  Text('Hours: ${branch.operatingHours}', style: AppTextStyles.bodyMd),
+                if (branch.address.isEmpty &&
+                    branch.contactPhone?.isNotEmpty != true &&
+                    branch.operatingHours?.isNotEmpty != true)
+                  Text('This branch has not published contact details yet.', style: AppTextStyles.bodyMd),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildScaffold(BuildContext context) {
     final order = _order;
     return Scaffold(
@@ -95,7 +139,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.help_outline_rounded),
-            onPressed: () {},
+            tooltip: 'Contact branch',
+            onPressed: () => _showBranchContact(context),
           ),
         ],
       ),
@@ -153,8 +198,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.md),
-            const _RouteMapPlaceholder(),
-            const SizedBox(height: AppSpacing.md),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -169,8 +212,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Order Timeline', style: AppTextStyles.titleMd),
-                      Text('Tracking verified', style: AppTextStyles.bodySm),
-                    ],
+                                          ],
                   ),
                   const SizedBox(height: 12),
                   for (int i = 0; i < order.timeline.length; i++)
@@ -203,7 +245,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(order.riderName!, style: AppTextStyles.titleMd),
-                          Text('Melai Laguna Fleet', style: AppTextStyles.bodySm),
+                          Text('Delivery rider', style: AppTextStyles.bodySm),
                         ],
                       ),
                     ),
@@ -275,109 +317,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       ),
     );
   }
-}
-
-class _RouteMapPlaceholder extends StatelessWidget {
-  const _RouteMapPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 160,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(painter: _DottedRoutePainter()),
-          ),
-          const Positioned(
-            left: 4,
-            bottom: 4,
-            child: _MapPin(icon: Icons.storefront_rounded, label: 'Branch'),
-          ),
-          const Positioned(
-            right: 4,
-            top: 4,
-            child: _MapPin(icon: Icons.home_rounded, label: 'You'),
-          ),
-          const Align(
-            alignment: Alignment.center,
-            child: _MapPin(icon: Icons.local_shipping_rounded, label: 'Van', filled: true),
-          ),
-          Positioned(
-            right: 8,
-            bottom: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20)),
-              child: const Text('ROUTE PREVIEW', style: TextStyle(color: Colors.white, fontSize: 10)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MapPin extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool filled;
-
-  const _MapPin({required this.icon, required this.label, this.filled = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: filled ? AppColors.primary : Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.primary),
-          ),
-          child: Icon(icon, size: 16, color: filled ? Colors.white : AppColors.primary),
-        ),
-        Text(label, style: AppTextStyles.bodySm),
-      ],
-    );
-  }
-}
-
-class _DottedRoutePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.primary
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    final path = Path()
-      ..moveTo(16, size.height - 24)
-      ..quadraticBezierTo(size.width * 0.4, size.height * 0.3, size.width - 24, 20);
-
-    const dashWidth = 6.0;
-    const dashSpace = 5.0;
-    for (final metric in path.computeMetrics()) {
-      double distance = 0;
-      while (distance < metric.length) {
-        canvas.drawPath(
-          metric.extractPath(distance, distance + dashWidth),
-          paint,
-        );
-        distance += dashWidth + dashSpace;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _TimelineRow extends StatelessWidget {

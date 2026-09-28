@@ -378,7 +378,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     title: 'Melai Van',
                     subtitle: (branch != null && !branch.supportsDelivery)
                         ? 'Not offered at this branch'
-                        : 'Same Day Laguna',
+                        : 'Delivered by Melai',
                     trailingLabel: '₱${(branch?.deliveryFee ?? 0).toStringAsFixed(2)}',
                     selected: _fulfillment == _FulfillmentMethod.delivery,
                     onTap: (branch == null || branch.supportsDelivery)

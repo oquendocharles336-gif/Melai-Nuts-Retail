@@ -5,6 +5,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
+import '../../../data/dummy_data/dummy_branches.dart';
 import '../../../data/models/order.dart';
 import '../cart_controller.dart';
 import '../widgets/order_status_badge.dart';
@@ -16,6 +17,14 @@ import '../../refunds/screens/refund_request_screen.dart';
 /// Full order receipt — items, per-item "Reorder SKU", billing summary,
 /// branch info, and "Repeat Entire Order" (matches the prototype's Order
 /// Details / Reorder screen).
+/// The fulfilling branch's real address from the `branches` table.
+String _branchAddress(String branchName) {
+  for (final b in kBranches) {
+    if (b.name == branchName && b.address.isNotEmpty) return b.address;
+  }
+  return 'Branch address not available';
+}
+
 class OrderDetailsScreen extends StatelessWidget {
   final Order order;
 
@@ -221,11 +230,10 @@ class OrderDetailsScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Melai Nuts ${order.branch}', style: AppTextStyles.labelLg),
-                        Text('Laguna, Philippines', style: AppTextStyles.bodySm),
+                        Text(_branchAddress(order.branch), style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
-                  TextButton(onPressed: () {}, child: const Text('Get Directions')),
                 ],
               ),
             ),

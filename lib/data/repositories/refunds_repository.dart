@@ -51,24 +51,15 @@ class RefundsRepository {
     return refetch(refundId);
   }
 
+  static const String _refundSelect = '*, refund_items(*), refund_status_events(*)';
+
   Future<List<RefundRequest>> fetchAll(String firebaseUid) async {
     final raw = await _client
         .from('refund_requests')
-        .select()
+        .select(_refundSelect)
         .eq('firebase_uid', firebaseUid)
         .order('created_at', ascending: false);
-    final requests = <RefundRequest>[];
-    for (final row in List<Map<String, dynamic>>.from(raw)) {
-      final id = row['id'] as String;
-      final items = await _client.from('refund_items').select().eq('refund_request_id', id);
-      final events = await _fetchEvents(id);
-      requests.add(RefundRequest.fromRow(
-        row,
-        itemRows: List<Map<String, dynamic>>.from(items),
-        eventRows: events,
-      ));
-    }
-    return requests;
+    return List<Map<String, dynamic>>.from(raw).map(_fromEmbeddedRow).toList();
   }
 
   Stream<List<Map<String, dynamic>>> watchRequest(String refundId) {
@@ -76,18 +67,17 @@ class RefundsRepository {
   }
 
   Future<RefundRequest> refetch(String refundId) async {
-    final row = await _client.from('refund_requests').select().eq('id', refundId).single();
-    final items = await _client.from('refund_items').select().eq('refund_request_id', refundId);
-    final events = await _fetchEvents(refundId);
-    return RefundRequest.fromRow(row, itemRows: List<Map<String, dynamic>>.from(items), eventRows: events);
+    final row = await _client.from('refund_requests').select(_refundSelect).eq('id', refundId).single();
+    return _fromEmbeddedRow(row);
   }
 
-  Future<List<Map<String, dynamic>>> _fetchEvents(String refundId) async {
-    final raw = await _client
-        .from('refund_status_events')
-        .select()
-        .eq('refund_request_id', refundId)
-        .order('created_at');
-    return List<Map<String, dynamic>>.from(raw);
+  RefundRequest _fromEmbeddedRow(Map<String, dynamic> row) {
+    final events = List<Map<String, dynamic>>.from(row['refund_status_events'] as List? ?? const [])
+      ..sort((a, b) => (a['created_at'] as String).compareTo(b['created_at'] as String));
+    return RefundRequest.fromRow(
+      row,
+      itemRows: List<Map<String, dynamic>>.from(row['refund_items'] as List? ?? const []),
+      eventRows: events,
+    );
   }
 }
