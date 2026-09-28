@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
 import '../models/order.dart';
 import '../models/refund.dart';
 
@@ -43,32 +46,54 @@ class RefundsRepository {
               'quantity': item.quantity,
             },
         ],
-      });
+      }).timeout(AppErrors.rpcTimeout);
       refundId = result as String;
-    } on PostgrestException catch (e) {
-      throw Exception(e.message);
+    } catch (e, st) {
+      // Not completed, already refunded, invalid quantities, offline,
+      // expired session, database error... all become customer-safe messages.
+      Error.throwWithStackTrace(AppErrors.from(e, scope: ErrorScope.refund), st);
     }
-    return refetch(refundId);
+    try {
+      return await refetch(refundId);
+    } catch (_) {
+      // The request was recorded; only reloading it failed.
+      throw const AppError(
+        AppErrorKind.refundFailed,
+        'Your refund request was submitted, but we couldn\'t load its status. Please check your orders in a moment.',
+      );
+    }
   }
 
   static const String _refundSelect = '*, refund_items(*), refund_status_events(*)';
 
-  Future<List<RefundRequest>> fetchAll(String firebaseUid) async {
-    final raw = await _client
-        .from('refund_requests')
-        .select(_refundSelect)
-        .eq('firebase_uid', firebaseUid)
-        .order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(raw).map(_fromEmbeddedRow).toList();
+  Future<List<RefundRequest>> fetchAll(String firebaseUid) {
+    return AppErrors.guard(() async {
+      final raw = await _client
+          .from('refund_requests')
+          .select(_refundSelect)
+          .eq('firebase_uid', firebaseUid)
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(raw).map(_fromEmbeddedRow).toList();
+    }, scope: ErrorScope.refund);
   }
 
   Stream<List<Map<String, dynamic>>> watchRequest(String refundId) {
-    return _client.from('refund_requests').stream(primaryKey: ['id']).eq('id', refundId);
+    return _client
+        .from('refund_requests')
+        .stream(primaryKey: ['id'])
+        .eq('id', refundId)
+        .transform(StreamTransformer<List<Map<String, dynamic>>, List<Map<String, dynamic>>>.fromHandlers(
+          handleError: (error, stackTrace, sink) =>
+              sink.addError(AppErrors.from(error, scope: ErrorScope.refund), stackTrace),
+        ));
   }
 
-  Future<RefundRequest> refetch(String refundId) async {
-    final row = await _client.from('refund_requests').select(_refundSelect).eq('id', refundId).single();
-    return _fromEmbeddedRow(row);
+  Future<RefundRequest> refetch(String refundId) {
+    return AppErrors.guard(() async {
+      final row =
+          await _client.from('refund_requests').select(_refundSelect).eq('id', refundId).single();
+      return _fromEmbeddedRow(row);
+    }, scope: ErrorScope.refund);
   }
 
   RefundRequest _fromEmbeddedRow(Map<String, dynamic> row) {

@@ -4,6 +4,7 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -48,7 +49,10 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
       _error = null;
     });
     try {
-      final addresses = await CustomerProfileRepository.instance.fetchAddresses(uid);
+      final addresses = await AppErrors.guard(
+        () => CustomerProfileRepository.instance.fetchAddresses(uid),
+        scope: ErrorScope.address,
+      );
       CustomerDataStore.instance.setAddresses(addresses);
       if (!mounted) return;
       setState(() {
@@ -59,7 +63,7 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Could not load your addresses. Check your connection and try again.';
+        _error = AppErrors.from(e, scope: ErrorScope.address).message;
       });
     }
   }
@@ -93,13 +97,17 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
     );
     if (confirmed != true) return;
     try {
-      await CustomerProfileRepository.instance.deleteAddress(address.id);
+      await AppErrors.guard(
+        () => CustomerProfileRepository.instance.deleteAddress(address.id),
+        scope: ErrorScope.address,
+      );
       _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete this address: ${e.toString()}')),
-      );
+      final error = AppErrors.from(e, scope: ErrorScope.address);
+      AppErrors.showSnack(context, error, scope: ErrorScope.address);
+      // Already deleted elsewhere: the list is stale, so refresh it.
+      if (error.kind == AppErrorKind.notFound) _load();
     }
   }
 
@@ -107,13 +115,14 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
     final uid = _uid;
     if (uid == null || address.isDefault) return;
     try {
-      await CustomerProfileRepository.instance.setDefaultAddress(uid, address.id);
+      await AppErrors.guard(
+        () => CustomerProfileRepository.instance.setDefaultAddress(uid, address.id),
+        scope: ErrorScope.address,
+      );
       _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not set default address: ${e.toString()}')),
-      );
+      AppErrors.showSnack(context, e, scope: ErrorScope.address);
     }
   }
 
@@ -128,7 +137,18 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
             : _error != null
                 ? Center(child: Padding(
                     padding: const EdgeInsets.all(AppSpacing.md),
-                    child: Text(_error!, style: AppTextStyles.bodySm, textAlign: TextAlign.center),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!, style: AppTextStyles.bodySm, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _load,
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Try again'),
+                        ),
+                      ],
+                    ),
                   ))
                 : _addresses.isEmpty
                     ? Center(
@@ -294,40 +314,40 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     setState(() => _saving = true);
     try {
       final repo = CustomerProfileRepository.instance;
-      if (widget.existing == null) {
-        await repo.addAddress(
-          firebaseUid: widget.firebaseUid,
-          label: _labelController.text.trim(),
-          recipientName: _recipientController.text.trim(),
-          phone: _phoneController.text.trim(),
-          line1: _line1Controller.text.trim(),
-          city: _cityController.text.trim(),
-          province: _provinceController.text.trim(),
-          postalCode: _postalController.text.trim(),
-          isDefault: _isDefault,
-        );
-      } else {
-        await repo.updateAddress(
-          id: widget.existing!.id,
-          firebaseUid: widget.firebaseUid,
-          label: _labelController.text.trim(),
-          recipientName: _recipientController.text.trim(),
-          phone: _phoneController.text.trim(),
-          line1: _line1Controller.text.trim(),
-          city: _cityController.text.trim(),
-          province: _provinceController.text.trim(),
-          postalCode: _postalController.text.trim(),
-          isDefault: _isDefault,
-        );
-      }
+      await AppErrors.guard(() async {
+        if (widget.existing == null) {
+          await repo.addAddress(
+            firebaseUid: widget.firebaseUid,
+            label: _labelController.text.trim(),
+            recipientName: _recipientController.text.trim(),
+            phone: _phoneController.text.trim(),
+            line1: _line1Controller.text.trim(),
+            city: _cityController.text.trim(),
+            province: _provinceController.text.trim(),
+            postalCode: _postalController.text.trim(),
+            isDefault: _isDefault,
+          );
+        } else {
+          await repo.updateAddress(
+            id: widget.existing!.id,
+            firebaseUid: widget.firebaseUid,
+            label: _labelController.text.trim(),
+            recipientName: _recipientController.text.trim(),
+            phone: _phoneController.text.trim(),
+            line1: _line1Controller.text.trim(),
+            city: _cityController.text.trim(),
+            province: _provinceController.text.trim(),
+            postalCode: _postalController.text.trim(),
+            isDefault: _isDefault,
+          );
+        }
+      }, scope: ErrorScope.address);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save this address: ${e.toString()}')),
-      );
+      AppErrors.showSnack(context, e, scope: ErrorScope.address);
     }
   }
 

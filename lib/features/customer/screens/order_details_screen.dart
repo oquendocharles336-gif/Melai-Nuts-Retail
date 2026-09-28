@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
@@ -31,24 +32,32 @@ class OrderDetailsScreen extends StatelessWidget {
   const OrderDetailsScreen({super.key, required this.order});
 
   void _reorderItem(BuildContext context, OrderItem item) {
+    void say(String message) =>
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+
     final matches = kProducts.where((p) => p.name == item.productName);
     if (matches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${item.productName} is no longer available.')),
-      );
+      say('${item.productName} is no longer available.');
       return;
     }
     final product = matches.first;
+    if (!product.isActive || product.variants.isEmpty) {
+      say('${item.productName} is no longer available.');
+      return;
+    }
+    // Never quietly swap in a different size/price than the one that was
+    // originally ordered.
     final variantMatches = product.variants.where((v) => v.label == item.variantLabel);
-    final variant = variantMatches.isEmpty ? product.variants.first : variantMatches.first;
-    final added = CartController.instance.addProduct(product, variant, quantity: item.quantity);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          added > 0 ? 'Added $added x ${item.productName} to cart' : '${item.productName} is out of stock',
-        ),
-      ),
-    );
+    if (variantMatches.isEmpty) {
+      say('The ${item.variantLabel} option of ${item.productName} is no longer available.');
+      return;
+    }
+    try {
+      final added = CartController.instance.addProduct(product, variantMatches.first, quantity: item.quantity);
+      say(added > 0 ? 'Added $added x ${item.productName} to cart' : '${item.productName} is out of stock.');
+    } catch (e) {
+      AppErrors.showSnack(context, e, scope: ErrorScope.cart);
+    }
   }
 
   @override
@@ -108,6 +117,29 @@ class OrderDetailsScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (order.paymentStatus == 'failed') ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.errorBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Your payment didn\'t go through. Please contact ${order.branch} or place a new order.',
+                        style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.lg),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

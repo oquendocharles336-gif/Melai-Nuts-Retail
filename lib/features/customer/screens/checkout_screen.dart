@@ -9,6 +9,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -147,7 +148,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     try {
       final cartId = cart.cartId;
       if (cartId == null) {
-        throw Exception('Your cart is not synced yet. Please check your connection and try again.');
+        throw const AppError(
+          AppErrorKind.orderFailed,
+          'Your cart is not synced yet. Please check your connection and try again.',
+        );
       }
       final isDelivery = _fulfillment == _FulfillmentMethod.delivery;
       String? deliveryAddressId = _deliveryAddressId;
@@ -162,18 +166,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         } else {
           final profile = CustomerDataStore.instance.profile;
           if (profile == null) {
-            throw Exception('Your customer profile is not ready yet. Please try again.');
+            throw const AppError(
+              AppErrorKind.notFound,
+              'Your customer profile is not ready yet. Please try again.',
+            );
           }
-          final saved = await CustomerProfileRepository.instance.addAddress(
-            firebaseUid: firebaseUid,
-            label: 'Checkout',
-            recipientName: profile.fullName,
-            phone: enteredPhone,
-            line1: enteredAddress,
-            city: '',
-            province: '',
-            postalCode: '',
-            isDefault: false,
+          final saved = await AppErrors.guard(
+            () => CustomerProfileRepository.instance.addAddress(
+              firebaseUid: firebaseUid,
+              label: 'Checkout',
+              recipientName: profile.fullName,
+              phone: enteredPhone,
+              line1: enteredAddress,
+              city: '',
+              province: '',
+              postalCode: '',
+              isDefault: false,
+            ),
+            scope: ErrorScope.address,
           );
           deliveryAddressId = saved.id;
           CustomerDataStore.instance.setAddresses([
@@ -197,13 +207,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         idempotencyKey: _checkoutAttemptKey,
       );
 
-      await cart.completeCheckout();
-      unawaited(CustomerDataStore.instance.refresh());
+      // The order is already placed at this point. A failure while tidying up
+      // local state must never be reported to the customer as a failed order.
+      await _quietly(() => cart.completeCheckout());
+      unawaited(_quietly(() => CustomerDataStore.instance.refresh()));
       // The `place_order` RPC just decremented real stock server-side —
       // reload the catalog so kProducts (and every screen reading it)
       // reflects the new, real quantities instead of the pre-checkout
       // numbers still sitting in memory.
-      unawaited(ProductsRepository.instance.loadCatalog(branchId: branch.id));
+      unawaited(_quietly(() => ProductsRepository.instance.loadCatalog(branchId: branch.id)));
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -214,46 +226,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      // A dropped connection/timeout here does NOT mean the order failed —
-      // the request may well have reached the database and committed; we
-      // just never heard back. Say so honestly instead of a flat "failed",
-      // and don't offer to retry with a fresh cart: tapping "Place Order"
-      // again re-uses `_checkoutAttemptKey`, so if it did go through, the
-      // retry safely returns that same order instead of creating another.
-      final isConnectivityFailure = _looksLikeConnectivityFailure(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isConnectivityFailure
-                ? 'Could not reach the server. If your order actually went '
-                    'through, tapping Place Order again will not duplicate '
-                    'it — please check your connection and try again.'
-                : 'Could not place your order: ${e.toString().replaceFirst('Exception: ', '')}',
-          ),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      // Customer-safe message for every failure (offline, timeout, expired
+      // session, insufficient stock, unavailable product/branch, invalid
+      // voucher, not enough points, payment failure, database error...).
+      // For a dropped connection the wording says the order may have gone
+      // through; tapping Place Order again re-uses `_checkoutAttemptKey`, so
+      // it can never create a duplicate.
+      final error = AppErrors.from(e, scope: ErrorScope.order);
+      if (error.isStockRelated) {
+        // The cart no longer matches reality — reload real stock so the rest
+        // of the app shows the true quantities.
+        unawaited(_quietly(() => ProductsRepository.instance.loadCatalog(branchId: branch.id)));
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(error.message), duration: const Duration(seconds: 6)),
+        );
     } finally {
       if (mounted) setState(() => _placingOrder = false);
     }
   }
 
-  /// Distinguishes "the network/connection itself failed" (timeout, no
-  /// route to host, socket closed) from a real, already-validated business
-  /// rejection from the database (out of stock, invalid voucher, etc. —
-  /// those arrive as a plain [Exception] with a server-written message via
-  /// [OrdersRepository]). Only the connectivity case gets the
-  /// "may have gone through" wording — a genuine business error is final
-  /// and retrying it will just fail again the same way.
-  bool _looksLikeConnectivityFailure(Object e) {
-    if (e is TimeoutException) return true;
-    final text = e.toString().toLowerCase();
-    return text.contains('socketexception') ||
-        text.contains('clientexception') ||
-        text.contains('failed host lookup') ||
-        text.contains('connection closed') ||
-        text.contains('connection reset') ||
-        text.contains('network is unreachable');
+  /// Runs best-effort follow-up work whose failure must not surface to the
+  /// customer (and must not become an unhandled async error).
+  Future<void> _quietly(Future<dynamic> Function() action) async {
+    try {
+      await action();
+    } catch (_) {}
   }
 
   @override

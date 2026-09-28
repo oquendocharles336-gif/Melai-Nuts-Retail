@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
 import '../models/order.dart';
 
 class OrdersRepository {
@@ -32,7 +35,7 @@ class OrdersRepository {
     String customerNotes = '',
     String? idempotencyKey,
   }) async {
-    String orderId;
+    final String orderId;
     try {
       final result = await _client.rpc('place_order', params: {
         'p_cart_id': cartId,
@@ -41,12 +44,33 @@ class OrdersRepository {
         'p_payment_method': paymentMethod,
         'p_customer_notes': customerNotes,
         'p_idempotency_key': idempotencyKey,
-      });
+      }).timeout(AppErrors.rpcTimeout);
       orderId = result as String;
-    } on PostgrestException catch (e) {
-      throw Exception(e.message);
+    } catch (e, st) {
+      // Every failure — offline, timeout, expired session, out of stock,
+      // invalid voucher, not enough points, unavailable branch/product,
+      // payment failure, database error — becomes a customer-safe AppError.
+      Error.throwWithStackTrace(AppErrors.from(e, scope: ErrorScope.order), st);
     }
-    return refetch(orderId);
+
+    // The order is now committed. If loading it back fails (flaky network),
+    // do NOT report "order failed" — it wasn't. Retry once, then explain.
+    try {
+      return await refetch(orderId);
+    } catch (_) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+      try {
+        return await refetch(orderId);
+      } catch (_) {
+        throw AppError(
+          AppErrorKind.orderFailed,
+          idempotencyKey != null
+              ? 'Your order was placed, but we couldn\'t load its details. '
+                  'Tap Place Order again to view it — you won\'t be charged twice.'
+              : 'Your order was placed, but we couldn\'t load its details. Please check My Orders.',
+        );
+      }
+    }
   }
 
   /// Columns fetched with every order: the order row plus its line items,
@@ -55,22 +79,35 @@ class OrdersRepository {
   static const String _orderSelect =
       '*, order_items(*), order_status_events(*), payments(*)';
 
-  Future<List<Order>> fetchOrders(String firebaseUid) async {
-    final raw = await _client
-        .from('orders')
-        .select(_orderSelect)
-        .eq('firebase_uid', firebaseUid)
-        .order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(raw).map(_orderFromEmbeddedRow).toList();
+  Future<List<Order>> fetchOrders(String firebaseUid) {
+    return AppErrors.guard(() async {
+      final raw = await _client
+          .from('orders')
+          .select(_orderSelect)
+          .eq('firebase_uid', firebaseUid)
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(raw).map(_orderFromEmbeddedRow).toList();
+    }, scope: ErrorScope.order);
   }
 
-  Future<Order> refetch(String orderId) async {
-    final row = await _client.from('orders').select(_orderSelect).eq('id', orderId).single();
-    return _orderFromEmbeddedRow(row);
+  Future<Order> refetch(String orderId) {
+    return AppErrors.guard(() async {
+      final row = await _client.from('orders').select(_orderSelect).eq('id', orderId).single();
+      return _orderFromEmbeddedRow(row);
+    }, scope: ErrorScope.order);
   }
 
+  /// Live updates for one order. Stream errors are converted to [AppError]s so
+  /// listeners can show a friendly "live updates paused" message.
   Stream<List<Map<String, dynamic>>> watchOrder(String orderId) {
-    return _client.from('orders').stream(primaryKey: ['id']).eq('id', orderId);
+    return _client
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('id', orderId)
+        .transform(StreamTransformer<List<Map<String, dynamic>>, List<Map<String, dynamic>>>.fromHandlers(
+          handleError: (error, stackTrace, sink) =>
+              sink.addError(AppErrors.from(error, scope: ErrorScope.order), stackTrace),
+        ));
   }
 
   Order _orderFromEmbeddedRow(Map<String, dynamic> row) {

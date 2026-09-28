@@ -4,6 +4,7 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import '../widgets/category_chip.dart';
@@ -57,6 +58,19 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     super.dispose();
   }
 
+  /// Pull-to-refresh. Reloads real orders and tells the customer plainly if
+  /// that failed (offline, expired session, ...) instead of failing silently.
+  Future<void> _refresh() async {
+    try {
+      await AppErrors.guard(() async {
+        await CustomerDataStore.instance.refresh();
+      }, scope: ErrorScope.order);
+    } catch (e) {
+      if (!mounted) return;
+      AppErrors.showSnack(context, e, scope: ErrorScope.order);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,7 +82,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
           builder: (context, _) {
             final orders = _filtered;
             final active = activeOrder;
-            return ListView(
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.md),
               children: [
                 TextField(
@@ -218,6 +235,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                 ),
               ),
               ],
+              ),
             );
           },
         ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -44,10 +45,19 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   Future<void> _loadPromotions() async {
-    final promos = await ProductsRepository.instance.fetchApplicablePromotions(
-      productId: widget.product.id,
-      categoryId: widget.product.categoryId,
-    );
+    List<Promotion> promos = const [];
+    try {
+      promos = await AppErrors.guard(
+        () => ProductsRepository.instance.fetchApplicablePromotions(
+          productId: widget.product.id,
+          categoryId: widget.product.categoryId,
+        ),
+        scope: ErrorScope.catalog,
+      );
+    } catch (_) {
+      // Promotions are a nice-to-have. If they can't load, the section stays
+      // hidden and ordering is unaffected — no error popup for this.
+    }
     if (!mounted) return;
     setState(() {
       _promotions = promos;
@@ -56,27 +66,37 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   /// Re-checks live stock and adds to cart. Returns the quantity actually
-  /// added (see [CartController.addProductWithLiveCheck]) so callers can
-  /// decide what to do next (show a message, or also jump to checkout for
-  /// "Buy Now").
-  Future<int> _addToCart() async {
+  /// added (see [CartController.addProductWithLiveCheck]), or null if the
+  /// check itself failed — in which case the customer has already been told
+  /// why (offline, timeout, expired session, ...).
+  Future<int?> _addToCart() async {
     setState(() => _busy = true);
-    final added = await CartController.instance.addProductWithLiveCheck(
-      widget.product,
-      _selectedVariant,
-      quantity: _quantity,
-    );
-    if (mounted) setState(() => _busy = false);
-    return added;
+    try {
+      return await AppErrors.guard(
+        () => CartController.instance.addProductWithLiveCheck(
+          widget.product,
+          _selectedVariant,
+          quantity: _quantity,
+        ),
+        scope: ErrorScope.cart,
+      );
+    } catch (e) {
+      if (mounted) AppErrors.showSnack(context, e, scope: ErrorScope.cart);
+      return null;
+    } finally {
+      // Always release the buttons, even when the request throws.
+      if (mounted) setState(() => _busy = false);
+    }
   }
+
+  String get _unavailableMessage =>
+      widget.product.isActive ? 'This item is out of stock.' : 'This item is no longer available.';
 
   Future<void> _handleAddToCart() async {
     final added = await _addToCart();
-    if (!mounted) return;
+    if (!mounted || added == null) return;
     if (added <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This item is out of stock.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_unavailableMessage)));
       return;
     }
     final message = added < _quantity
@@ -98,14 +118,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   /// Adds the current selection to the cart (re-checking live stock, same
   /// as [_handleAddToCart]) and, only if that actually succeeded, goes
   /// straight to Checkout — it never forwards the customer to checkout for
-  /// an item that just turned out to be unavailable.
+  /// an item that just turned out to be unavailable or when the check failed.
   Future<void> _handleBuyNow() async {
     final added = await _addToCart();
-    if (!mounted) return;
+    if (!mounted || added == null) return;
     if (added <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This item is out of stock.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_unavailableMessage)));
       return;
     }
     if (added < _quantity) {

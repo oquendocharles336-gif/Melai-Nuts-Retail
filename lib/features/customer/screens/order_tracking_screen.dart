@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../data/dummy_data/dummy_branches.dart';
 import '../../../data/models/branch.dart';
 import '../../../data/models/order.dart';
@@ -24,6 +25,15 @@ class OrderTrackingScreen extends StatefulWidget {
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   late Order _order;
   Stream<List<Map<String, dynamic>>>? _stream;
+  bool _refetching = false;
+
+  /// Friendly message shown in a banner when the last refresh failed.
+  String? _refreshError;
+
+  /// The live status we last failed to load. Prevents a rebuild from firing
+  /// the same failing request over and over; a new status or the Retry
+  /// button tries again.
+  String? _failedForStatus;
 
   @override
   void initState() {
@@ -32,12 +42,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     _stream = OrdersRepository.instance.watchOrder(_order.id);
   }
 
-  Future<void> _refetch() async {
+  Future<void> _refetch({String? liveStatus}) async {
+    if (_refetching) return;
+    _refetching = true;
     try {
       final updated = await OrdersRepository.instance.refetch(_order.id);
-      if (mounted) setState(() => _order = updated);
-    } catch (_) {
-      // Keep showing the last known state; the stream will retry.
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _refreshError = null;
+        _failedForStatus = null;
+      });
+    } catch (e) {
+      // Keep showing the last known order and say so, instead of silently
+      // showing a stale status as if it were current.
+      if (!mounted) return;
+      setState(() {
+        _refreshError = AppErrors.from(e, scope: ErrorScope.order).message;
+        _failedForStatus = liveStatus;
+      });
+    } finally {
+      _refetching = false;
     }
   }
 
@@ -71,11 +96,17 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           final rows = snapshot.data!;
-          if (rows.isNotEmpty && rows.first['status'] != _order.status.name) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _refetch());
+          if (rows.isNotEmpty) {
+            final live = rows.first['status'] as String?;
+            if (live != null && live != _order.status.name && live != _failedForStatus && !_refetching) {
+              WidgetsBinding.instance.addPostFrameCallback((_) => _refetch(liveStatus: live));
+            }
           }
         }
-        return _buildScaffold(context);
+        final streamError = snapshot.hasError
+            ? 'Live updates are paused. ${AppErrors.from(snapshot.error!, scope: ErrorScope.order).message}'
+            : null;
+        return _buildScaffold(context, notice: streamError ?? _refreshError);
       },
     );
   }
@@ -123,7 +154,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  Widget _buildScaffold(BuildContext context) {
+  Widget _buildScaffold(BuildContext context, {String? notice}) {
     final order = _order;
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -148,6 +179,26 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
+            if (notice != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warningBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.wifi_off_rounded, size: 18, color: AppColors.warning),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(notice, style: AppTextStyles.bodySm.copyWith(color: AppColors.warning)),
+                    ),
+                    TextButton(onPressed: _refetch, child: const Text('Retry')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
