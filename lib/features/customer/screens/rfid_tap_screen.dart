@@ -26,12 +26,12 @@ class RfidTapScreen extends StatelessWidget {
 
   Widget _buildBody(BuildContext context) {
     final profile = CustomerDataStore.instance.profile;
-    final name = (profile?.fullName.isNotEmpty ?? false)
-        ? profile!.fullName
+    final name = (profile != null && profile.fullName.isNotEmpty)
+        ? profile.fullName
         : (AuthService.instance.currentProfile?.name ?? 'Customer');
-    final rawCard = profile?.rfidCardNumber;
-    final hasCard = rawCard != null && rawCard.trim().isNotEmpty;
-    final cardNumber = hasCard ? rawCard!.trim() : 'No card linked';
+    final rawCard = profile?.rfidCardNumber?.trim();
+    final cardNumber = (rawCard != null && rawCard.isNotEmpty) ? rawCard : 'No card linked';
+    final hasCard = rawCard != null && rawCard.isNotEmpty;
     final points = CustomerDataStore.instance.pointsBalance;
 
     return Scaffold(
