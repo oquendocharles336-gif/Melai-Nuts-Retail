@@ -114,6 +114,10 @@ class CartRemoteState {
   }
 }
 
+/// Every cart write goes through `sync_customer_cart` / `place_order`
+/// (server-side). The customer roles are read-only on `carts`/`cart_items`,
+/// so there is intentionally no direct-table write here (e.g. no `closeCart`;
+/// `place_order` checks the cart out itself).
 class CartRepository {
   CartRepository._();
   static final CartRepository instance = CartRepository._();
@@ -164,12 +168,5 @@ class CartRepository {
     } on PostgrestException catch (e) {
       throw Exception(e.message);
     }
-  }
-
-  Future<void> closeCart(String cartId) async {
-    await _client
-        .from('carts')
-        .update({'status': 'checked_out'})
-        .eq('id', cartId);
   }
 }

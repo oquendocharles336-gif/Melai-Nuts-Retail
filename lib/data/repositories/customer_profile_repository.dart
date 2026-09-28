@@ -52,12 +52,9 @@ class CustomerProfileRepository {
     return CustomerProfile.fromRow(row);
   }
 
-  Future<void> linkRfidCard(String firebaseUid, String cardNumber) async {
-    await _client
-        .from('customer_profiles')
-        .update({'rfid_card_number': cardNumber})
-        .eq('firebase_uid', firebaseUid);
-  }
+  // RFID card numbers are linked by staff, never by the customer: the card
+  // number identifies the account at the POS, and the database gives the
+  // customer roles no write access to `rfid_card_number`.
 
   /// Persists the customer's chosen branch (see `BranchController`) so it's
   /// restored automatically the next time they sign in.

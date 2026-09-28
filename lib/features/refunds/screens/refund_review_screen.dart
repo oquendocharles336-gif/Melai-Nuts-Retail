@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -38,19 +37,15 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
   bool _submitting = false;
 
   Future<void> _submit() async {
-    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
-    if (firebaseUid == null) return;
-
     setState(() => _submitting = true);
     try {
+      // Only the order, the chosen lines and the reason are sent. The server
+      // decides eligibility, the refund amount and the initial status.
       final request = await RefundsRepository.instance.submitRequest(
         orderId: widget.order.id,
-        firebaseUid: firebaseUid,
         reason: widget.reason,
         notes: widget.notes,
         items: widget.items,
-        amount: widget.amount,
-        paymentMethod: widget.order.paymentMethod,
       );
       kRefundRequests.insert(0, request);
       unawaited(CustomerDataStore.instance.refresh());
@@ -105,7 +100,7 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Refund Amount', style: AppTextStyles.headlineSm),
+                      Text('Estimated Refund', style: AppTextStyles.headlineSm),
                       Text(
                         '₱${widget.amount.toStringAsFixed(0)}',
                         style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
