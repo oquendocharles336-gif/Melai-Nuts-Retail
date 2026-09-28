@@ -4,10 +4,12 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/models/notification_item.dart';
-import '../../../core/services/pending_writes_service.dart';
+import '../../../data/repositories/notifications_repository.dart';
 import 'notification_detail_screen.dart';
 import 'notification_settings_screen.dart';
 
@@ -30,32 +32,36 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
     }
   }
 
-  /// Tells the truth about a notification change: silent when the server
-  /// accepted it, "saved on this device" when it is only queued, and the
-  /// server's reason when it was refused (the store re-reads real state).
-  void _report(WriteOutcome? outcome, String action) {
-    if (!mounted || outcome == null) return;
-    if (outcome.kind == WriteOutcomeKind.queued) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$action saved on this device — it will sync when the server is reachable.')),
-      );
-    } else if (outcome.kind == WriteOutcomeKind.rejected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not ${action.toLowerCase()}: ${outcome.message ?? 'the server refused it'}')),
-      );
+  Future<void> _markAllRead() async {
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    if (uid == null) return;
+    final previouslyUnread = kNotifications.where((n) => !n.read).toList();
+    setState(() {
+      for (final n in kNotifications) {
+        n.read = true;
+      }
+    });
+    try {
+      await NotificationsRepository.instance.markAllRead(uid);
+    } catch (e) {
+      // Not saved: put the unread state back and tell the customer.
+      if (!mounted) return;
+      setState(() {
+        for (final n in previouslyUnread) {
+          n.read = false;
+        }
+      });
+      AppErrors.showSnack(context, e);
     }
   }
 
-  Future<void> _markAllRead() async {
-    _report(await CustomerDataStore.instance.markAllNotificationsRead(), 'Mark all as read');
-  }
-
   Future<void> _open(NotificationItem item) async {
-    final outcome = CustomerDataStore.instance.markNotificationRead(item.id);
+    setState(() => item.read = true);
+    NotificationsRepository.instance.markRead(item.id).catchError((_) {});
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => NotificationDetailScreen(item: item)),
     );
-    _report(await outcome, 'Mark as read');
+    if (mounted) setState(() {});
   }
 
   @override
@@ -68,7 +74,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
 
   Widget _buildScaffold(BuildContext context) {
     final store = CustomerDataStore.instance;
-    final unreadCount = CustomerDataStore.instance.notifications.where((n) => !n.read).length;
+    final unreadCount = kNotifications.where((n) => !n.read).length;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: MelaiAppBar(
@@ -94,7 +100,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
         child: DataStateView(
           isLoading: store.isLoading,
           error: store.error,
-          isEmpty: CustomerDataStore.instance.notifications.isEmpty,
+          isEmpty: kNotifications.isEmpty,
           onRetry: () => store.retry(),
           emptyIcon: Icons.notifications_none_rounded,
           emptyTitle: 'No notifications yet.',
@@ -105,10 +111,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
             child: ListView.separated(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
-          itemCount: CustomerDataStore.instance.notifications.length,
+          itemCount: kNotifications.length,
           separatorBuilder: (context, index) => const SizedBox(height: 10),
           itemBuilder: (context, i) {
-            final n = CustomerDataStore.instance.notifications[i];
+            final n = kNotifications[i];
             return InkWell(
               onTap: () => _open(n),
               borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
