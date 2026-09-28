@@ -18,6 +18,30 @@ class IconRegistry {
     'stars': Icons.stars_rounded,
   };
 
+  /// Registry key for [icon], or null if it is not one of the registered icons.
+  /// Used to persist an icon as a plain string instead of rebuilding an
+  /// [IconData] from raw code points at runtime (which defeats icon
+  /// tree-shaking and is flagged by `non_const_argument_for_const_parameter`).
+  static String? nameFor(IconData icon) {
+    for (final entry in _icons.entries) {
+      if (entry.value.codePoint == icon.codePoint &&
+          entry.value.fontFamily == icon.fontFamily) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  /// Registry key for a legacy persisted [codePoint] (older cart caches stored
+  /// the raw code point instead of a name).
+  static String? nameForCodePoint(int? codePoint) {
+    if (codePoint == null) return null;
+    for (final entry in _icons.entries) {
+      if (entry.value.codePoint == codePoint) return entry.key;
+    }
+    return null;
+  }
+
   static IconData icon(String? name, {IconData fallback = Icons.category_rounded}) {
     if (name == null) return fallback;
     return _icons[name] ?? fallback;

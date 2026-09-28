@@ -8,6 +8,7 @@ import '../../core/services/customer_data_store.dart';
 import '../../data/catalog_store.dart';
 import '../../data/models/product.dart';
 import '../../data/repositories/cart_repository.dart';
+import '../../data/repositories/icon_registry.dart';
 import '../../data/repositories/products_repository.dart';
 import 'screens/cart_screen.dart';
 
@@ -618,10 +619,7 @@ class CartController extends ChangeNotifier {
       'description': product.description,
       'branch_availability': product.branchAvailability,
       'spice_levels': product.spiceLevels,
-      'icon_code_point': product.icon.codePoint,
-      'icon_font_family': product.icon.fontFamily,
-      'icon_font_package': product.icon.fontPackage,
-      'icon_match_text_direction': product.icon.matchTextDirection,
+      'icon_name': IconRegistry.nameFor(product.icon),
       'color_value': product.color.toARGB32(),
       'images': product.images,
       'sku': product.sku,
@@ -679,7 +677,13 @@ class CartController extends ChangeNotifier {
         branchAvailability: List<String>.from(map['branch_availability'] as List? ?? const []),
         variants: variants,
         spiceLevels: List<String>.from(map['spice_levels'] as List? ?? const []),
-        icon: _iconFromMap(map),
+        // Resolved through the registry's constant icons (never built from raw
+        // code points at runtime). Falls back to the legacy code-point key.
+        icon: IconRegistry.icon(
+          map['icon_name'] as String? ??
+              IconRegistry.nameForCodePoint((map['icon_code_point'] as num?)?.toInt()),
+          fallback: Icons.inventory_2_outlined,
+        ),
         color: Color((map['color_value'] as num?)?.toInt() ?? Colors.grey.toARGB32()),
         images: List<String>.from(map['images'] as List? ?? const []),
         sku: map['sku'] as String? ?? '',
@@ -692,17 +696,6 @@ class CartController extends ChangeNotifier {
     } catch (_) {
       return null;
     }
-  }
-
-  IconData _iconFromMap(Map<String, dynamic> map) {
-    final cp = (map['icon_code_point'] as num?)?.toInt();
-    if (cp == null) return Icons.inventory_2_outlined;
-    return IconData(
-      cp,
-      fontFamily: map['icon_font_family'] as String?,
-      fontPackage: map['icon_font_package'] as String?,
-      matchTextDirection: map['icon_match_text_direction'] as bool? ?? false,
-    );
   }
 
   String _messageFor(Object e) {
