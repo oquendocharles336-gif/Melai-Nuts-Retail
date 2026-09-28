@@ -38,6 +38,16 @@ class CustomerProfileRepository {
     return CustomerProfile.fromRow(created);
   }
 
+  /// Reads the existing profile row (never creates one). Null if none yet.
+  Future<CustomerProfile?> fetchProfile(String firebaseUid) async {
+    final row = await _client
+        .from('customer_profiles')
+        .select()
+        .eq('firebase_uid', firebaseUid)
+        .maybeSingle();
+    return row == null ? null : CustomerProfile.fromRow(row);
+  }
+
   Future<CustomerProfile> updateProfile({
     required String firebaseUid,
     required String fullName,

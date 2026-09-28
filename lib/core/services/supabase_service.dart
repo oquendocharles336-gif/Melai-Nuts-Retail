@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
+import 'offline_read_cache_client.dart';
 
 /// Bootstraps the Supabase client and makes every request identify itself
 /// as the signed-in Firebase user.
@@ -32,6 +33,11 @@ class SupabaseService {
     await Supabase.initialize(
       url: SupabaseConfig.url,
       publishableKey: SupabaseConfig.anonKey,
+      // Durable read-through cache for PostgREST *reads only* so previously
+      // fetched data stays readable (and is labelled as saved data) when the
+      // network is down. Writes and mutating RPCs pass through untouched —
+      // see OfflineReadCacheClient.
+      httpClient: OfflineReadCacheClient(),
       accessToken: () async {
         final user = fb.FirebaseAuth.instance.currentUser;
         if (user == null) return null;

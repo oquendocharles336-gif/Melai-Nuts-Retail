@@ -9,7 +9,8 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
-import '../../../data/repositories/customer_profile_repository.dart';
+import '../../../core/services/pending_writes_service.dart';
+import '../../../data/models/customer_profile.dart';
 
 /// Edits the customer's real profile (`customer_profiles` in Supabase).
 /// Email isn't editable here — it's the Firebase Auth login identity, so
@@ -50,17 +51,40 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     setState(() => _saving = true);
     try {
-      final updated = await CustomerProfileRepository.instance.updateProfile(
-        firebaseUid: firebaseUid,
-        fullName: _nameController.text.trim(),
-        phone: _phoneController.text.trim(),
+      final name = _nameController.text.trim();
+      final phone = _phoneController.text.trim();
+      final outcome = await PendingWritesService.instance.run(
+        firebaseUid,
+        PendingWriteKind.profileUpdate,
+        {'fullName': name, 'phone': phone},
       );
-      CustomerDataStore.instance.updateCachedProfile(updated);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated.')),
-      );
-      Navigator.of(context).pop();
+      final store = CustomerDataStore.instance;
+      switch (outcome.kind) {
+        case WriteOutcomeKind.synced:
+          final updated = outcome.result;
+          if (updated is CustomerProfile) store.updateCachedProfile(updated);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile updated.')),
+          );
+          Navigator.of(context).pop();
+        case WriteOutcomeKind.queued:
+          final current = store.profile;
+          if (current != null) {
+            store.updateCachedProfile(current.copyWith(fullName: name, phone: phone));
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Saved on this device only — not on your account yet. It will sync automatically when the server is reachable.'),
+              duration: Duration(seconds: 5),
+            ),
+          );
+          Navigator.of(context).pop();
+        case WriteOutcomeKind.rejected:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save profile: ${outcome.message ?? 'the server refused it'}')),
+          );
+      }
     } catch (e) {
       if (!mounted) return;
       AppErrors.showSnack(context, e, scope: ErrorScope.profile);

@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/utils/app_error.dart';
-import '../dummy_data/dummy_branches.dart';
+import '../catalog_store.dart';
 import '../models/branch.dart';
 
 /// Loads the real branch list (`branches` table) into [kBranches].

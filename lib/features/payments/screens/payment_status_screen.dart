@@ -5,9 +5,9 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_payments.dart';
 import '../../../data/models/payment.dart';
 import '../../../data/repositories/payments_repository.dart';
+import '../../../core/services/customer_data_store.dart';
 
 class PaymentStatusScreen extends StatefulWidget {
   final String orderId;
@@ -27,7 +27,7 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
   @override
   void initState() {
     super.initState();
-    _txn = findPaymentByOrderId(widget.orderId); // last known, shown while refreshing
+    _txn = CustomerDataStore.instance.paymentForOrder(widget.orderId); // last known, shown while refreshing
     _refresh();
   }
 
@@ -41,10 +41,7 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
     try {
       final fresh = await PaymentsRepository.instance.fetchForOrder(widget.orderId);
       if (!mounted) return;
-      if (fresh != null) {
-        kPayments.removeWhere((p) => p.orderId == widget.orderId);
-        kPayments.insert(0, fresh);
-      }
+      if (fresh != null) CustomerDataStore.instance.upsertPayment(fresh);
       setState(() => _txn = fresh ?? _txn);
     } catch (e) {
       if (!mounted) return;

@@ -5,9 +5,9 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/secondary_button.dart';
-import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../../data/models/notification_item.dart';
-import '../../../data/repositories/notifications_repository.dart';
+import '../../../core/services/pending_writes_service.dart';
+import '../../../core/services/customer_data_store.dart';
 
 class NotificationDetailScreen extends StatefulWidget {
   final NotificationItem item;
@@ -23,18 +23,32 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
 
   NotificationItem get item => widget.item;
 
-  /// Deletes on the server first; the notification is only removed from the
-  /// list (and the screen closed) once that succeeded. On failure it stays,
-  /// and the customer is told why.
+  /// Removes the notification from the list right away and deletes it on the
+  /// server. If the server can't be reached the delete is kept on this device
+  /// and retried (and the customer is told it isn't done on their account
+  /// yet); if the server refuses it, the notification comes back.
   Future<void> _delete() async {
     if (_deleting) return;
     setState(() => _deleting = true);
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await AppErrors.guard(() => NotificationsRepository.instance.delete(item.id));
-      kNotifications.removeWhere((n) => n.id == item.id);
+      final outcome = await CustomerDataStore.instance.deleteNotification(item.id);
       navigator.pop();
+      if (outcome == null) return;
+      if (outcome.kind == WriteOutcomeKind.queued) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(
+            content: Text('Deleted on this device — it will be removed from your account when the server is reachable.'),
+          ));
+      } else if (outcome.kind == WriteOutcomeKind.rejected) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Could not delete: ${outcome.message ?? 'the server refused it'}'),
+          ));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _deleting = false);

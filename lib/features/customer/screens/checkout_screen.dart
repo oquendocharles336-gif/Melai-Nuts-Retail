@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
@@ -7,6 +6,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/branch_controller.dart';
+import '../../../core/services/checkout_attempt_store.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/app_error.dart';
@@ -45,16 +45,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _placingOrder = false;
   String? _deliveryAddressId;
 
-  /// One id per checkout *attempt*, generated once when this screen opens
-  /// and reused unchanged across every retry the person makes on it (see
-  /// `_placeOrder`). If a "Place Order" tap times out or the connection
-  /// drops after the order actually went through server-side, retrying
-  /// with the same key returns that same order instead of creating a
-  /// second one — see `OrdersRepository.createOrderFromCart`. Going back
-  /// and re-entering checkout (a new `CheckoutScreen` instance) is a new
-  /// attempt and gets a new key, as it should: that really is a fresh order.
-  late final String _checkoutAttemptKey =
-      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+  // The idempotency key for this checkout is NOT held in memory: it is
+  // persisted by CheckoutAttemptStore (one key per customer + cart) so a
+  // retry after a dropped connection *or an app restart* reuses it and can
+  // never create a second order. It is only cleared once the server has
+  // accepted the order (retrying with the same key is always safe).
 
   @override
   void initState() {
@@ -192,20 +187,28 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ]);
         }
       }
+      final attempt = await CheckoutAttemptStore.instance.begin(uid: firebaseUid, cartId: cartId);
       final itemCount = cart.itemCount;
       // `place_order` creates the order, its items, and its payment record
       // together in one database transaction — there is no separate,
       // second network call to record the payment here, so a dropped
       // connection right after checkout can never leave an order with no
       // payment record behind.
+      // From here until the server answers, the outcome is unknown; persist
+      // that so an app kill mid-request is settled on the next launch.
+      await CheckoutAttemptStore.instance.markSubmitted(attempt);
       final order = await OrdersRepository.instance.createOrderFromCart(
         cartId: cartId,
         isDelivery: isDelivery,
         deliveryAddressId: deliveryAddressId,
         paymentMethod: paymentLabel,
         customerNotes: _notesController.text.trim(),
-        idempotencyKey: _checkoutAttemptKey,
+        idempotencyKey: attempt.key,
       );
+
+      // The server accepted the order — only now is it real, so only now is
+      // the attempt (and its key) forgotten.
+      await CheckoutAttemptStore.instance.clear();
 
       // The order is already placed at this point. A failure while tidying up
       // local state must never be reported to the customer as a failed order.
@@ -230,7 +233,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // session, insufficient stock, unavailable product/branch, invalid
       // voucher, not enough points, payment failure, database error...).
       // For a dropped connection the wording says the order may have gone
-      // through; tapping Place Order again re-uses `_checkoutAttemptKey`, so
+      // through; tapping Place Order again re-uses the persisted attempt key, so
       // it can never create a duplicate.
       final error = AppErrors.from(e, scope: ErrorScope.order);
       if (error.isStockRelated) {

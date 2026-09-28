@@ -50,7 +50,16 @@ class OrdersRepository {
       // Every failure — offline, timeout, expired session, out of stock,
       // invalid voucher, not enough points, unavailable branch/product,
       // payment failure, database error — becomes a customer-safe AppError.
-      Error.throwWithStackTrace(AppErrors.from(e, scope: ErrorScope.order), st);
+      //
+      // A gateway/server 5xx says nothing about whether the order was
+      // committed, so it is reported exactly like a dropped connection
+      // ("couldn't confirm your order") — never as a definitive failure.
+      final code = e is PostgrestException ? (e.code ?? '') : '';
+      final gatewayFailure = code.length == 3 && code.startsWith('5');
+      Error.throwWithStackTrace(
+        AppErrors.from(gatewayFailure ? TimeoutException('gateway') : e, scope: ErrorScope.order),
+        st,
+      );
     }
 
     // The order is now committed. If loading it back fails (flaky network),
@@ -78,6 +87,22 @@ class OrdersRepository {
   /// resources) instead of three extra queries per order.
   static const String _orderSelect =
       '*, order_items(*), order_status_events(*), payments(*)';
+
+  /// Looks up the customer's own order that was created with
+  /// [idempotencyKey], or null if the server never accepted one. Used to
+  /// settle an unconfirmed checkout (the request went out but the response
+  /// never came back) without ever guessing.
+  Future<Order?> findByIdempotencyKey(String firebaseUid, String idempotencyKey) {
+    return AppErrors.guard(() async {
+      final row = await _client
+          .from('orders')
+          .select(_orderSelect)
+          .eq('firebase_uid', firebaseUid)
+          .eq('idempotency_key', idempotencyKey)
+          .maybeSingle();
+      return row == null ? null : _orderFromEmbeddedRow(row);
+    }, scope: ErrorScope.order);
+  }
 
   Future<List<Order>> fetchOrders(String firebaseUid) {
     return AppErrors.guard(() async {

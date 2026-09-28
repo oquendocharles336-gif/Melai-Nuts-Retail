@@ -6,7 +6,6 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_refunds.dart';
 import '../../../data/models/refund.dart';
 import 'refund_processing_screen.dart';
 import 'refund_success_screen.dart';
@@ -47,7 +46,7 @@ class RefundHistoryScreen extends StatelessWidget {
         child: DataStateView(
           isLoading: store.isLoading,
           error: store.error,
-          isEmpty: kRefundRequests.isEmpty,
+          isEmpty: CustomerDataStore.instance.refunds.isEmpty,
           onRetry: () => store.retry(),
           errorScope: ErrorScope.refund,
           emptyIcon: Icons.assignment_return_outlined,
@@ -59,10 +58,10 @@ class RefundHistoryScreen extends StatelessWidget {
             child: ListView.separated(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
-          itemCount: kRefundRequests.length,
+          itemCount: CustomerDataStore.instance.refunds.length,
           separatorBuilder: (context, index) => const SizedBox(height: 10),
           itemBuilder: (context, i) {
-            final r = kRefundRequests[i];
+            final r = CustomerDataStore.instance.refunds[i];
             return InkWell(
               onTap: () => _open(context, r),
               borderRadius: BorderRadius.circular(AppSpacing.radiusMd),

@@ -3,7 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
-import '../../../data/dummy_data/dummy_branches.dart';
+import '../../../data/catalog_store.dart';
 import '../../../data/models/branch.dart';
 import '../../../data/models/order.dart';
 import '../../../data/repositories/orders_repository.dart';

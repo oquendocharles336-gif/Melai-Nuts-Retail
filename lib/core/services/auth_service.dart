@@ -456,6 +456,16 @@ class AuthService {
   Future<void> signOut() async {
     _userInitiatedSignOut = true;
     _currentProfile = null;
+    // While the session is still valid: best-effort push of queued customer
+    // changes, then wipe the durable per-customer state (unsent writes,
+    // unconfirmed checkout, saved server responses) so a signed-out device
+    // holds no customer data.
+    final signingOutUid = _auth.currentUser?.uid;
+    if (signingOutUid != null) {
+      try {
+        await CustomerDataStore.instance.prepareForSignOut(signingOutUid);
+      } catch (_) {}
+    }
     CartController.instance.endSession();
     CustomerDataStore.instance.clear();
     BranchController.instance.clear();

@@ -7,7 +7,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_notifications.dart';
 import '../../notifications/screens/notification_center_screen.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
 import 'edit_profile_screen.dart';
@@ -29,7 +28,7 @@ class CustomerProfileScreen extends StatelessWidget {
 
   Widget _buildBody(BuildContext context) {
     final store = CustomerDataStore.instance;
-    final unreadCount = kNotifications.where((n) => !n.read).length;
+    final unreadCount = CustomerDataStore.instance.notifications.where((n) => !n.read).length;
     final profile = CustomerDataStore.instance.profile;
     final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email ?? '';
     final name = (profile?.fullName.isNotEmpty ?? false)

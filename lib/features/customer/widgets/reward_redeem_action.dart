@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../data/models/loyalty.dart';
@@ -17,6 +18,14 @@ bool _redeeming = false;
 /// redeem twice.
 Future<void> redeemRewardAndNavigate(BuildContext context, RewardItem reward) async {
   if (_redeeming) return;
+  // Spending points needs the server's answer right now; it is never queued
+  // and never shown as done while offline.
+  if (!ConnectivityService.instance.isOnline) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('You\'re offline. Reconnect to redeem — no points have been used.')),
+    );
+    return;
+  }
   _redeeming = true;
 
   final navigator = Navigator.of(context, rootNavigator: true);
@@ -47,10 +56,20 @@ Future<void> redeemRewardAndNavigate(BuildContext context, RewardItem reward) as
 
   if (failure != null) {
     _redeeming = false;
-    final message = AppErrors.from(failure).message;
+    final error = AppErrors.from(failure);
+    if (error.isConnectivity) {
+      // Unknown outcome: re-read the real balance instead of guessing.
+      await CustomerDataStore.instance.refresh();
+    }
+    if (!context.mounted) return;
     messenger
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text('Could not redeem: $message')));
+      ..showSnackBar(SnackBar(
+        content: Text(error.isConnectivity
+            ? 'Could not reach the server, so we can\'t confirm this redemption. Check your points history before trying again.'
+            : 'Could not redeem: ${error.message}'),
+        duration: const Duration(seconds: 5),
+      ));
     return;
   }
 

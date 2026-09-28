@@ -94,6 +94,11 @@ class CartController extends ChangeNotifier {
   String? get cartId => _cartId;
   String? get branchId => _branchId;
 
+  /// True while local cart edits (made offline or during an outage) have not
+  /// been accepted by the server yet. The saved snapshot keeps them safe;
+  /// this lets the UI say so honestly instead of implying they're synced.
+  bool get hasUnsyncedChanges => _dirty;
+
   SharedPreferencesAsync? _prefs;
 
   Future<SharedPreferencesAsync> get _storage async {
@@ -401,6 +406,14 @@ class CartController extends ChangeNotifier {
 
   Future<void> refresh({bool? isDelivery}) async {
     if (_branchId == null || _firebaseUid == null) return;
+    // Never let a server refresh overwrite edits the server hasn't seen yet
+    // (e.g. items added while offline). Push them first; if that still
+    // can't reach the server, keep the local edits and try again later
+    // (the retry timer keeps running).
+    if (_dirty) {
+      await _syncNow();
+      if (_dirty) return;
+    }
     if (kProducts.isEmpty) {
       await ProductsRepository.instance.loadCatalog(branchId: _branchId);
     }

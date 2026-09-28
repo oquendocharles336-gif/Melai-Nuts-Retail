@@ -6,7 +6,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
 import '../../../data/models/order.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/order_status_badge.dart';
@@ -31,7 +30,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   final _searchController = TextEditingController();
 
   List<Order> get _filtered {
-    var list = kOrders.where((o) {
+    var list = CustomerDataStore.instance.orders.where((o) {
       switch (_filter) {
         case _Filter.all:
           return true;
@@ -83,7 +82,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
           builder: (context, _) {
             final store = CustomerDataStore.instance;
             final orders = _filtered;
-            final active = activeOrder;
+            final active = CustomerDataStore.instance.activeOrder;
             return RefreshIndicator(
               onRefresh: _refresh,
               // loading / error (+ retry) / empty / success — an empty list
@@ -91,7 +90,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
               child: DataStateView(
               isLoading: store.isLoading,
               error: store.error,
-              isEmpty: kOrders.isEmpty,
+              isEmpty: CustomerDataStore.instance.orders.isEmpty,
               onRetry: () => store.retry(),
               errorScope: ErrorScope.order,
               emptyIcon: Icons.receipt_long_outlined,
@@ -117,27 +116,27 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                 scrollDirection: Axis.horizontal,
                 children: [
                   CategoryChip(
-                    label: 'All Orders (${kOrders.length})',
+                    label: 'All Orders (${CustomerDataStore.instance.orders.length})',
                     selected: _filter == _Filter.all,
                     onTap: () => setState(() => _filter = _Filter.all),
                   ),
                   const SizedBox(width: 8),
                   CategoryChip(
-                    label: 'Active (${kOrders.where((o) => o.status.isActive).length})',
+                    label: 'Active (${CustomerDataStore.instance.orders.where((o) => o.status.isActive).length})',
                     selected: _filter == _Filter.active,
                     onTap: () => setState(() => _filter = _Filter.active),
                   ),
                   const SizedBox(width: 8),
                   CategoryChip(
                     label:
-                    'Completed (${kOrders.where((o) => o.status == OrderStatus.completed).length})',
+                    'Completed (${CustomerDataStore.instance.orders.where((o) => o.status == OrderStatus.completed).length})',
                     selected: _filter == _Filter.completed,
                     onTap: () => setState(() => _filter = _Filter.completed),
                   ),
                   const SizedBox(width: 8),
                   CategoryChip(
                     label:
-                    'Cancelled (${kOrders.where((o) => o.status == OrderStatus.cancelled).length})',
+                    'Cancelled (${CustomerDataStore.instance.orders.where((o) => o.status == OrderStatus.cancelled).length})',
                     selected: _filter == _Filter.cancelled,
                     onTap: () => setState(() => _filter = _Filter.cancelled),
                   ),

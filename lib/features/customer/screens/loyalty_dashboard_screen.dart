@@ -5,7 +5,6 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../../../data/models/loyalty.dart';
 import '../widgets/loyalty_points_card.dart';
 import '../widgets/reward_card.dart';
@@ -29,13 +28,13 @@ class LoyaltyDashboardScreen extends StatelessWidget {
   Widget _buildBody(BuildContext context) {
     final store = CustomerDataStore.instance;
     final availablePoints = CustomerDataStore.instance.pointsBalance;
-    final lifetimeEarned = dummyLoyaltyTransactions
+    final lifetimeEarned = CustomerDataStore.instance.loyaltyTransactions
         .where((t) => t.type == LoyaltyTransactionType.earn)
         .fold<int>(0, (sum, t) => sum + t.points);
-    final pointsSpent = dummyLoyaltyTransactions
+    final pointsSpent = CustomerDataStore.instance.loyaltyTransactions
         .where((t) => t.type == LoyaltyTransactionType.redeem)
         .fold<int>(0, (sum, t) => sum + t.points);
-    final claimableRewards = dummyRewards.where((r) => r.pointsRequired <= availablePoints).toList();
+    final claimableRewards = CustomerDataStore.instance.rewards.where((r) => r.pointsRequired <= availablePoints).toList();
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -255,15 +254,15 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
               ),
-              child: dummyLoyaltyTransactions.isEmpty
+              child: CustomerDataStore.instance.loyaltyTransactions.isEmpty
                   ? Padding(
                 padding: const EdgeInsets.all(24),
                 child: Center(child: Text('No activity yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
               )
                   : Column(
                 children: [
-                  for (final tx in dummyLoyaltyTransactions.take(3))
-                    _ActivityRow(tx: tx, isLast: tx == dummyLoyaltyTransactions.take(3).last),
+                  for (final tx in CustomerDataStore.instance.loyaltyTransactions.take(3))
+                    _ActivityRow(tx: tx, isLast: tx == CustomerDataStore.instance.loyaltyTransactions.take(3).last),
                 ],
               ),
             ),

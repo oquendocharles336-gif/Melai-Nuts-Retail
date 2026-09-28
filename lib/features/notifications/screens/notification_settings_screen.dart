@@ -8,6 +8,7 @@ import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/repositories/notifications_repository.dart';
+import '../../../core/services/pending_writes_service.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -55,12 +56,15 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         setState(() => _loadingPrefs = false);
         return;
       }
+      // Unsynced local choices win over what the server still has, so the
+      // screen never shows a stale value the person already changed.
+      final unsynced = PendingWritesService.instance.pendingPreferences(uid);
       setState(() {
         _loadingPrefs = false;
-        _orderUpdates = (prefs['order_updates'] as bool?) ?? _orderUpdates;
-        _deliveryUpdates = (prefs['delivery_updates'] as bool?) ?? _deliveryUpdates;
-        _loyaltyUpdates = (prefs['loyalty_updates'] as bool?) ?? _loyaltyUpdates;
-        _promos = (prefs['promos'] as bool?) ?? _promos;
+        _orderUpdates = unsynced?['order_updates'] ?? (prefs['order_updates'] as bool?) ?? _orderUpdates;
+        _deliveryUpdates = unsynced?['delivery_updates'] ?? (prefs['delivery_updates'] as bool?) ?? _deliveryUpdates;
+        _loyaltyUpdates = unsynced?['loyalty_updates'] ?? (prefs['loyalty_updates'] as bool?) ?? _loyaltyUpdates;
+        _promos = unsynced?['promos'] ?? (prefs['promos'] as bool?) ?? _promos;
       });
     } catch (e) {
       // Saving now would overwrite the customer's real preferences with
@@ -78,17 +82,38 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     if (uid == null) return;
     setState(() => _saving = true);
     try {
-      await NotificationsRepository.instance.savePreferences(uid, {
-        'order_updates': _orderUpdates,
-        'delivery_updates': _deliveryUpdates,
-        'loyalty_updates': _loyaltyUpdates,
-        'promos': _promos,
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Notification preferences saved.')),
+      final outcome = await PendingWritesService.instance.run(
+        uid,
+        PendingWriteKind.notificationPreferences,
+        {
+          'prefs': {
+            'order_updates': _orderUpdates,
+            'delivery_updates': _deliveryUpdates,
+            'loyalty_updates': _loyaltyUpdates,
+            'promos': _promos,
+          },
+        },
       );
-      Navigator.of(context).pop();
+      if (!mounted) return;
+      switch (outcome.kind) {
+        case WriteOutcomeKind.synced:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Notification preferences saved.')),
+          );
+          Navigator.of(context).pop();
+        case WriteOutcomeKind.queued:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Saved on this device only — not on your account yet. It will sync automatically when the server is reachable.'),
+              duration: Duration(seconds: 5),
+            ),
+          );
+          Navigator.of(context).pop();
+        case WriteOutcomeKind.rejected:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save preferences: ${outcome.message ?? 'the server refused it'}')),
+          );
+      }
     } catch (e) {
       if (!mounted) return;
       AppErrors.showSnack(context, e);

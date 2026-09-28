@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import 'models/branch.dart';
 import 'models/product.dart';
 import 'models/promotion.dart';
 
@@ -14,6 +15,11 @@ List<ProductCategory> kProductCategories = <ProductCategory>[];
 
 /// Real staff-managed promotions loaded from Supabase.
 final List<Promotion> kPromotions = <Promotion>[];
+
+/// Real branch list — starts empty until `BranchRepository.loadBranches`
+/// resolves. No placeholder branches: a wrong address/phone/hours is
+/// actively misleading rather than just incomplete.
+final List<Branch> kBranches = <Branch>[];
 
 /// Real product catalog — starts empty until loaded from Supabase.
 final List<Product> kProducts = <Product>[];

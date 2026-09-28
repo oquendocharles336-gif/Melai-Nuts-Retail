@@ -22,7 +22,7 @@ import '../features/customer/screens/cart_screen.dart';
 import '../features/customer/screens/checkout_screen.dart';
 import '../features/customer/screens/order_confirmation_screen.dart';
 import '../features/customer/screens/order_history_screen.dart';
-import 'package:melai_nuts/features/customer/screens/order_details_screen.dart';
+import '../features/customer/screens/order_details_screen.dart';
 import '../features/customer/screens/repeat_order_screen.dart';
 import '../features/customer/screens/order_tracking_screen.dart';
 import '../features/customer/screens/customer_profile_screen.dart';
@@ -30,7 +30,6 @@ import '../features/customer/screens/edit_profile_screen.dart';
 import '../features/customer/screens/saved_addresses_screen.dart';
 import '../features/customer/screens/loyalty_dashboard_screen.dart';
 import '../features/customer/screens/rfid_tap_screen.dart';
-import '../features/customer/screens/rfid_detected_screen.dart';
 import '../features/customer/screens/loyalty_history_screen.dart';
 import '../features/customer/screens/redeem_rewards_screen.dart';
 import '../features/customer/screens/loyalty_transaction_screen.dart';
@@ -178,7 +177,6 @@ class AppRoutes {
 
   static const String customerLoyaltyDashboard = '/customer/loyalty';
   static const String customerRfidTap = '/customer/loyalty/rfid-tap';
-  static const String customerRfidDetected = '/customer/loyalty/rfid-detected';
   static const String customerLoyaltyTransaction = '/customer/loyalty/transaction';
   static const String customerLoyaltyHistory = '/customer/loyalty/history';
   static const String customerRedeemRewards = '/customer/loyalty/redeem';
@@ -333,7 +331,6 @@ class AppRoutes {
     customerSavedAddresses: _customerOnly,
     customerLoyaltyDashboard: _customerOnly,
     customerRfidTap: _customerOnly,
-    customerRfidDetected: _customerOnly,
     customerLoyaltyTransaction: _customerOnly,
     customerLoyaltyHistory: _customerOnly,
     customerRedeemRewards: _customerOnly,
@@ -499,7 +496,6 @@ class AppRoutes {
 
     customerLoyaltyDashboard: (_) => const LoyaltyDashboardScreen(),
     customerRfidTap: (_) => const RfidTapScreen(),
-    customerRfidDetected: (_) => const RfidDetectedScreen(),
     customerLoyaltyHistory: (_) => const LoyaltyHistoryScreen(),
     customerRedeemRewards: (_) => const RedeemRewardsScreen(),
     customerRefundHistory: (_) => const RefundHistoryScreen(),

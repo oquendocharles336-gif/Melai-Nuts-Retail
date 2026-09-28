@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_refunds.dart';
 import '../../../data/models/order.dart';
 import '../../../data/repositories/refunds_repository.dart';
 import 'refund_confirmation_screen.dart';
@@ -38,6 +38,14 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
   bool _submitting = false;
 
   Future<void> _submit() async {
+    // A refund request must reach the server; it is never queued or shown
+    // as submitted while offline.
+    if (!ConnectivityService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You\'re offline. Reconnect to submit your refund request — nothing has been submitted yet.')),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
       // Only the order, the chosen lines and the reason are sent. The server
@@ -48,7 +56,8 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
         notes: widget.notes,
         items: widget.items,
       );
-      kRefundRequests.insert(0, request);
+      // Only the server-created request (returned above) is shown.
+      CustomerDataStore.instance.addRefund(request);
       unawaited(CustomerDataStore.instance.refresh());
 
       if (!mounted) return;
@@ -58,7 +67,18 @@ class _RefundReviewScreenState extends State<RefundReviewScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      AppErrors.showSnack(context, e, scope: ErrorScope.refund);
+      if (AppErrors.from(e, scope: ErrorScope.refund).isConnectivity) {
+        // Refund requests are not idempotent: the request may have reached
+        // the server, so say so rather than inviting a blind resubmit.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('We couldn\'t confirm your refund request because the connection dropped. Check Refund History before submitting again to avoid a duplicate.'),
+            duration: Duration(seconds: 6),
+          ),
+        );
+      } else {
+        AppErrors.showSnack(context, e, scope: ErrorScope.refund);
+      }
     }
   }
 

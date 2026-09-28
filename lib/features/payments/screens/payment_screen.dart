@@ -5,10 +5,10 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_payments.dart';
 import '../../../data/models/payment.dart';
 import '../../../data/repositories/payments_repository.dart';
 import 'payment_status_screen.dart';
+import '../../../core/services/customer_data_store.dart';
 
 /// Shows how to pay for an already-placed order.
 ///
@@ -49,7 +49,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   @override
   void initState() {
     super.initState();
-    _txn = findPaymentByOrderId(widget.orderId);
+    _txn = CustomerDataStore.instance.paymentForOrder(widget.orderId);
     _load();
   }
 

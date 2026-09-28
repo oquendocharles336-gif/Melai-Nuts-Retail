@@ -7,8 +7,6 @@ import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/services/customer_data_store.dart';
-import '../../../data/dummy_data/dummy_notifications.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/notification_item.dart';
 import '../../../data/models/order.dart';
@@ -71,7 +69,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   /// Orders that are placed but not yet completed/cancelled.
   List<Order> get _activeOrders =>
-      kOrders.where((o) => o.status.isActive).toList()..sort((a, b) => b.date.compareTo(a.date));
+      CustomerDataStore.instance.orders.where((o) => o.status.isActive).toList()..sort((a, b) => b.date.compareTo(a.date));
 
   String _relativeTime(DateTime t) {
     final diff = DateTime.now().difference(t);
@@ -95,7 +93,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     final store = CustomerDataStore.instance;
     final firstName = (store.profile?.fullName ?? '').trim().split(' ').first;
     final greeting = firstName.isEmpty ? 'Mabuhay!' : 'Mabuhay, $firstName!';
-    final unreadCount = kNotifications.where((n) => !n.read).length;
+    final unreadCount = CustomerDataStore.instance.notifications.where((n) => !n.read).length;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -259,10 +257,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ],
               // Most recent notification — real, from `notifications`.
               // Hidden when the customer has none at all.
-              if (kNotifications.isNotEmpty) ...[
+              if (CustomerDataStore.instance.notifications.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
                 Builder(builder: (context) {
-                  final latest = kNotifications.first;
+                  final latest = CustomerDataStore.instance.notifications.first;
                   return InkWell(
                     borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                     onTap: () => Navigator.of(context).pushNamed(AppRoutes.notificationCenter),

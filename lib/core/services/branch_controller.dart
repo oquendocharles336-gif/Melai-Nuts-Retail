@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import '../../data/dummy_data/dummy_branches.dart';
+import '../../data/catalog_store.dart';
 import '../../data/models/branch.dart';
 import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/customer_profile_repository.dart';

@@ -4,7 +4,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../../../data/models/loyalty.dart';
 
 class LoyaltyHistoryScreen extends StatelessWidget {
@@ -31,7 +30,7 @@ class LoyaltyHistoryScreen extends StatelessWidget {
       body: DataStateView(
         isLoading: store.isLoading,
         error: store.error,
-        isEmpty: dummyLoyaltyTransactions.isEmpty,
+        isEmpty: CustomerDataStore.instance.loyaltyTransactions.isEmpty,
         onRetry: () => store.retry(),
         emptyIcon: Icons.history_rounded,
         emptyTitle: 'No history yet.',
@@ -43,10 +42,10 @@ class LoyaltyHistoryScreen extends StatelessWidget {
               physics: const AlwaysScrollableScrollPhysics(),
 
               padding: const EdgeInsets.all(AppSpacing.md),
-              itemCount: dummyLoyaltyTransactions.length,
+              itemCount: CustomerDataStore.instance.loyaltyTransactions.length,
               separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
               itemBuilder: (context, index) {
-                final tx = dummyLoyaltyTransactions[index];
+                final tx = CustomerDataStore.instance.loyaltyTransactions[index];
                 final isEarn = tx.type == LoyaltyTransactionType.earn;
 
                 return Container(

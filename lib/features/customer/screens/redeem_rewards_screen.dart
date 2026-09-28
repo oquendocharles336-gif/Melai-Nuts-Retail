@@ -5,7 +5,6 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_loyalty.dart';
 import '../widgets/reward_card.dart';
 import '../widgets/reward_redeem_action.dart';
 
@@ -54,7 +53,7 @@ class RedeemRewardsScreen extends StatelessWidget {
       body: DataStateView(
         isLoading: store.isLoading,
         error: store.error,
-        isEmpty: dummyRewards.isEmpty,
+        isEmpty: CustomerDataStore.instance.rewards.isEmpty,
         onRetry: () => store.retry(),
         emptyIcon: Icons.card_giftcard_rounded,
         emptyTitle: 'No rewards yet.',
@@ -66,10 +65,10 @@ class RedeemRewardsScreen extends StatelessWidget {
               physics: const AlwaysScrollableScrollPhysics(),
 
               padding: const EdgeInsets.all(AppSpacing.md),
-              itemCount: dummyRewards.length,
+              itemCount: CustomerDataStore.instance.rewards.length,
               separatorBuilder: (context, index) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
-                final reward = dummyRewards[index];
+                final reward = CustomerDataStore.instance.rewards[index];
                 return RewardCard(
                   reward: reward,
                   canRedeem: userPoints >= reward.pointsRequired,
