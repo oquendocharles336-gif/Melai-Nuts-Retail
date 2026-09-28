@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 import '../data/models/user_role.dart';
 import 'route_guard.dart';
 import '../data/models/product.dart';
+import '../data/catalog_store.dart';
 import '../data/models/order.dart';
 import '../features/auth/screens/splash_screen.dart';
 import '../features/auth/screens/login_screen.dart';
-import '../features/auth/screens/register_screen.dart';
-import '../features/auth/screens/customer_access_screen.dart';
 import '../features/auth/screens/forgot_password_screen.dart';
 import '../features/auth/screens/reset_password_screen.dart';
 import '../features/auth/screens/password_reset_success_screen.dart';
@@ -28,6 +27,7 @@ import '../features/customer/screens/repeat_order_screen.dart';
 import '../features/customer/screens/order_tracking_screen.dart';
 import '../features/customer/screens/customer_profile_screen.dart';
 import '../features/customer/screens/edit_profile_screen.dart';
+import '../features/customer/screens/saved_addresses_screen.dart';
 import '../features/customer/screens/loyalty_dashboard_screen.dart';
 import '../features/customer/screens/rfid_tap_screen.dart';
 import '../features/customer/screens/rfid_detected_screen.dart';
@@ -119,9 +119,10 @@ class AppRoutes {
   AppRoutes._();
 
   static const String splash = '/';
+  // Single sign-in / create-account screen shared by every role (customer,
+  // staff, owner, delivery). Kept as one route so there's exactly one login
+  // destination in the app.
   static const String login = '/login';
-  static const String register = '/register';
-  static const String customerAccess = '/customer-access';
   static const String forgotPassword = '/forgot-password';
   static const String resetPassword = '/reset-password';
   static const String resetSuccess = '/reset-success';
@@ -173,6 +174,7 @@ class AppRoutes {
   static const String customerOrderTracking = '/customer/order-tracking';
   static const String customerProfile = '/customer/profile';
   static const String customerEditProfile = '/customer/edit-profile';
+  static const String customerSavedAddresses = '/customer/addresses';
 
   static const String customerLoyaltyDashboard = '/customer/loyalty';
   static const String customerRfidTap = '/customer/loyalty/rfid-tap';
@@ -298,8 +300,6 @@ class AppRoutes {
   static const Map<String, _Access> _policy = {
     splash: _public,
     login: _public,
-    register: _public,
-    customerAccess: _public,
     forgotPassword: _public,
     logoutSuccess: _public,
     resetPassword: _anySignedIn,
@@ -330,6 +330,7 @@ class AppRoutes {
     customerOrderTracking: _customerOnly,
     customerProfile: _customerOnly,
     customerEditProfile: _customerOnly,
+    customerSavedAddresses: _customerOnly,
     customerLoyaltyDashboard: _customerOnly,
     customerRfidTap: _customerOnly,
     customerRfidDetected: _customerOnly,
@@ -452,8 +453,6 @@ class AppRoutes {
   static Map<String, WidgetBuilder> get _rawRoutes => {
     splash: (_) => const SplashScreen(),
     login: (_) => const LoginScreen(),
-    register: (_) => const RegisterScreen(),
-    customerAccess: (_) => const CustomerAccessScreen(),
     forgotPassword: (_) => const ForgotPasswordScreen(),
     resetPassword: (_) => const ResetPasswordScreen(),
     resetSuccess: (_) => const PasswordResetSuccessScreen(),
@@ -496,6 +495,7 @@ class AppRoutes {
     customerOrderHistory: (_) => const OrderHistoryScreen(),
     customerProfile: (_) => const CustomerProfileScreen(),
     customerEditProfile: (_) => const EditProfileScreen(),
+    customerSavedAddresses: (_) => const SavedAddressesScreen(),
 
     customerLoyaltyDashboard: (_) => const LoyaltyDashboardScreen(),
     customerRfidTap: (_) => const RfidTapScreen(),
@@ -718,8 +718,9 @@ class AppRoutes {
         );
       case productDetails:
         final productId = settings.arguments as String;
+        final product = findProductById(productId);
         return MaterialPageRoute(
-          builder: (_) => pm.ProductDetailsScreen(productId: productId),
+          builder: (_) => pm.ProductDetailsScreen(product: product),
         );
       case productEdit:
         final productId = settings.arguments as String;

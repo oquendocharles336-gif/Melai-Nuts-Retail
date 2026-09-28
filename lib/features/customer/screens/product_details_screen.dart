@@ -2,15 +2,20 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/product.dart';
+import '../../../data/models/promotion.dart';
+import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import '../widgets/product_card.dart';
 import 'cart_screen.dart';
+import 'checkout_screen.dart';
 
 /// Customer-facing product details: variant/size picker, spice level,
-/// branch availability, and Add to Cart (matches the prototype's
+/// branch availability, Add to Cart and Buy Now (matches the prototype's
 /// "Product Details" screen with variant selection).
 class ProductDetailsScreen extends StatefulWidget {
   final Product product;
@@ -25,6 +30,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   late ProductVariant _selectedVariant = widget.product.variants.first;
   String? _selectedSpiceLevel;
   int _quantity = 1;
+  bool _busy = false;
+
+  List<Promotion> _promotions = const [];
+  bool _loadingPromotions = true;
 
   @override
   void initState() {
@@ -32,18 +41,62 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     if (widget.product.spiceLevels.isNotEmpty) {
       _selectedSpiceLevel = widget.product.spiceLevels.first;
     }
+    _loadPromotions();
   }
 
-  void _addToCart() {
-    final added = CartController.instance.addProduct(
-      widget.product,
-      _selectedVariant,
-      quantity: _quantity,
-    );
-    if (added <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This item is out of stock.')),
+  Future<void> _loadPromotions() async {
+    List<Promotion> promos = const [];
+    try {
+      promos = await AppErrors.guard(
+        () => ProductsRepository.instance.fetchApplicablePromotions(
+          productId: widget.product.id,
+          categoryId: widget.product.categoryId,
+        ),
+        scope: ErrorScope.catalog,
       );
+    } catch (_) {
+      // Promotions are a nice-to-have. If they can't load, the section stays
+      // hidden and ordering is unaffected — no error popup for this.
+    }
+    if (!mounted) return;
+    setState(() {
+      _promotions = promos;
+      _loadingPromotions = false;
+    });
+  }
+
+  /// Re-checks live stock and adds to cart. Returns the quantity actually
+  /// added (see [CartController.addProductWithLiveCheck]), or null if the
+  /// check itself failed — in which case the customer has already been told
+  /// why (offline, timeout, expired session, ...).
+  Future<int?> _addToCart() async {
+    setState(() => _busy = true);
+    try {
+      return await AppErrors.guard(
+        () => CartController.instance.addProductWithLiveCheck(
+          widget.product,
+          _selectedVariant,
+          quantity: _quantity,
+        ),
+        scope: ErrorScope.cart,
+      );
+    } catch (e) {
+      if (mounted) AppErrors.showSnack(context, e, scope: ErrorScope.cart);
+      return null;
+    } finally {
+      // Always release the buttons, even when the request throws.
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String get _unavailableMessage =>
+      widget.product.isActive ? 'This item is out of stock.' : 'This item is no longer available.';
+
+  Future<void> _handleAddToCart() async {
+    final added = await _addToCart();
+    if (!mounted || added == null) return;
+    if (added <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_unavailableMessage)));
       return;
     }
     final message = added < _quantity
@@ -59,6 +112,27 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Adds the current selection to the cart (re-checking live stock, same
+  /// as [_handleAddToCart]) and, only if that actually succeeded, goes
+  /// straight to Checkout — it never forwards the customer to checkout for
+  /// an item that just turned out to be unavailable or when the check failed.
+  Future<void> _handleBuyNow() async {
+    final added = await _addToCart();
+    if (!mounted || added == null) return;
+    if (added <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_unavailableMessage)));
+      return;
+    }
+    if (added < _quantity) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Only $added available — added $added to cart.')),
+      );
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CheckoutScreen()),
     );
   }
 
@@ -87,7 +161,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               children: [
                 if (product.badge != null)
                   _Pill(label: product.badge!, color: AppColors.primaryContainer, textColor: AppColors.primaryDark),
-                _Pill(label: product.stockLabel, color: AppColors.successBg, textColor: AppColors.success),
+                _Pill(label: product.stockLabel, color: product.stockLabelBg, textColor: product.stockLabelColor),
               ],
             ),
             const SizedBox(height: 8),
@@ -110,17 +184,66 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ],
               ],
             ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
-                const SizedBox(width: 4),
-                Text(
-                  '${product.rating} · ${product.reviewCount} verified Laguna customer reviews',
-                  style: AppTextStyles.bodySm,
+            // Only shown once real reviews exist — no fabricated rating.
+            if (product.reviewCount > 0) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.star_rounded, size: 16, color: AppColors.warning),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${product.rating.toStringAsFixed(1)} · ${product.reviewCount} customer reviews',
+                    style: AppTextStyles.bodySm,
+                  ),
+                ],
+              ),
+            ],
+            if (!product.isActive) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.errorBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 ),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: AppColors.error, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This product has been taken off the menu and can no longer be ordered.',
+                        style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            // Real merchandising tags from `products.tags` — never invented.
+            if (product.tags.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final tag in product.tags)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        tag,
+                        style: AppTextStyles.labelSm.copyWith(color: AppColors.textSecondary),
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             Container(
               padding: const EdgeInsets.all(14),
@@ -139,6 +262,44 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ],
               ),
             ),
+            // Applicable Promotions — real, staff-configured rows targeting
+            // this product or its category (`promotions.product_id` /
+            // `category_id`). Hidden entirely while loading or when none
+            // apply, rather than showing a placeholder offer.
+            if (!_loadingPromotions && _promotions.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text('Applicable Promotions', style: AppTextStyles.titleMd),
+              const SizedBox(height: AppSpacing.sm),
+              for (final promo in _promotions)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryContainer.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(promo.icon, color: AppColors.primaryDark, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(promo.badgeLabel, style: AppTextStyles.labelSm.copyWith(color: AppColors.primaryDark)),
+                              Text(promo.title, style: AppTextStyles.labelLg),
+                              if (promo.subtitle.isNotEmpty)
+                                Text(promo.subtitle, style: AppTextStyles.bodySm),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
             const SizedBox(height: AppSpacing.lg),
             Text('Select Size & Packaging', style: AppTextStyles.titleMd),
             const SizedBox(height: AppSpacing.sm),
@@ -201,7 +362,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     children: [
                       const Icon(Icons.storefront_outlined, size: 18, color: AppColors.darkBrown),
                       const SizedBox(width: 8),
-                      Text('Laguna Branch Inventory', style: AppTextStyles.titleMd),
+                      Text('Branch Inventory', style: AppTextStyles.titleMd),
                       const Spacer(),
                       Text('● Live Sync', style: AppTextStyles.bodySm.copyWith(color: AppColors.success)),
                     ],
@@ -265,11 +426,31 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: PrimaryButton(
-                    label: 'Add to Cart • ₱${(_selectedVariant.price * _quantity).toStringAsFixed(0)}',
-                    icon: Icons.shopping_cart_outlined,
-                    onPressed: _addToCart,
-                  ),
+                  child: Builder(builder: (context) {
+                    final unavailable = !product.isActive ||
+                        (_selectedVariant.stockOnHand ?? 1) <= 0;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PrimaryButton(
+                          label: !product.isActive
+                              ? 'Unavailable'
+                              : unavailable
+                                  ? 'Out of Stock'
+                                  : 'Add to Cart • ₱${(_selectedVariant.price * _quantity).toStringAsFixed(0)}',
+                          icon: Icons.shopping_cart_outlined,
+                          loading: _busy,
+                          onPressed: unavailable ? null : _handleAddToCart,
+                        ),
+                        const SizedBox(height: 8),
+                        SecondaryButton(
+                          label: 'Buy Now',
+                          icon: Icons.bolt_rounded,
+                          onPressed: (unavailable || _busy) ? null : _handleBuyNow,
+                        ),
+                      ],
+                    );
+                  }),
                 ),
               ],
             ),

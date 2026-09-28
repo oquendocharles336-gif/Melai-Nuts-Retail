@@ -63,7 +63,7 @@ class CartItemTile extends StatelessWidget {
                   style: AppTextStyles.bodySm,
                 ),
                 Text(
-                  'Unit price: ₱${line.variant.price.toStringAsFixed(0)}',
+                  'Unit price: ₱${line.unitPrice.toStringAsFixed(2)}',
                   style: AppTextStyles.bodySm,
                 ),
                 const SizedBox(height: 8),

@@ -1,8 +1,11 @@
 # Melai Nuts — Security setup & responsibilities
 
-> This project uses **Firebase Auth + Cloud Firestore** (with Firestore's built-in
-> offline cache). It does **not** use Supabase or a separate SQLite package.
-> Firestore Security Rules (`firestore.rules`) are the equivalent of Supabase RLS.
+> This project uses **Firebase Auth** for identity, **Cloud Firestore** for
+> account/role records (`users/{uid}`), and **Supabase Postgres** for customer
+> business data (catalog, carts, orders, payments, refunds, loyalty,
+> notifications). Firestore Security Rules (`firestore.rules`) and Supabase Row
+> Level Security (`supabase/migrations/…`) are the server-side gates; nothing in
+> Dart is trusted.
 
 ## What is enforced where
 
@@ -10,11 +13,13 @@
 |---|---|---|
 | Who you are | Firebase Auth | Firebase |
 | Your role / branch / active flag | `users/{uid}` document, read **server-side** by rules | `firestore.rules` |
-| Who can read/write each collection | Firestore Security Rules | `firestore.rules` (deploy it!) |
+| Who can read/write each Firestore collection | Firestore Security Rules | `firestore.rules` (deploy it!) |
+| Who can read/write each Supabase table / call each function | Postgres grants + RLS + `SECURITY DEFINER` functions | `supabase/schema.sql` then `supabase/migrations/*.sql` |
+| Prices, totals, stock, points, refund amounts | Server-side SQL functions/triggers | `place_order`, `request_refund`, triggers |
 | Screens shown for a role | `RouteGuard` (UX / defence-in-depth only) | `lib/app/route_guard.dart` |
 | Rate limiting / brute force | Firebase Auth server-side throttling (+ App Check) | Firebase Console |
 
-A modified app can bypass anything in Dart. It cannot bypass Firestore rules.
+A modified app can bypass anything in Dart. It cannot bypass Firestore rules or Postgres grants/RLS.
 
 ## Must-do steps outside the Flutter project
 
@@ -68,6 +73,66 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules.
    release keystore (kept out of Git — `.gitignore` covers `*.jks`, `key.properties`).
    Build releases with `--obfuscate --split-debug-info=...`.
 
+## Supabase (customer data) — setup and guarantees
+
+**Run order** (Supabase SQL Editor, or `psql`): `supabase/schema.sql` →
+`supabase/migrations/20260928000000_customer_security_hardening.sql` →
+`supabase/tests/customer_rls_security_test.sql` (must end with 0 failed; it uses
+a rolled-back transaction, but run it on a dev/staging project, not production).
+
+**One-time dashboard/Firebase steps (cannot be done in SQL):**
+
+1. Supabase → Authentication → Sign In / Providers → **Third-Party Auth → Firebase**
+   → paste the Firebase **Project ID**. Supabase then verifies Firebase ID tokens.
+2. **Give Firebase tokens the `authenticated` role.** Firebase tokens have no
+   `role` claim, so without this every request is `anon` and checkout, cart
+   sync, refunds and redemptions are refused. Upgrade Firebase Auth to Identity
+   Platform, then `cd functions && npm install && cd .. && firebase deploy --only
+   functions` (blocking functions in `functions/index.js`), then run
+   `functions/backfill-role-claim.js` once for existing users. The claim is a
+   *Postgres* role only — never put the app role (customer/staff/owner) in it.
+3. Inject `SUPABASE_URL` and the **anon/publishable** key via
+   `--dart-define-from-file=env/supabase.json`. The `service_role`/secret key
+   must never appear in Flutter, `env/*.json` or Git.
+4. Self-hosting only: add the restrictive issuer/audience RLS policy from
+   Supabase's Firebase guide, because Firebase signs all projects with shared keys.
+
+**What a customer can and cannot do (verified by the test suite):**
+
+| A customer… | Enforced by |
+|---|---|
+| reads only their own profile/addresses/cart/orders/payments/refunds/loyalty/notifications | RLS `firebase_uid = token sub`, policies `TO authenticated` |
+| cannot write orders, order lines, payments, refunds, carts, loyalty, redemptions, voucher usage | no INSERT/UPDATE/DELETE grant **and** no policy |
+| cannot change prices, totals, stock, payment/refund status | totals/stock computed inside `place_order`; no write access to catalog/inventory |
+| cannot choose a refund amount or line price | `request_refund()` recomputes from the order; client values are ignored |
+| cannot farm loyalty points | points awarded only when an order is `completed`; cancel returns redeemed points/stock/voucher; refund claws points back |
+| cannot inject notifications | `notify_customer()` is not executable by client roles; triggers only |
+| cannot see product cost (COGS) | moved to `product_variant_costs`, RLS with no policy |
+| cannot edit `rfid_card_number`, `email`, or `firebase_uid` on their profile | column-level UPDATE grant is name/phone/default branch only |
+| cannot create a profile without a verified, matching email | RLS insert check on `email_verified` + `email` claims |
+| cannot elevate their role | there is no role column in Supabase; app roles live in Firestore, writable only by owners |
+
+New tables are **not** exposed by default (default privileges are revoked). When
+you add one the app must read, `grant` it and add a policy explicitly.
+
+**Not solved by the database — do these before real money moves:**
+
+- **Payments.** There is no payment gateway. Every payment is created `pending`
+  and only trusted server code may advance it. Online GCash/Maya/card needs a
+  provider (e.g. PayMongo) with the **secret key in a Supabase Edge Function**,
+  and a **signature-verified webhook** that marks `payments.status`. The app
+  deliberately no longer collects card numbers.
+- **Brute-force / abuse.** Voucher-code guessing via `sync_customer_cart` and
+  order spam are not rate-limited by Postgres. Add rate limiting (Edge Function
+  or API gateway) and Firebase App Check.
+- **Staff/owner/delivery writes** to Supabase (confirming payments, moving order
+  status, restocking, approving refunds) do not exist yet. Build them as
+  `SECURITY DEFINER` functions that verify a staff role server-side, or as Edge
+  Functions using the service role. Do not loosen the customer policies.
+- **Reward fulfilment.** `redeem_reward()` deducts points and logs the
+  redemption, but issues no voucher/redemption code for staff to honour.
+- Leaked keys in Git history (see steps 3–4 above) still need rotation.
+
 ## Email verification (only real emails can register)
 
 Registration is two steps: (1) create the Firebase account (no profile, no
@@ -111,9 +176,6 @@ this change already have profiles and are unaffected.
 
 ## Known limits (cannot be fully fixed from the Flutter client)
 
-- **Order/price integrity**: rules can require ownership and `pending` status but
-  cannot recompute totals from line items. Compute prices server-side (Cloud
-  Function) before orders/payments become real.
 - **Account creation by Owner** still creates the Auth user client-side. Moving it
   to a Cloud Function using the Admin SDK removes the need for any client to be
   able to create privileged Auth users.
@@ -123,6 +185,5 @@ this change already have profiles and are unaffected.
   MFA needs Firebase MFA (Identity Platform) or a `local_auth` flow.
 - The Firestore offline cache is not encrypted at rest by Firestore. It is
   size-bounded and wiped at app start when no user is signed in.
-- Most business data (products, orders, inventory, deliveries, refunds, loyalty)
-  is still in-memory prototype data, not Firestore; rules for those collections
-  were written against the model field names and need re-checking when wired.
+- Order/price integrity is now enforced in Postgres (`place_order`, `request_refund`);
+  the Firestore `orders`/`payments` rules from the prototype are no longer used by the app.

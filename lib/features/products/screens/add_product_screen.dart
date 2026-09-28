@@ -6,7 +6,7 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
-import '../../../data/dummy_data/dummy_products.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/dummy_data/dummy_inventory.dart';
 
 /// "Add New Product" — matches the prototype's multi-section wizard

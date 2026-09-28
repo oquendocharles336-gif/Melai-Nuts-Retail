@@ -50,6 +50,16 @@ dependencies:
   # Calls the email-verification API (6-digit code mode).
   http: ^1.2.2
 
+  # Supabase Postgres database (products, cart, orders, loyalty, payments,
+  # refunds, notifications, addresses — see lib/core/services/supabase_service.dart).
+  supabase_flutter: ^2.8.0
+  shared_preferences: ^2.5.5
+
+  # Real connectivity detection (not a guess from failed requests) so the
+  # app can tell "offline" apart from "server error" and refresh real data
+  # the moment a connection comes back — see lib/core/services/connectivity_service.dart.
+  connectivity_plus: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -72,4 +72,43 @@ class RefundRequest {
   });
 
   int get itemCount => items.fold(0, (sum, i) => sum + i.quantity);
+
+  factory RefundRequest.fromRow(
+    Map<String, dynamic> row, {
+    required List<Map<String, dynamic>> itemRows,
+    List<Map<String, dynamic>> eventRows = const [],
+  }) {
+    return RefundRequest(
+      id: row['id'] as String,
+      orderId: row['order_id'] as String,
+      requestedDate: DateTime.parse(row['created_at'] as String).toLocal(),
+      status: RefundStatus.values.byName(row['status'] as String),
+      reason: row['reason'] as String,
+      notes: (row['notes'] as String?) ?? '',
+      items: itemRows.map(OrderItem.fromRow).toList(),
+      amount: (row['amount'] as num).toDouble(),
+      paymentMethod: row['payment_method'] as String,
+      timeline: _timelineFromEvents(eventRows),
+    );
+  }
+
+  static List<OrderTimelineStep> _timelineFromEvents(List<Map<String, dynamic>> rows) {
+    final steps = <OrderTimelineStep>[];
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      final status = RefundStatus.values.byName(row['status'] as String);
+      final isLast = i == rows.length - 1;
+      final createdAt = DateTime.parse(row['created_at'] as String).toLocal();
+      steps.add(
+        OrderTimelineStep(
+          label: status.label,
+          description: (row['note'] as String?) ?? status.label,
+          time: '${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}',
+          done: true,
+          current: isLast,
+        ),
+      );
+    }
+    return steps;
+  }
 }

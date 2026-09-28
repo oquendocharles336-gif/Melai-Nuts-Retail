@@ -84,20 +84,38 @@ class OrderConfirmationScreen extends StatelessWidget {
                   ),
                   const Divider(height: 24),
                   _InfoRow(
-                    icon: Icons.access_time_rounded,
-                    label: 'Estimated Ready Time',
-                    value: 'Today at 2:00 PM (In ~45 minutes)',
-                  ),
-                  _InfoRow(
                     icon: Icons.storefront_outlined,
                     label: 'Fulfillment Type',
-                    value: order.isDelivery ? 'Laguna Home Delivery' : 'In-Store Express Pickup',
+                    value: order.isDelivery ? 'Home Delivery' : 'In-Store Express Pickup',
                   ),
                   _InfoRow(
-                    icon: Icons.location_on_outlined,
-                    label: 'Pickup Location',
-                    value: 'Melai Nuts ${order.branch}',
+                    icon: order.isDelivery ? Icons.location_on_outlined : Icons.storefront_outlined,
+                    label: order.isDelivery ? 'Delivery Address' : 'Pickup Location',
+                    value: order.isDelivery
+                        ? (order.deliveryAddressText?.isNotEmpty == true
+                            ? order.deliveryAddressText!
+                            : 'Address on file')
+                        : 'Melai Nuts ${order.branch}',
                   ),
+                  if (order.contactPhone.isNotEmpty)
+                    _InfoRow(
+                      icon: Icons.call_outlined,
+                      label: 'Contact Number',
+                      value: order.contactPhone,
+                    ),
+                  _InfoRow(
+                    icon: Icons.payments_outlined,
+                    label: 'Payment',
+                    value: order.paymentStatus == 'success'
+                        ? '${order.paymentMethod} • Paid'
+                        : '${order.paymentMethod} • Awaiting confirmation',
+                  ),
+                  if (order.customerNotes.isNotEmpty)
+                    _InfoRow(
+                      icon: Icons.sticky_note_2_outlined,
+                      label: 'Special Instructions',
+                      value: order.customerNotes,
+                    ),
                 ],
               ),
             ),

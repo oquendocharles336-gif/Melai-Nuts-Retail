@@ -96,7 +96,7 @@ class _RouteGuardState extends State<RouteGuard> {
     if (auth.currentFirebaseUser == null) {
       _deny(
         message: _customerOnly ? 'Please sign in to continue.' : null,
-        route: _customerOnly ? AppRoutes.customerAccess : AppRoutes.login,
+        route: AppRoutes.login,
       );
       return;
     }

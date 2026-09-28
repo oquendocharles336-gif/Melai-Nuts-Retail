@@ -2,20 +2,160 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../data/dummy_data/dummy_branches.dart';
+import '../../../data/models/branch.dart';
 import '../../../data/models/order.dart';
+import '../../../data/repositories/orders_repository.dart';
 import 'order_details_screen.dart';
 
-/// Live order tracking — ETA banner, a simple decorative route map, order
-/// timeline, and rider info (matches the prototype's "Track Live Order
-/// Progress" screen). No real GPS/maps package is used; the map is a
-/// static illustrative panel.
-class OrderTrackingScreen extends StatelessWidget {
+/// Live order tracking — ETA banner, real order timeline, and rider info.
+/// Everything shown comes from Supabase and updates live via realtime. There
+/// is no GPS feed in the backend, so no map is drawn rather than showing a
+/// made-up van position.
+class OrderTrackingScreen extends StatefulWidget {
   final Order order;
 
   const OrderTrackingScreen({super.key, required this.order});
 
   @override
+  State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
+}
+
+class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+  late Order _order;
+  Stream<List<Map<String, dynamic>>>? _stream;
+  bool _refetching = false;
+
+  /// Friendly message shown in a banner when the last refresh failed.
+  String? _refreshError;
+
+  /// The live status we last failed to load. Prevents a rebuild from firing
+  /// the same failing request over and over; a new status or the Retry
+  /// button tries again.
+  String? _failedForStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = widget.order;
+    _stream = OrdersRepository.instance.watchOrder(_order.id);
+  }
+
+  Future<void> _refetch({String? liveStatus}) async {
+    if (_refetching) return;
+    _refetching = true;
+    try {
+      final updated = await OrdersRepository.instance.refetch(_order.id);
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _refreshError = null;
+        _failedForStatus = null;
+      });
+    } catch (e) {
+      // Keep showing the last known order and say so, instead of silently
+      // showing a stale status as if it were current.
+      if (!mounted) return;
+      setState(() {
+        _refreshError = AppErrors.from(e, scope: ErrorScope.order).message;
+        _failedForStatus = liveStatus;
+      });
+    } finally {
+      _refetching = false;
+    }
+  }
+
+  double _progressFor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return 0.1;
+      case OrderStatus.confirmed:
+        return 0.3;
+      case OrderStatus.preparing:
+        return 0.55;
+      case OrderStatus.readyForPickup:
+        return 0.85;
+      case OrderStatus.outForDelivery:
+        return 0.85;
+      case OrderStatus.completed:
+        return 1.0;
+      case OrderStatus.cancelled:
+        return 0.0;
+      case OrderStatus.refundRequested:
+        return 1.0;
+      case OrderStatus.refunded:
+        return 1.0;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          final rows = snapshot.data!;
+          if (rows.isNotEmpty) {
+            final live = rows.first['status'] as String?;
+            if (live != null && live != _order.status.name && live != _failedForStatus && !_refetching) {
+              WidgetsBinding.instance.addPostFrameCallback((_) => _refetch(liveStatus: live));
+            }
+          }
+        }
+        final streamError = snapshot.hasError
+            ? 'Live updates are paused. ${AppErrors.from(snapshot.error!, scope: ErrorScope.order).message}'
+            : null;
+        return _buildScaffold(context, notice: streamError ?? _refreshError);
+      },
+    );
+  }
+
+  Branch? _branchForOrder() {
+    for (final b in kBranches) {
+      if (b.name == _order.branch) return b;
+    }
+    return null;
+  }
+
+  /// Shows the real contact details of the branch fulfilling this order.
+  void _showBranchContact(BuildContext context) {
+    final branch = _branchForOrder();
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Need help with ${_order.id}?', style: AppTextStyles.titleMd),
+              const SizedBox(height: 8),
+              if (branch == null)
+                Text('Contact details for ${_order.branch} are not available right now.',
+                    style: AppTextStyles.bodyMd)
+              else ...[
+                Text(branch.name, style: AppTextStyles.labelLg),
+                if (branch.address.isNotEmpty) Text(branch.address, style: AppTextStyles.bodyMd),
+                if (branch.contactPhone?.isNotEmpty == true)
+                  Text('Phone: ${branch.contactPhone}', style: AppTextStyles.bodyMd),
+                if (branch.operatingHours?.isNotEmpty == true)
+                  Text('Hours: ${branch.operatingHours}', style: AppTextStyles.bodyMd),
+                if (branch.address.isEmpty &&
+                    branch.contactPhone?.isNotEmpty != true &&
+                    branch.operatingHours?.isNotEmpty != true)
+                  Text('This branch has not published contact details yet.', style: AppTextStyles.bodyMd),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, {String? notice}) {
+    final order = _order;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
@@ -30,7 +170,8 @@ class OrderTrackingScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.help_outline_rounded),
-            onPressed: () {},
+            tooltip: 'Contact branch',
+            onPressed: () => _showBranchContact(context),
           ),
         ],
       ),
@@ -38,6 +179,26 @@ class OrderTrackingScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
+            if (notice != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warningBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.wifi_off_rounded, size: 18, color: AppColors.warning),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(notice, style: AppTextStyles.bodySm.copyWith(color: AppColors.warning)),
+                    ),
+                    TextButton(onPressed: _refetch, child: const Text('Retry')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -62,7 +223,7 @@ class OrderTrackingScreen extends StatelessWidget {
                           style: AppTextStyles.labelMd.copyWith(color: AppColors.warning),
                         ),
                       ),
-                      Text('Laguna Express', style: AppTextStyles.bodySm),
+                      Text(order.branch, style: AppTextStyles.bodySm),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -70,12 +231,15 @@ class OrderTrackingScreen extends StatelessWidget {
                     'ETA ${order.etaLabel ?? '—'}',
                     style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary),
                   ),
-                  Text('Moving via Laguna National Highway', style: AppTextStyles.bodySm),
+                  Text(
+                    order.isDelivery ? 'Delivery order' : 'Pickup order',
+                    style: AppTextStyles.bodySm,
+                  ),
                   const SizedBox(height: 10),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: const LinearProgressIndicator(
-                      value: 0.65,
+                    child: LinearProgressIndicator(
+                      value: _progressFor(order.status),
                       minHeight: 6,
                       backgroundColor: AppColors.border,
                       color: AppColors.primary,
@@ -84,8 +248,6 @@ class OrderTrackingScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
-            const _RouteMapPlaceholder(),
             const SizedBox(height: AppSpacing.md),
             Container(
               padding: const EdgeInsets.all(16),
@@ -101,8 +263,7 @@ class OrderTrackingScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Order Timeline', style: AppTextStyles.titleMd),
-                      Text('Tracking verified', style: AppTextStyles.bodySm),
-                    ],
+                                          ],
                   ),
                   const SizedBox(height: 12),
                   for (int i = 0; i < order.timeline.length; i++)
@@ -135,19 +296,19 @@ class OrderTrackingScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(order.riderName!, style: AppTextStyles.titleMd),
-                          Text('Melai Laguna Fleet', style: AppTextStyles.bodySm),
+                          Text('Delivery rider', style: AppTextStyles.bodySm),
                         ],
                       ),
                     ),
                     IconButton(
                       onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Simulated message to rider')),
+                        const SnackBar(content: Text("Rider messaging isn't available yet.")),
                       ),
                       icon: const Icon(Icons.chat_bubble_outline_rounded),
                     ),
                     IconButton(
                       onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Simulated call to rider')),
+                        const SnackBar(content: Text("Rider calling isn't available yet.")),
                       ),
                       icon: const Icon(Icons.call_outlined),
                     ),
@@ -207,109 +368,6 @@ class OrderTrackingScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RouteMapPlaceholder extends StatelessWidget {
-  const _RouteMapPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 160,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(painter: _DottedRoutePainter()),
-          ),
-          const Positioned(
-            left: 4,
-            bottom: 4,
-            child: _MapPin(icon: Icons.storefront_rounded, label: 'Branch'),
-          ),
-          const Positioned(
-            right: 4,
-            top: 4,
-            child: _MapPin(icon: Icons.home_rounded, label: 'You'),
-          ),
-          const Align(
-            alignment: Alignment.center,
-            child: _MapPin(icon: Icons.local_shipping_rounded, label: 'Van', filled: true),
-          ),
-          Positioned(
-            right: 8,
-            bottom: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20)),
-              child: const Text('LIVE GPS', style: TextStyle(color: Colors.white, fontSize: 10)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MapPin extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool filled;
-
-  const _MapPin({required this.icon, required this.label, this.filled = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: filled ? AppColors.primary : Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.primary),
-          ),
-          child: Icon(icon, size: 16, color: filled ? Colors.white : AppColors.primary),
-        ),
-        Text(label, style: AppTextStyles.bodySm),
-      ],
-    );
-  }
-}
-
-class _DottedRoutePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.primary
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    final path = Path()
-      ..moveTo(16, size.height - 24)
-      ..quadraticBezierTo(size.width * 0.4, size.height * 0.3, size.width - 24, 20);
-
-    const dashWidth = 6.0;
-    const dashSpace = 5.0;
-    for (final metric in path.computeMetrics()) {
-      double distance = 0;
-      while (distance < metric.length) {
-        canvas.drawPath(
-          metric.extractPath(distance, distance + dashWidth),
-          paint,
-        );
-        distance += dashWidth + dashSpace;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _TimelineRow extends StatelessWidget {

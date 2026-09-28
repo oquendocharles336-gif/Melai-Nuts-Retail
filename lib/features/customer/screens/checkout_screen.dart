@@ -1,13 +1,24 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/branch_controller.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/customer_data_store.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
-import '../../../data/models/order.dart';
+import '../../../data/repositories/orders_repository.dart';
+import '../../../data/repositories/customer_profile_repository.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
+import 'edit_profile_screen.dart';
 import 'order_confirmation_screen.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
@@ -15,8 +26,8 @@ enum _FulfillmentMethod { pickup, delivery }
 enum _PaymentMethod { gcash, card, cash }
 
 /// Checkout — fulfillment method, branch/pickup details, payment method,
-/// and order summary, then simulates placing the order (matches the
-/// prototype's Checkout / Branch Fulfillment screen).
+/// and order summary. Order totals, stock, discounts, and cart consumption
+/// are finalized by the Supabase order transaction.
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
 
@@ -32,6 +43,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _addressController = TextEditingController();
   final _contactController = TextEditingController();
   bool _placingOrder = false;
+  String? _deliveryAddressId;
+
+  /// One id per checkout *attempt*, generated once when this screen opens
+  /// and reused unchanged across every retry the person makes on it (see
+  /// `_placeOrder`). If a "Place Order" tap times out or the connection
+  /// drops after the order actually went through server-side, retrying
+  /// with the same key returns that same order instead of creating a
+  /// second one — see `OrdersRepository.createOrderFromCart`. Going back
+  /// and re-entering checkout (a new `CheckoutScreen` instance) is a new
+  /// attempt and gets a new key, as it should: that really is a fresh order.
+  late final String _checkoutAttemptKey =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+
+  @override
+  void initState() {
+    super.initState();
+    final address = CustomerDataStore.instance.defaultAddress;
+    if (address != null) {
+      _deliveryAddressId = address.id;
+      _addressController.text = address.fullAddress;
+      _contactController.text = address.phone;
+    }
+  }
 
   @override
   void dispose() {
@@ -52,59 +86,199 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    // Fail fast and honestly: don't let the person sit through a doomed
+    // request, and never let a checkout attempt start believing it might
+    // silently "queue" — there is no offline order queue. Placing an order
+    // always requires reaching the real backend right now.
+    if (!ConnectivityService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You\'re offline. Please reconnect before placing your order — nothing has been charged or ordered yet.'),
+        ),
+      );
+      return;
+    }
+    final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
+    if (firebaseUid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in again before checking out.')),
+      );
+      return;
+    }
+    final branch = BranchController.instance.selectedBranch;
+    if (branch == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a branch before checking out.')),
+      );
+      return;
+    }
+    // Staff need a real number to reach the customer for both pickup and
+    // delivery orders. Delivery collects one via the contact field below;
+    // pickup relies on the profile's phone, so check it up front rather
+    // than letting the RPC reject the order after everything else already
+    // validated. (The RPC still enforces this itself — this is just a
+    // faster, friendlier failure for the common case of an incomplete
+    // profile.)
+    if (_fulfillment == _FulfillmentMethod.pickup) {
+      final profilePhone = CustomerDataStore.instance.profile?.phone.trim() ?? '';
+      if (profilePhone.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Please add a contact phone number to your profile before checking out.'),
+            action: SnackBarAction(
+              label: 'Add Phone',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
     setState(() => _placingOrder = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    setState(() => _placingOrder = false);
 
-    final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
-    final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
-        .clamp(0, double.infinity);
     final paymentLabel = switch (_payment) {
       _PaymentMethod.gcash => 'GCash E-Wallet',
       _PaymentMethod.card => 'Maya / Credit Card',
       _PaymentMethod.cash => 'Cash on Counter Pickup',
     };
 
-    final order = Order(
-      id: 'ORD-${DateTime.now().millisecondsSinceEpoch}',
-      date: DateTime.now(),
-      status: OrderStatus.confirmed,
-      branch: cart.currentBranch,
-      isDelivery: _fulfillment == _FulfillmentMethod.delivery,
-      items: [
-        for (final line in cart.lines)
-          OrderItem(
-            productName: line.product.name,
-            variantLabel: line.variant.label,
-            quantity: line.quantity,
-            unitPrice: line.variant.price,
-          ),
-      ],
-      discount: cart.loyaltyDiscount + cart.voucherDiscount,
-      deliveryFee: deliveryFee,
-      paymentMethod: paymentLabel,
-      pointsEarned: (cart.subtotal / 10).floor(),
-    );
-    kOrders.insert(0, order);
-    final itemCount = cart.itemCount;
-    cart.clear();
+    try {
+      final cartId = cart.cartId;
+      if (cartId == null) {
+        throw const AppError(
+          AppErrorKind.orderFailed,
+          'Your cart is not synced yet. Please check your connection and try again.',
+        );
+      }
+      final isDelivery = _fulfillment == _FulfillmentMethod.delivery;
+      String? deliveryAddressId = _deliveryAddressId;
+      if (isDelivery) {
+        final enteredAddress = _addressController.text.trim();
+        final enteredPhone = _contactController.text.trim();
+        final matching = CustomerDataStore.instance.addresses.where(
+          (address) => address.fullAddress.trim() == enteredAddress && address.phone.trim() == enteredPhone,
+        );
+        if (matching.isNotEmpty) {
+          deliveryAddressId = matching.first.id;
+        } else {
+          final profile = CustomerDataStore.instance.profile;
+          if (profile == null) {
+            throw const AppError(
+              AppErrorKind.notFound,
+              'Your customer profile is not ready yet. Please try again.',
+            );
+          }
+          final saved = await AppErrors.guard(
+            () => CustomerProfileRepository.instance.addAddress(
+              firebaseUid: firebaseUid,
+              label: 'Checkout',
+              recipientName: profile.fullName,
+              phone: enteredPhone,
+              line1: enteredAddress,
+              city: '',
+              province: '',
+              postalCode: '',
+              isDefault: false,
+            ),
+            scope: ErrorScope.address,
+          );
+          deliveryAddressId = saved.id;
+          CustomerDataStore.instance.setAddresses([
+            ...CustomerDataStore.instance.addresses,
+            saved,
+          ]);
+        }
+      }
+      final itemCount = cart.itemCount;
+      // `place_order` creates the order, its items, and its payment record
+      // together in one database transaction — there is no separate,
+      // second network call to record the payment here, so a dropped
+      // connection right after checkout can never leave an order with no
+      // payment record behind.
+      final order = await OrdersRepository.instance.createOrderFromCart(
+        cartId: cartId,
+        isDelivery: isDelivery,
+        deliveryAddressId: deliveryAddressId,
+        paymentMethod: paymentLabel,
+        customerNotes: _notesController.text.trim(),
+        idempotencyKey: _checkoutAttemptKey,
+      );
 
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => OrderConfirmationScreen(order: order, itemCount: itemCount, total: total.toDouble()),
-      ),
-    );
+      // The order is already placed at this point. A failure while tidying up
+      // local state must never be reported to the customer as a failed order.
+      await _quietly(() => cart.completeCheckout());
+      unawaited(_quietly(() => CustomerDataStore.instance.refresh()));
+      // The `place_order` RPC just decremented real stock server-side —
+      // reload the catalog so kProducts (and every screen reading it)
+      // reflects the new, real quantities instead of the pre-checkout
+      // numbers still sitting in memory.
+      unawaited(_quietly(() => ProductsRepository.instance.loadCatalog(branchId: branch.id)));
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) =>
+              OrderConfirmationScreen(order: order, itemCount: itemCount, total: order.total),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      // Customer-safe message for every failure (offline, timeout, expired
+      // session, insufficient stock, unavailable product/branch, invalid
+      // voucher, not enough points, payment failure, database error...).
+      // For a dropped connection the wording says the order may have gone
+      // through; tapping Place Order again re-uses `_checkoutAttemptKey`, so
+      // it can never create a duplicate.
+      final error = AppErrors.from(e, scope: ErrorScope.order);
+      if (error.isStockRelated) {
+        // The cart no longer matches reality — reload real stock so the rest
+        // of the app shows the true quantities.
+        unawaited(_quietly(() => ProductsRepository.instance.loadCatalog(branchId: branch.id)));
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(error.message), duration: const Duration(seconds: 6)),
+        );
+    } finally {
+      if (mounted) setState(() => _placingOrder = false);
+    }
+  }
+
+  /// Runs best-effort follow-up work whose failure must not surface to the
+  /// customer (and must not become an unhandled async error).
+  Future<void> _quietly(Future<dynamic> Function() action) async {
+    try {
+      await action();
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
     final cart = CartController.instance;
-    final deliveryFee = _fulfillment == _FulfillmentMethod.pickup ? 0.0 : cart.deliveryFee;
-    final total = (cart.subtotal - cart.loyaltyDiscount - cart.voucherDiscount + deliveryFee)
-        .clamp(0, double.infinity);
+    final profile = CustomerDataStore.instance.profile;
+    final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email;
+    final phone = profile?.phone;
+    final branch = BranchController.instance.selectedBranch;
+    // If the selected branch can't actually fulfil the currently chosen
+    // method (e.g. it doesn't deliver), fall back to whichever method it
+    // does support instead of silently charging for an unavailable one.
+    if (branch != null) {
+      if (_fulfillment == _FulfillmentMethod.delivery && !branch.supportsDelivery) {
+        _fulfillment = _FulfillmentMethod.pickup;
+      } else if (_fulfillment == _FulfillmentMethod.pickup && !branch.supportsPickup) {
+        _fulfillment = _FulfillmentMethod.delivery;
+      }
+    }
+    final deliveryFee = _fulfillment == _FulfillmentMethod.delivery
+        ? (branch?.deliveryFee ?? 0)
+        : 0.0;
+    final total = (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
+        .clamp(0.0, double.infinity)
+        .toDouble();
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -158,8 +332,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Customer Account', style: AppTextStyles.titleMd),
-                        Text('No phone linked', style: AppTextStyles.bodySm),
-                        Text('No email linked', style: AppTextStyles.bodySm),
+                        Text(
+                          (phone == null || phone.isEmpty) ? 'No phone linked' : phone,
+                          style: AppTextStyles.bodySm,
+                        ),
+                        Text(
+                          (email == null || email.isEmpty) ? 'No email linked' : email,
+                          style: AppTextStyles.bodySm,
+                        ),
                       ],
                     ),
                   ),
@@ -186,7 +366,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     subtitle: 'Ready in 30 mins',
                     trailingLabel: 'FREE',
                     selected: _fulfillment == _FulfillmentMethod.pickup,
-                    onTap: () => setState(() => _fulfillment = _FulfillmentMethod.pickup),
+                    onTap: (branch == null || branch.supportsPickup)
+                        ? () => setState(() => _fulfillment = _FulfillmentMethod.pickup)
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -194,10 +376,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   child: _OptionCard(
                     icon: Icons.delivery_dining_rounded,
                     title: 'Melai Van',
-                    subtitle: 'Same Day Laguna',
-                    trailingLabel: '₱${cart.deliveryFee.toStringAsFixed(0)}',
+                    subtitle: (branch != null && !branch.supportsDelivery)
+                        ? 'Not offered at this branch'
+                        : 'Delivered by Melai',
+                    trailingLabel: '₱${(branch?.deliveryFee ?? 0).toStringAsFixed(2)}',
                     selected: _fulfillment == _FulfillmentMethod.delivery,
-                    onTap: () => setState(() => _fulfillment = _FulfillmentMethod.delivery),
+                    onTap: (branch == null || branch.supportsDelivery)
+                        ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
+                        : null,
                   ),
                 ),
               ],
@@ -211,37 +397,59 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 border: Border.all(color: AppColors.primary, width: 1.4),
                 boxShadow: AppShadows.sm,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('PICKUP DEPOT DETAILS', style: AppTextStyles.labelSm),
-                      Text('Branch ID: CAL-01', style: AppTextStyles.bodySm),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text('Calamba Highway Branch', style: AppTextStyles.titleMd),
-                  Text(
-                    'Poblacion Terminal, National Hwy, Calamba City, Laguna',
-                    style: AppTextStyles.bodySm,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
-                      const SizedBox(width: 6),
-                      Text(
-                        _fulfillment == _FulfillmentMethod.pickup
-                            ? 'Estimated pickup: Today by 2:00 PM'
-                            : 'Estimated delivery: Today by 2:45 PM',
-                        style: AppTextStyles.bodySm,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              child: branch == null
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('NO BRANCH SELECTED', style: AppTextStyles.labelSm),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Pick a branch so we know where to fulfil this order from.',
+                          style: AppTextStyles.bodySm,
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+                          ),
+                          child: const Text('Select Branch'),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _fulfillment == _FulfillmentMethod.pickup
+                                  ? 'PICKUP DEPOT DETAILS'
+                                  : 'FULFILLING FROM',
+                              style: AppTextStyles.labelSm,
+                            ),
+                            if (branch.contactPhone != null && branch.contactPhone!.isNotEmpty)
+                              Text(branch.contactPhone!, style: AppTextStyles.bodySm),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(branch.name, style: AppTextStyles.titleMd),
+                        Text(branch.address, style: AppTextStyles.bodySm),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                branch.operatingHours ?? 'Hours not set',
+                                style: AppTextStyles.bodySm,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
             ),
             if (_fulfillment == _FulfillmentMethod.delivery) ...[
               const SizedBox(height: AppSpacing.md),
@@ -251,6 +459,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 controller: _addressController,
                 decoration: const InputDecoration(hintText: 'House/unit no., street, barangay, city'),
                 maxLines: 2,
+                onChanged: (_) => _deliveryAddressId = null,
                 validator: (v) => ValidationUtils.validateAddress(v),
               ),
               const SizedBox(height: 10),
@@ -258,6 +467,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 controller: _contactController,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(hintText: '09XXXXXXXXX'),
+                onChanged: (_) => _deliveryAddressId = null,
                 validator: (v) => ValidationUtils.validatePhone(v),
               ),
             ],
@@ -434,7 +644,10 @@ class _OptionCard extends StatelessWidget {
   final String subtitle;
   final String trailingLabel;
   final bool selected;
-  final VoidCallback onTap;
+
+  /// Null disables the card (e.g. the selected branch doesn't offer this
+  /// fulfillment method).
+  final VoidCallback? onTap;
 
   const _OptionCard({
     required this.icon,
@@ -447,35 +660,42 @@ class _OptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primaryContainer.withValues(alpha: 0.3) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 18, color: AppColors.darkBrown),
-                const Spacer(),
-                Text(
-                  trailingLabel,
-                  style: AppTextStyles.labelMd.copyWith(
-                    color: trailingLabel == 'FREE' ? AppColors.success : AppColors.textMuted,
-                  ),
-                ),
-              ],
+    final disabled = onTap == null;
+    return Opacity(
+      opacity: disabled ? 0.5 : 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected && !disabled ? AppColors.primaryContainer.withValues(alpha: 0.3) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected && !disabled ? AppColors.primary : AppColors.border,
+              width: selected && !disabled ? 1.6 : 1,
             ),
-            const SizedBox(height: 6),
-            Text(title, style: AppTextStyles.labelLg),
-            Text(subtitle, style: AppTextStyles.bodySm),
-          ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: AppColors.darkBrown),
+                  const Spacer(),
+                  Text(
+                    trailingLabel,
+                    style: AppTextStyles.labelMd.copyWith(
+                      color: trailingLabel == 'FREE' ? AppColors.success : AppColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(title, style: AppTextStyles.labelLg),
+              Text(subtitle, style: AppTextStyles.bodySm),
+            ],
+          ),
         ),
       ),
     );
