@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
 import '../models/payment.dart';
 
 /// READ-ONLY access to the customer's payment records in Supabase.
@@ -28,6 +31,20 @@ class PaymentsRepository {
         .eq('firebase_uid', firebaseUid)
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(raw).map(PaymentTransaction.fromRow).toList();
+  }
+
+  /// Live view of this customer's payments (status changes made by staff or
+  /// the payment provider webhook). Each event is the full current list.
+  Stream<List<PaymentTransaction>> watchAll(String firebaseUid) {
+    return _client
+        .from('payments')
+        .stream(primaryKey: ['id'])
+        .eq('firebase_uid', firebaseUid)
+        .order('created_at', ascending: false)
+        .map((rows) => rows.map(PaymentTransaction.fromRow).toList())
+        .transform(StreamTransformer<List<PaymentTransaction>, List<PaymentTransaction>>.fromHandlers(
+          handleError: (error, stackTrace, sink) => sink.addError(AppErrors.from(error), stackTrace),
+        ));
   }
 
   /// The single payment for [orderId] (one per order is enforced by a unique

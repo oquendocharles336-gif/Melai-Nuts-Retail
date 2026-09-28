@@ -135,6 +135,21 @@ class OrdersRepository {
         ));
   }
 
+  /// Live change feed for ALL of this customer's orders (status, rider, ETA).
+  /// Events carry the plain `orders` rows only (no items / timeline), so the
+  /// listener uses them to detect a change and then re-reads the full orders
+  /// with [fetchOrders].
+  Stream<List<Map<String, dynamic>>> watchCustomerOrders(String firebaseUid) {
+    return _client
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('firebase_uid', firebaseUid)
+        .transform(StreamTransformer<List<Map<String, dynamic>>, List<Map<String, dynamic>>>.fromHandlers(
+          handleError: (error, stackTrace, sink) =>
+              sink.addError(AppErrors.from(error, scope: ErrorScope.order), stackTrace),
+        ));
+  }
+
   Order _orderFromEmbeddedRow(Map<String, dynamic> row) {
     final events = _rows(row['order_status_events'])
       ..sort((a, b) => (a['created_at'] as String).compareTo(b['created_at'] as String));

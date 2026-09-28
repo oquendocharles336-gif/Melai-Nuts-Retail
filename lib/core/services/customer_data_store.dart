@@ -89,6 +89,29 @@ class CustomerDataStore extends ChangeNotifier {
   final List<RefundRequest> refunds = <RefundRequest>[];
   final List<PaymentTransaction> payments = <PaymentTransaction>[];
 
+  // ---- Realtime (Supabase) ------------------------------------------------
+  // One subscription per customer-owned table that changes on the server
+  // without the customer doing anything: notifications, orders (status /
+  // rider / ETA) and payments (status). All are cancelled in [stopRealtime]
+  // (sign-out via [clear], account switch, [dispose]) so nothing leaks.
+  StreamSubscription<List<NotificationItem>>? _notificationsSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _ordersSub;
+  StreamSubscription<List<PaymentTransaction>>? _paymentsSub;
+  String? _realtimeUid;
+  bool _realtimePaused = false;
+
+  /// `id -> "status|updated_at"` of the orders last seen on the stream, used
+  /// to tell a real change from the stream re-sending an unchanged snapshot.
+  final Map<String, String> _orderStamps = <String, String>{};
+  bool _orderRefreshRunning = false;
+  bool _orderRefreshQueued = false;
+
+  /// True when a live subscription reported an error (e.g. connection lost).
+  /// Data already on screen is still the last known server data, and it is
+  /// re-synced by [refresh] when connectivity returns. Cleared on the next
+  /// live event.
+  bool get realtimePaused => _realtimePaused;
+
   /// When every record was last refreshed live in a single fully-successful
   /// cycle. Null until that has happened this session.
   DateTime? lastSyncedAt;
@@ -303,6 +326,7 @@ class CustomerDataStore extends ChangeNotifier {
       if (failures == 0) {
         _uid = firebaseUid;
         _error = null;
+        _startRealtime(firebaseUid);
         if (CacheStatus.instance.serveCounter == serveMark) lastSyncedAt = DateTime.now();
       } else {
         // Anything that loaded is shown, but the load is NOT complete: the
@@ -380,6 +404,148 @@ class CustomerDataStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- Realtime -------------------------------------------------------------
+
+  /// Subscribes to this customer's notifications, orders and payments.
+  /// Idempotent for the same customer; switching customers restarts it.
+  void _startRealtime(String uid) {
+    if (_realtimeUid == uid && _notificationsSub != null) return;
+    stopRealtime();
+    _realtimeUid = uid;
+    final generation = _generation;
+
+    void onError(Object error, StackTrace stack) {
+      if (generation != _generation) return;
+      if (_realtimePaused) return;
+      _realtimePaused = true;
+      notifyListeners();
+    }
+
+    _notificationsSub = NotificationsRepository.instance.watchAll(uid).listen(
+      (items) => _onNotificationsEvent(generation, uid, items),
+      onError: onError,
+    );
+    _ordersSub = OrdersRepository.instance.watchCustomerOrders(uid).listen(
+      (rows) => _onOrdersEvent(generation, uid, rows),
+      onError: onError,
+    );
+    _paymentsSub = PaymentsRepository.instance.watchAll(uid).listen(
+      (items) => _onPaymentsEvent(generation, items),
+      onError: onError,
+    );
+  }
+
+  /// Cancels every live subscription. Safe to call repeatedly.
+  void stopRealtime() {
+    _notificationsSub?.cancel();
+    _ordersSub?.cancel();
+    _paymentsSub?.cancel();
+    _notificationsSub = null;
+    _ordersSub = null;
+    _paymentsSub = null;
+    _realtimeUid = null;
+    _realtimePaused = false;
+    _orderStamps.clear();
+    _orderRefreshQueued = false;
+  }
+
+  void _onNotificationsEvent(int generation, String uid, List<NotificationItem> items) {
+    if (generation != _generation) return;
+    _realtimePaused = false;
+    notifications
+      ..clear()
+      ..addAll(_withPendingNotificationChanges(uid, items));
+    notifyListeners();
+  }
+
+  void _onPaymentsEvent(int generation, List<PaymentTransaction> items) {
+    if (generation != _generation) return;
+    _realtimePaused = false;
+    payments
+      ..clear()
+      ..addAll(items);
+    notifyListeners();
+  }
+
+  void _onOrdersEvent(int generation, String uid, List<Map<String, dynamic>> rows) {
+    if (generation != _generation) return;
+    _realtimePaused = false;
+    final local = <String, Order>{for (final o in orders) o.id: o};
+    var changed = false;
+    for (final row in rows) {
+      final id = row['id'] as String;
+      final stamp = '${row['status']}|${row['updated_at']}';
+      final known = local[id];
+      final previousStamp = _orderStamps[id];
+      if (known == null ||
+          known.status.name != row['status'] ||
+          (previousStamp != null && previousStamp != stamp)) {
+        changed = true;
+      }
+      _orderStamps[id] = stamp;
+    }
+    if (changed) unawaited(_refreshAfterOrderChange(generation, uid));
+  }
+
+  /// An order changed on the server: re-read orders and the loyalty records
+  /// that an order's completion/cancellation can change. Runs one at a time;
+  /// a change that arrives mid-refresh triggers one more pass. A failed pass
+  /// keeps the last good data (the reconnect/pull-to-refresh sync recovers).
+  Future<void> _refreshAfterOrderChange(int generation, String uid) async {
+    if (_loading) {
+      // A full load is running (or queued) and will read the new state.
+      unawaited(_load(uid));
+      return;
+    }
+    if (_orderRefreshRunning) {
+      _orderRefreshQueued = true;
+      return;
+    }
+    _orderRefreshRunning = true;
+    try {
+      do {
+        _orderRefreshQueued = false;
+        Future<T?> quiet<T>(Future<T> Function() action) async {
+          try {
+            return await AppErrors.guard(action, timeout: AppErrors.rpcTimeout);
+          } catch (_) {
+            return null;
+          }
+        }
+
+        final results = await Future.wait<Object?>([
+          quiet(() => OrdersRepository.instance.fetchOrders(uid)),
+          quiet(() => LoyaltyRepository.instance.fetchBalance(uid)),
+          quiet(() => LoyaltyRepository.instance.fetchTransactions(uid)),
+        ]);
+        if (generation != _generation) return;
+        final fetchedOrders = results[0] as List<Order>?;
+        if (fetchedOrders != null) {
+          orders
+            ..clear()
+            ..addAll(fetchedOrders);
+        }
+        final balance = results[1] as int?;
+        if (balance != null) pointsBalance = balance;
+        final txs = results[2] as List<LoyaltyPointTransaction>?;
+        if (txs != null) {
+          loyaltyTransactions
+            ..clear()
+            ..addAll(txs);
+        }
+        notifyListeners();
+      } while (_orderRefreshQueued && generation == _generation);
+    } finally {
+      _orderRefreshRunning = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    stopRealtime();
+    super.dispose();
+  }
+
   // ---- Server-confirmed additions -----------------------------------------
 
   /// Adds a refund request the SERVER just created (returned by the
@@ -455,6 +621,7 @@ class CustomerDataStore extends ChangeNotifier {
   /// signed-in account (on a shared device) never sees a previous
   /// customer's data.
   void clear() {
+    stopRealtime();
     _generation++;
     _uid = null;
     _requestedUid = null;

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
 import '../models/notification_item.dart';
 
 /// Reads/updates the customer's notifications. Rows are only ever *created*
@@ -19,6 +22,22 @@ class NotificationsRepository {
         .eq('firebase_uid', firebaseUid)
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(raw).map(NotificationItem.fromRow).toList();
+  }
+
+  /// Live view of this customer's notifications, newest first. Every event
+  /// carries the customer's FULL current list, so a listener can simply
+  /// replace what it shows. Realtime applies the table's RLS per subscriber.
+  /// Errors are converted to [AppError]s (customer-safe messages).
+  Stream<List<NotificationItem>> watchAll(String firebaseUid) {
+    return _client
+        .from('notifications')
+        .stream(primaryKey: ['id'])
+        .eq('firebase_uid', firebaseUid)
+        .order('created_at', ascending: false)
+        .map((rows) => rows.map(NotificationItem.fromRow).toList())
+        .transform(StreamTransformer<List<NotificationItem>, List<NotificationItem>>.fromHandlers(
+          handleError: (error, stackTrace, sink) => sink.addError(AppErrors.from(error), stackTrace),
+        ));
   }
 
   Future<void> markRead(String id) async {
