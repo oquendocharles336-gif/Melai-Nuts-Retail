@@ -7,8 +7,8 @@ import '../../../core/widgets/primary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
 
-/// Confirms a (simulated) stock adjustment went through, showing the
-/// before/after numbers — e.g. Current Stock: 25, Adjustment: +10,
+/// Confirms the database saved the stock adjustment, showing the
+/// before/after numbers (of the adjusted batch) — e.g. Current Stock: 25, Adjustment: +10,
 /// New Stock: 35.
 class InventoryAdjustmentSuccessScreen extends StatelessWidget {
   final String productId;

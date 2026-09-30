@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/primary_button.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/dummy_data/dummy_orders.dart';
+import '../../../core/widgets/state_views.dart';
+import '../../../data/catalog_store.dart';
+import '../../../data/models/inventory_item.dart';
 import '../../../data/models/order.dart';
+import '../../../data/models/staff_models.dart';
+import '../../../data/repositories/products_repository.dart';
 import '../../inventory/screens/inventory_dashboard_screen.dart';
+import '../../settings/screens/logout_confirmation_screen.dart';
+import 'staff_dashboard_tab.dart';
 import 'staff_extra_screens.dart';
 
-/// Comprehensive Branch Staff Portal — Register (POS), Transactions,
-/// Inventory (FEFO) management, and Profile (incl. Log Out) in a single-file
-/// shell.
+/// Branch Staff Portal — Home (dashboard), Register (POS), Orders, Inventory
+/// (FEFO) and Profile (incl. Log Out). All data comes from the database via
+/// [StaffStore]; the database decides what this account may see and do.
 class StaffPortalScreen extends StatefulWidget {
   const StaffPortalScreen({super.key});
 
@@ -21,88 +28,167 @@ class StaffPortalScreen extends StatefulWidget {
 }
 
 class _StaffPortalScreenState extends State<StaffPortalScreen> {
+  final StaffStore _store = StaffStore.instance;
   int _currentIndex = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _store.ensureStarted();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: Row(
-          children: [
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: AppColors.roleStaff,
-              child: Icon(Icons.badge_rounded, size: 16, color: Colors.white),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return ListenableBuilder(
+      listenable: _store,
+      builder: (context, _) {
+        final profile = _store.profile;
+        if (profile == null) return _buildGate();
+
+        final branchLabel = _store.activeBranchName;
+        return Scaffold(
+          backgroundColor: AppColors.canvas,
+          appBar: AppBar(
+            title: Row(
               children: [
-                Text('Staff Portal', style: AppTextStyles.labelLg),
-                Text('Branch Staff', style: AppTextStyles.bodySm),
+                const CircleAvatar(
+                  radius: 16,
+                  backgroundColor: AppColors.roleStaff,
+                  child: Icon(Icons.badge_rounded, size: 16, color: Colors.white),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Staff Portal', style: AppTextStyles.labelLg),
+                      Text(
+                        branchLabel.isEmpty ? profile.roleLabel : '${profile.roleLabel} • $branchLabel',
+                        style: AppTextStyles.bodySm,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none_rounded),
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffNotifications),
+            actions: [
+              if (profile.isOwner && kBranches.isNotEmpty)
+                PopupMenuButton<String>(
+                  tooltip: 'Switch branch',
+                  icon: const Icon(Icons.storefront_outlined),
+                  onSelected: _store.setOwnerBranch,
+                  itemBuilder: (_) => [
+                    for (final b in kBranches)
+                      CheckedPopupMenuItem<String>(
+                        value: b.id,
+                        checked: b.id == _store.activeBranchId,
+                        child: Text(b.name),
+                      ),
+                  ],
+                ),
+              IconButton(
+                tooltip: 'Notifications',
+                icon: Badge(
+                  isLabelVisible: _store.unreadNotifications > 0,
+                  label: Text('${_store.unreadNotifications}'),
+                  child: const Icon(Icons.notifications_none_rounded),
+                ),
+                onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffNotifications),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: const [
-          _PosRegisterTab(),
-          _TransactionsTab(),
-          _InventoryTab(),
-          StaffProfileBody(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          indicatorColor: AppColors.roleStaff.withValues(alpha: 0.15),
-          surfaceTintColor: Colors.transparent,
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppTextStyles.labelMd.copyWith(color: AppColors.roleStaff);
-            }
-            return AppTextStyles.labelMd;
-          }),
-        ),
-        child: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: (i) => setState(() => _currentIndex = i),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.point_of_sale_outlined),
-              selectedIcon: Icon(Icons.point_of_sale_rounded, color: AppColors.roleStaff),
-              label: 'Register',
+          body: IndexedStack(
+            index: _currentIndex,
+            children: [
+              StaffDashboardTab(onOpenTab: (i) => setState(() => _currentIndex = i)),
+              const _PosRegisterTab(),
+              const _TransactionsTab(),
+              const InventoryDashboardBody(),
+              const StaffProfileBody(),
+            ],
+          ),
+          bottomNavigationBar: NavigationBarTheme(
+            data: NavigationBarThemeData(
+              backgroundColor: Colors.white,
+              indicatorColor: AppColors.roleStaff.withValues(alpha: 0.15),
+              surfaceTintColor: Colors.transparent,
+              labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return AppTextStyles.labelMd.copyWith(color: AppColors.roleStaff);
+                }
+                return AppTextStyles.labelMd;
+              }),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.receipt_long_outlined),
-              selectedIcon: Icon(Icons.receipt_long_rounded, color: AppColors.roleStaff),
-              label: 'Orders',
+            child: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (i) => setState(() => _currentIndex = i),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.dashboard_outlined),
+                  selectedIcon: Icon(Icons.dashboard_rounded, color: AppColors.roleStaff),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.point_of_sale_outlined),
+                  selectedIcon: Icon(Icons.point_of_sale_rounded, color: AppColors.roleStaff),
+                  label: 'Register',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.receipt_long_outlined),
+                  selectedIcon: Icon(Icons.receipt_long_rounded, color: AppColors.roleStaff),
+                  label: 'Orders',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.inventory_2_outlined),
+                  selectedIcon: Icon(Icons.inventory_2_rounded, color: AppColors.roleStaff),
+                  label: 'Inventory',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline_rounded),
+                  selectedIcon: Icon(Icons.person_rounded, color: AppColors.roleStaff),
+                  label: 'Profile',
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.inventory_2_outlined),
-              selectedIcon: Icon(Icons.inventory_2_rounded, color: AppColors.roleStaff),
-              label: 'Inventory',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded, color: AppColors.roleStaff),
-              label: 'Profile',
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Shown until the account is verified against the staff registry. An
+  /// account that is not (or no longer) registered as staff is stopped here
+  /// with the database's own explanation.
+  Widget _buildGate() {
+    final failed = _store.profileState.error != null;
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Staff Portal')),
+      body: failed
+          ? Column(
+              children: [
+                Expanded(child: StateErrorView(error: _store.profileState.error, onRetry: _store.start)),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
+                    ),
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Log Out'),
+                  ),
+                ),
+              ],
+            )
+          : const StateLoadingView(message: 'Loading your branch…'),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Register (POS)
+// ---------------------------------------------------------------------------
 
 class _PosRegisterTab extends StatefulWidget {
   const _PosRegisterTab();
@@ -112,18 +198,9 @@ class _PosRegisterTab extends StatefulWidget {
 }
 
 class _PosRegisterTabState extends State<_PosRegisterTab> {
-  String _selectedCat = 'All';
-  final Map<String, int> _cart = {};
+  String? _categoryId; // null = all
+  final Map<String, int> _cart = {}; // variantId -> quantity
   final _searchController = TextEditingController();
-
-  double get _total {
-    double sum = 0;
-    _cart.forEach((id, qty) {
-      final p = findProductById(id);
-      sum += p.price * qty;
-    });
-    return sum;
-  }
 
   @override
   void dispose() {
@@ -131,260 +208,433 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
     super.dispose();
   }
 
+  double _total(StaffStore store) {
+    double sum = 0;
+    _cart.forEach((variantId, qty) {
+      final item = store.itemByVariant(variantId);
+      if (item != null) sum += item.price * qty;
+    });
+    return sum;
+  }
+
+  void _add(InventoryItem item) {
+    final qty = _cart[item.variantId] ?? 0;
+    if (qty + 1 > item.quantity) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Only ${item.quantity} of ${item.displayName} in stock.')));
+      return;
+    }
+    setState(() => _cart[item.variantId] = qty + 1);
+  }
+
+  /// Barcode scanners "type" the code then press Enter: an exact SKU match
+  /// adds that product.
+  void _submitSearch(StaffStore store, String value) {
+    final code = value.trim().toLowerCase();
+    if (code.isEmpty) return;
+    for (final item in store.inventoryItems) {
+      if (item.sku.isNotEmpty && item.sku.toLowerCase() == code) {
+        _add(item);
+        setState(() => _searchController.clear());
+        return;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    var products = _selectedCat == 'All' ? kProducts : productsByCategory(_selectedCat.toLowerCase());
-    final query = _searchController.text.toLowerCase();
-    if (query.isNotEmpty) {
-      products = products.where((p) => p.name.toLowerCase().contains(query)).toList();
-    }
+    final store = StaffStore.instance;
+    return ListenableBuilder(
+      listenable: Listenable.merge([store, ProductsRepository.instance]),
+      builder: (context, _) {
+        // Drop cart lines whose product no longer exists after a refresh.
+        if (store.inventoryState.loaded) {
+          _cart.removeWhere((id, qty) => store.itemByVariant(id) == null);
+        }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (v) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Scan barcode or search SKU...',
-              prefixIcon: const Icon(Icons.qr_code_scanner_rounded),
-              suffixIcon: query.isNotEmpty
-                  ? IconButton(icon: const Icon(Icons.clear_rounded), onPressed: () => setState(() => _searchController.clear()))
-                  : const Icon(Icons.search_rounded),
-            ),
-          ),
-        ),
-        SizedBox(
-          height: 40,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            children: ['All', 'Garlic', 'Spicy', 'Sweet', 'Mixed'].map((c) {
-              final sel = _selectedCat == c;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(c),
-                  selected: sel,
-                  onSelected: (_) => setState(() => _selectedCat = c),
-                  selectedColor: AppColors.roleStaff.withValues(alpha: 0.2),
-                  labelStyle: AppTextStyles.labelMd.copyWith(color: sel ? AppColors.roleStaff : null),
+        final query = _searchController.text.trim().toLowerCase();
+        var items = store.inventoryItems.toList();
+        if (_categoryId != null) items = items.where((i) => i.categoryId == _categoryId).toList();
+        if (query.isNotEmpty) {
+          items = items
+              .where((i) => i.displayName.toLowerCase().contains(query) || i.sku.toLowerCase().contains(query))
+              .toList();
+        }
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (v) => setState(() {}),
+                onSubmitted: (v) => _submitSearch(store, v),
+                decoration: InputDecoration(
+                  hintText: 'Scan barcode or search name / SKU...',
+                  prefixIcon: const Icon(Icons.qr_code_scanner_rounded),
+                  suffixIcon: query.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: () => setState(() => _searchController.clear()),
+                        )
+                      : const Icon(Icons.search_rounded),
                 ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.4,
+              ),
             ),
-            itemCount: products.length,
-            itemBuilder: (context, i) {
-              final p = products[i];
-              final qty = _cart[p.id] ?? 0;
-              final isSelected = qty > 0;
-
-              return Stack(
-                // Force the card to fill its whole grid cell so every card
-                // has the same width/height regardless of its text length.
-                fit: StackFit.expand,
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
                 children: [
-                  InkWell(
-                    onTap: () => setState(() => _cart[p.id] = qty + 1),
+                  _chip('All', _categoryId == null, () => setState(() => _categoryId = null)),
+                  for (final c in kProductCategories)
+                    _chip(c.name, _categoryId == c.id, () => setState(() => _categoryId = c.id)),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: store.refreshInventory,
+                child: DataStateView(
+                  isLoading: store.inventoryState.busy,
+                  error: store.inventoryState.error,
+                  isEmpty: items.isEmpty,
+                  onRetry: store.refreshInventory,
+                  emptyIcon: Icons.point_of_sale_outlined,
+                  emptyTitle: query.isEmpty ? 'No products to sell.' : 'No products match your search.',
+                  emptyMessage: query.isEmpty ? 'Products added to the catalog will appear here.' : null,
+                  builder: (context) => _grid(items),
+                ),
+              ),
+            ),
+            if (_cart.isNotEmpty) _checkoutBar(store),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _chip(String label, bool selected, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => onTap(),
+        selectedColor: AppColors.roleStaff.withValues(alpha: 0.2),
+        labelStyle: AppTextStyles.labelMd.copyWith(color: selected ? AppColors.roleStaff : null),
+      ),
+    );
+  }
+
+  Widget _grid(List<InventoryItem> items) {
+    return GridView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.25,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, i) {
+        final item = items[i];
+        final product = findProductById(item.productId);
+        final qty = _cart[item.variantId] ?? 0;
+        final isSelected = qty > 0;
+        final out = item.isOutOfStock;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Opacity(
+              opacity: out ? 0.5 : 1,
+              child: InkWell(
+                onTap: out ? null : () => _add(item),
+                borderRadius: BorderRadius.circular(16),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.roleStaff.withValues(alpha: 0.04) : Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppColors.roleStaff.withValues(alpha: 0.04) : Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isSelected ? AppColors.roleStaff : AppColors.border,
-                          width: isSelected ? 2 : 1,
+                    border: Border.all(
+                      color: isSelected ? AppColors.roleStaff : AppColors.border,
+                      width: isSelected ? 2 : 1,
+                    ),
+                    boxShadow: isSelected ? null : AppShadows.sm,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(product.icon, size: 22, color: isSelected ? AppColors.roleStaff : product.color),
+                      const Spacer(),
+                      Text(
+                        item.productName,
+                        style: AppTextStyles.labelMd.copyWith(
+                          color: isSelected ? AppColors.roleStaff : null,
+                          fontWeight: isSelected ? FontWeight.bold : null,
                         ),
-                        boxShadow: isSelected ? null : AppShadows.sm,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      if (item.variantLabel.isNotEmpty)
+                        Text(item.variantLabel, style: AppTextStyles.bodySm, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Row(
                         children: [
-                          Icon(p.icon, size: 22, color: isSelected ? AppColors.roleStaff : p.color),
-                          const Spacer(),
                           Text(
-                            p.name,
-                            style: AppTextStyles.labelMd.copyWith(
-                              color: isSelected ? AppColors.roleStaff : null,
-                              fontWeight: isSelected ? FontWeight.bold : null,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            '₱${p.price.toStringAsFixed(0)}',
+                            pesoWhole(item.price),
                             style: AppTextStyles.bodySm.copyWith(
                               fontWeight: FontWeight.bold,
                               color: isSelected ? AppColors.roleStaff : AppColors.textSecondary,
                             ),
                           ),
+                          const Spacer(),
+                          Text(
+                            out ? 'Out' : '${item.quantity} left',
+                            style: AppTextStyles.labelSm.copyWith(
+                              color: out || item.isLowStock ? AppColors.error : AppColors.textSecondary,
+                            ),
+                          ),
                         ],
                       ),
-                    ),
+                    ],
                   ),
-                  if (isSelected)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          GestureDetector(
-                            onTap: () => setState(() {
-                              if (qty > 1) {
-                                _cart[p.id] = qty - 1;
-                              } else {
-                                _cart.remove(p.id);
-                              }
-                            }),
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(
-                                color: AppColors.error,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.remove, size: 14, color: Colors.white),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.roleStaff,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '$qty',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        ),
-        if (_cart.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
+                ),
+              ),
             ),
-            child: SafeArea(
-              child: Row(
+            if (isSelected)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        if (qty > 1) {
+                          _cart[item.variantId] = qty - 1;
+                        } else {
+                          _cart.remove(item.variantId);
+                        }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                        child: const Icon(Icons.remove, size: 14, color: Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: AppColors.roleStaff, borderRadius: BorderRadius.circular(12)),
+                      child: Text(
+                        '$qty',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _checkoutBar(StaffStore store) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('TRANSACTION TOTAL', style: AppTextStyles.bodySm),
-                        Text('₱${_total.toStringAsFixed(0)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.roleStaff)),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    width: 140,
-                    child: PrimaryButton(
-                      label: 'Checkout',
-                      onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffPosCart, arguments: _cart),
-                    ),
-                  ),
+                  Text('TRANSACTION TOTAL', style: AppTextStyles.bodySm),
+                  Text(peso(_total(store)), style: AppTextStyles.headlineSm.copyWith(color: AppColors.roleStaff)),
                 ],
               ),
             ),
-          ),
-      ],
+            SizedBox(
+              width: 140,
+              child: PrimaryButton(
+                label: 'Checkout',
+                onPressed: () async {
+                  final result = await Navigator.of(context)
+                      .pushNamed(AppRoutes.staffPosCart, arguments: Map<String, int>.from(_cart));
+                  // The checkout flow returns true once a sale was recorded.
+                  if (mounted && result == true) setState(_cart.clear);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _TransactionsTab extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// Orders
+// ---------------------------------------------------------------------------
+
+enum _OrderFilter { active, today, all }
+
+class _TransactionsTab extends StatefulWidget {
   const _TransactionsTab();
 
   @override
+  State<_TransactionsTab> createState() => _TransactionsTabState();
+}
+
+class _TransactionsTabState extends State<_TransactionsTab> {
+  _OrderFilter _filter = _OrderFilter.active;
+
+  String _filterLabel(_OrderFilter f) {
+    switch (f) {
+      case _OrderFilter.active:
+        return 'Active';
+      case _OrderFilter.today:
+        return 'Today';
+      case _OrderFilter.all:
+        return 'Recent';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      itemCount: kOrders.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, i) {
-        final o = kOrders[i];
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.border),
-            boxShadow: AppShadows.sm,
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final store = StaffStore.instance;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final orders = store.orders.where((o) {
+          switch (_filter) {
+            case _OrderFilter.active:
+              return o.status.isActive;
+            case _OrderFilter.today:
+              return isToday(o.createdAt);
+            case _OrderFilter.all:
+              return true;
+          }
+        }).toList();
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+              child: Row(
                 children: [
-                  Text(o.id, style: AppTextStyles.labelLg),
-                  _StatusChip(status: o.status),
+                  for (final f in _OrderFilter.values)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(_filterLabel(f)),
+                        selected: _filter == f,
+                        onSelected: (_) => setState(() => _filter = f),
+                        selectedColor: AppColors.roleStaff.withValues(alpha: 0.2),
+                        labelStyle: AppTextStyles.labelMd.copyWith(color: _filter == f ? AppColors.roleStaff : null),
+                      ),
+                    ),
                 ],
               ),
-              const Divider(height: 20),
-              Row(
-                children: [
-                  const Icon(Icons.person_outline_rounded, size: 16, color: AppColors.textSecondary),
-                  const SizedBox(width: 8),
-                  Text('Guest Customer', style: AppTextStyles.bodyMd),
-                  const Spacer(),
-                  Text('₱${o.total.toStringAsFixed(0)}', style: AppTextStyles.labelLg),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
-                  const SizedBox(width: 8),
-                  Text('${o.date.hour}:${o.date.minute.toString().padLeft(2, '0')} • ${o.paymentMethod}', style: AppTextStyles.bodySm),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pushNamed(AppRoutes.staffTransactionDetails, arguments: o),
-                    child: const Text('View Details'),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: store.refreshOrders,
+                child: DataStateView(
+                  isLoading: store.ordersState.busy,
+                  error: store.ordersState.error,
+                  isEmpty: orders.isEmpty,
+                  onRetry: store.refreshOrders,
+                  emptyIcon: Icons.receipt_long_outlined,
+                  emptyTitle: _filter == _OrderFilter.active
+                      ? 'No active orders.'
+                      : (_filter == _OrderFilter.today ? 'No orders today.' : 'No orders yet.'),
+                  emptyMessage: 'New orders and sales appear here as they happen.',
+                  builder: (context) => ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    itemCount: orders.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
+                    itemBuilder: (context, i) => _OrderCard(order: orders[i]),
                   ),
-                ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
   }
 }
 
-class _InventoryTab extends StatelessWidget {
-  const _InventoryTab();
+class _OrderCard extends StatelessWidget {
+  final StaffOrder order;
+
+  const _OrderCard({required this.order});
 
   @override
   Widget build(BuildContext context) {
-    return const InventoryDashboardBody();
+    final o = order;
+    return InkWell(
+      onTap: () => Navigator.of(context).pushNamed(AppRoutes.staffTransactionDetails, arguments: o),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+          boxShadow: AppShadows.sm,
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(o.id, style: AppTextStyles.labelLg),
+                _StatusChip(status: o.status),
+              ],
+            ),
+            const Divider(height: 20),
+            Row(
+              children: [
+                const Icon(Icons.person_outline_rounded, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 8),
+                Expanded(child: Text(o.customerLabel, style: AppTextStyles.bodyMd, overflow: TextOverflow.ellipsis)),
+                Text(peso(o.total), style: AppTextStyles.labelLg),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${friendlyTime(o.createdAt)} • ${o.channelLabel} • ${o.isPaid ? 'Paid' : 'Payment pending'}',
+                    style: AppTextStyles.bodySm,
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.textSecondary),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

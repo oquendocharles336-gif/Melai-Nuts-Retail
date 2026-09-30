@@ -51,8 +51,13 @@ extension FefoPriorityX on FefoPriority {
   }
 }
 
-/// A single dummy/static inventory batch: one product, one branch, one
-/// roast/pack batch, tracked for FEFO rotation and restock planning.
+/// One real inventory batch (`inventory_batches`): one product variant at one
+/// branch, received on one date with its own expiry, tracked for FEFO
+/// rotation and restock planning.
+///
+/// Low-stock is decided per VARIANT (all batches of that variant at the
+/// branch together), not per batch: [variantStock] is the branch's total for
+/// the variant and [restockThreshold] its restock level.
 class InventoryBatch {
   final String id;
   final String productId;
@@ -63,6 +68,13 @@ class InventoryBatch {
   final int quantity;
   final int restockThreshold;
 
+  final String branchId;
+  final String variantId;
+  final String variantLabel;
+
+  /// Branch-wide stock of this batch's variant. Defaults to [quantity].
+  final int? variantStock;
+
   const InventoryBatch({
     required this.id,
     required this.productId,
@@ -72,9 +84,41 @@ class InventoryBatch {
     required this.expirationDate,
     required this.quantity,
     this.restockThreshold = 20,
+    this.branchId = '',
+    this.variantId = '',
+    this.variantLabel = '',
+    this.variantStock,
   });
 
-  int get daysUntilExpiry => expirationDate.difference(DateTime.now()).inDays;
+  factory InventoryBatch.fromJson(
+    Map<String, dynamic> j, {
+    required String variantLabel,
+    required int restockThreshold,
+    required int variantStock,
+  }) {
+    return InventoryBatch(
+      id: j['id'] as String,
+      productId: j['product_id'] as String,
+      batchCode: (j['batch_code'] as String?) ?? '',
+      branch: (j['branch_name'] as String?) ?? '',
+      receivedDate: DateTime.parse(j['received_date'] as String),
+      expirationDate: DateTime.parse(j['expiration_date'] as String),
+      quantity: (j['quantity'] as num).toInt(),
+      restockThreshold: restockThreshold,
+      branchId: j['branch_id'] as String,
+      variantId: j['variant_id'] as String,
+      variantLabel: variantLabel,
+      variantStock: variantStock,
+    );
+  }
+
+  /// Whole calendar days until expiry (expiry dates carry no time of day).
+  int get daysUntilExpiry {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final exp = DateTime(expirationDate.year, expirationDate.month, expirationDate.day);
+    return exp.difference(today).inDays;
+  }
 
   FefoPriority get fefoPriority {
     final days = daysUntilExpiry;
@@ -83,9 +127,11 @@ class InventoryBatch {
     return FefoPriority.low;
   }
 
-  bool get isLowStock => quantity <= restockThreshold;
+  int get _stock => variantStock ?? quantity;
+
+  bool get isLowStock => _stock <= restockThreshold;
 
   /// A simple "top up to 2x threshold" restock suggestion.
   int get recommendedRestockQty =>
-      isLowStock ? (restockThreshold * 2 - quantity).clamp(0, 999) : 0;
+      isLowStock ? (restockThreshold * 2 - _stock).clamp(0, 999999) : 0;
 }

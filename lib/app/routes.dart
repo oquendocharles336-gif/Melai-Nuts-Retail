@@ -48,6 +48,11 @@ import '../features/inventory/screens/low_stock_screen.dart';
 import '../features/inventory/screens/inventory_adjustment_screen.dart';
 import '../features/inventory/screens/inventory_adjustment_success_screen.dart';
 import '../features/inventory/screens/add_inventory_screen.dart';
+import '../features/inventory/screens/receive_batch_screen.dart';
+import '../features/inventory/screens/stock_transfers_screen.dart';
+import '../features/staff/screens/staff_refunds_screen.dart';
+import '../data/models/inventory_item.dart';
+import '../data/models/staff_models.dart';
 import '../data/models/inventory_batch.dart';
 import '../features/products/screens/product_management_screen.dart';
 import '../features/products/screens/product_list_screen.dart' as pm;
@@ -241,6 +246,9 @@ class AppRoutes {
   static const String inventoryAdjustment = '/inventory/adjust';
   static const String inventoryAdjustmentSuccess = '/inventory/adjust-success';
   static const String inventoryAdd = '/inventory/add';
+  static const String inventoryReceive = '/inventory/receive';
+  static const String inventoryTransfers = '/inventory/transfers';
+  static const String staffRefunds = '/staff/refunds';
 
   // Product Management & Pricing feature screens (lib/features/products/).
   static const String productManagement = '/products';
@@ -361,6 +369,9 @@ class AppRoutes {
     inventoryAdjustment: _staff,
     inventoryAdjustmentSuccess: _staff,
     inventoryAdd: _staff,
+    inventoryReceive: _staff,
+    inventoryTransfers: _staff,
+    staffRefunds: _staff,
     ocrCapture: _staff,
     ocrPreview: _staff,
     ocrProcessing: _staff,
@@ -519,6 +530,8 @@ class AppRoutes {
     inventoryList: (_) => const InventoryListScreen(),
     inventoryLowStock: (_) => const LowStockScreen(),
     inventoryAdd: (_) => const AddInventoryScreen(),
+    inventoryTransfers: (_) => const StockTransfersScreen(),
+    staffRefunds: (_) => const StaffRefundsScreen(),
 
     productManagement: (_) => const ProductManagementScreen(),
     productList: (_) => const pm.ProductListScreen(),
@@ -638,44 +651,34 @@ class AppRoutes {
           builder: (_) => PosCartScreen(initialCart: cart),
         );
       case staffPosPayment:
-        final args = settings.arguments as Map<String, dynamic>;
+        final checkout = settings.arguments as PosCheckout;
         return MaterialPageRoute(
-          builder: (_) => PosPaymentScreen(
-            amount: args['amount'] as double,
-            cart: args['cart'] as Map<String, int>,
-          ),
+          builder: (_) => PosPaymentScreen(checkout: checkout),
         );
       case staffPosCashInput:
-        final args = settings.arguments as Map<String, dynamic>;
+        final checkout = settings.arguments as PosCheckout;
         return MaterialPageRoute(
-          builder: (_) => PosCashInputScreen(
-            amount: args['amount'] as double,
-            cart: args['cart'] as Map<String, int>,
-          ),
+          builder: (_) => PosCashInputScreen(checkout: checkout),
         );
       case staffPosProcessing:
-        final args = settings.arguments as Map<String, dynamic>;
+        final checkout = settings.arguments as PosCheckout;
         return MaterialPageRoute(
-          builder: (_) => PosProcessingScreen(
-            method: args['method'] as String,
-            amount: args['amount'] as double,
-            cart: args['cart'] as Map<String, int>,
-          ),
+          builder: (_) => PosProcessingScreen(checkout: checkout),
         );
       case staffPosReceipt:
-        final args = settings.arguments as Map<String, dynamic>?;
+        final sale = settings.arguments as PosSaleResult;
         return MaterialPageRoute(
-          builder: (_) => PosReceiptScreen(
-            method: args?['method'] as String? ?? 'GCash',
-            amount: args?['amount'] as double? ?? 245,
-            cart: args?['cart'] as Map<String, int>?,
-            cashReceived: args?['cashReceived'] as double?,
-          ),
+          builder: (_) => PosReceiptScreen(sale: sale),
         );
       case staffTransactionDetails:
-        final order = settings.arguments as Order;
+        final order = settings.arguments as StaffOrder;
         return MaterialPageRoute(
           builder: (_) => TransactionDetailsScreen(order: order),
+        );
+      case inventoryReceive:
+        final item = settings.arguments as InventoryItem?;
+        return MaterialPageRoute(
+          builder: (_) => ReceiveBatchScreen(initialItem: item),
         );
       case inventoryBranch:
         final branch = settings.arguments as String;
@@ -683,9 +686,9 @@ class AppRoutes {
           builder: (_) => BranchInventoryScreen(branch: branch),
         );
       case inventoryProductDetails:
-        final productId = settings.arguments as String;
+        final variantId = settings.arguments as String;
         return MaterialPageRoute(
-          builder: (_) => InventoryProductDetailsScreen(productId: productId),
+          builder: (_) => InventoryProductDetailsScreen(variantId: variantId),
         );
       case inventoryFefo:
         final priority = settings.arguments as FefoPriority?;

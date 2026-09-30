@@ -13,6 +13,9 @@ import 'branch_controller.dart';
 import 'customer_data_store.dart';
 import 'data_sync_service.dart';
 import 'email_verification_service.dart';
+import 'staff_session_store.dart';
+import 'staff_store.dart';
+import '../../data/repositories/staff_repository.dart';
 
 /// A user-facing authentication failure. The [message] is already written
 /// to be shown directly in a SnackBar/dialog — no FirebaseAuthException
@@ -358,6 +361,28 @@ class AuthService {
           branch: needsBranch ? branch : null,
           isActive: true,
         );
+        // Staff and owners must also exist in the database's own staff
+        // registry: that is what the database checks (branch, permissions,
+        // active flag) on every staff request. Done BEFORE the Firestore
+        // profile so a failure leaves nothing half-created.
+        if (role == UserRole.staff || role == UserRole.owner) {
+          try {
+            await StaffRepository.instance.upsertStaffMember(
+              firebaseUid: newUser.uid,
+              fullName: name.trim(),
+              email: newUser.email ?? email.trim(),
+              role: role == UserRole.owner ? 'owner' : 'staff',
+              branchName: needsBranch ? branch : null,
+            );
+          } catch (e) {
+            try {
+              await newUser.delete();
+            } catch (_) {}
+            throw AuthException(
+              e is AuthException ? e.message : 'Could not register this account in the staff database. ${e.toString()}',
+            );
+          }
+        }
         await _firestore
             .collection(_usersCollection)
             .doc(newUser.uid)
@@ -387,6 +412,13 @@ class AuthService {
   /// Actually deleting the Firebase Auth user requires the Admin SDK.
   Future<void> setAccountActive(String uid, bool isActive) async {
     _requireActiveOwner();
+    // The database's staff registry first (it is what blocks data access
+    // immediately); a no-op for accounts that are not staff/owners.
+    try {
+      await StaffRepository.instance.setStaffActive(uid, isActive);
+    } catch (e) {
+      throw AuthException(e.toString());
+    }
     await _firestore.collection(_usersCollection).doc(uid).update({
       'isActive': isActive,
     });
@@ -456,6 +488,9 @@ class AuthService {
   Future<void> signOut() async {
     _userInitiatedSignOut = true;
     _currentProfile = null;
+    // Drop the staff member's profile, branch, permissions and every hook
+    // registered by later staff stores, synchronously, before anything awaits.
+    StaffSessionStore.instance.clear();
     // While the session is still valid: best-effort push of queued customer
     // changes, then wipe the durable per-customer state (unsent writes,
     // unconfirmed checkout, saved server responses) so a signed-out device
@@ -468,6 +503,7 @@ class AuthService {
     }
     CartController.instance.endSession();
     CustomerDataStore.instance.clear();
+    StaffStore.instance.clear();
     BranchController.instance.clear();
     await DataSyncService.instance.syncPendingWrites();
     await _auth.signOut();
@@ -526,6 +562,16 @@ class AuthService {
     }
     _currentProfile = appUser;
 
+    if (appUser.role == UserRole.staff) {
+      // Firebase UID -> Supabase staff profile, branch and permissions.
+      await _bindStaffContext(appUser);
+    } else if (StaffSessionStore.instance.ownerUid != appUser.uid) {
+      // Never let a previous staff member's context outlive their session.
+      // (An owner's own session is kept: it loads on demand and is bound to
+      // this uid, so it is never shown to anyone else.)
+      StaffSessionStore.instance.clear();
+    }
+
     if (appUser.role == UserRole.customer) {
       // Business data lives in Supabase, keyed by this same Firebase UID.
       // Best-effort: a slow/offline connection here must not block sign-in
@@ -558,6 +604,30 @@ class AuthService {
     }
 
     return appUser;
+  }
+
+  /// Loads the signed-in staff member's Supabase profile, branch and
+  /// permissions ([StaffSessionStore]) and refuses the session when the server
+  /// says the account may not work: no staff profile yet, or deactivated.
+  ///
+  /// A *transient* failure (offline, timeout) does NOT sign the person out —
+  /// the store stays locked ([StaffSessionStatus.failed]) and `RouteGuard`
+  /// shows a Retry screen instead of the staff portal (fail closed).
+  Future<void> _bindStaffContext(AppUser appUser) async {
+    final status = await StaffSessionStore.instance.loadForStaff(appUser.uid);
+    if (status == StaffSessionStatus.notProvisioned) {
+      await signOut();
+      throw const AuthException(
+        'This staff account has not been assigned to a branch yet. '
+        'Please contact your administrator.',
+      );
+    }
+    if (status == StaffSessionStatus.inactive) {
+      await signOut();
+      throw const AuthException(
+        'This account has been deactivated. Please contact your administrator.',
+      );
+    }
   }
 
   void _requireActiveOwner() {

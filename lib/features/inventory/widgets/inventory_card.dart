@@ -35,16 +35,15 @@ class InventoryCard extends StatelessWidget {
   });
 
   factory InventoryCard.item({required InventoryItem item, required VoidCallback onTap}) {
-    final product = findProductById(item.productId);
+    final batches = '${item.batchCount} batch${item.batchCount == 1 ? '' : 'es'}';
+    final unassigned = item.unassignedQuantity > 0 ? ' • ${item.unassignedQuantity} not in a batch' : '';
     return InventoryCard._(
       productId: item.productId,
-      title: product.name,
-      subtitle: item.branch != null
-          ? '${item.branch} • ${item.batchCount} batch${item.batchCount == 1 ? '' : 'es'}'
-          : '${item.batchCount} batch${item.batchCount == 1 ? '' : 'es'} across branches',
+      title: item.displayName,
+      subtitle: item.isOutOfStock ? 'Out of stock' : '$batches$unassigned',
       quantity: item.totalStock,
       priority: item.worstFefoPriority,
-      isLowStock: item.isLowStock,
+      isLowStock: item.needsRestock,
       onTap: onTap,
     );
   }
@@ -57,8 +56,8 @@ class InventoryCard extends StatelessWidget {
     final product = findProductById(batch.productId);
     return InventoryCard._(
       productId: batch.productId,
-      title: product.name,
-      subtitle: 'Batch ${batch.batchCode} • ${batch.branch}',
+      title: batch.variantLabel.isEmpty ? product.name : '${product.name} • ${batch.variantLabel}',
+      subtitle: 'Batch ${batch.batchCode} • ${batch.daysUntilExpiry < 0 ? 'expired' : '${batch.daysUntilExpiry}d left'}',
       quantity: batch.quantity,
       priority: batch.fefoPriority,
       isLowStock: batch.isLowStock,

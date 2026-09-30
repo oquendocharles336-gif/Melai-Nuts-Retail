@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
 // Supabase configuration for Melai Nuts.
 //
 // The Supabase project URL + anon (public) key are NOT stored in source
@@ -23,7 +27,36 @@ class SupabaseConfig {
 
   static bool get isConfigured => url.isNotEmpty && anonKey.isNotEmpty;
 
+  /// True when [key] is a privileged Supabase key that must NEVER be inside a
+  /// client app: a new-style secret key (`sb_secret_...`) or a legacy JWT whose
+  /// `role` claim is `service_role`. Only the anon / publishable key belongs
+  /// here. The key itself is never logged or echoed.
+  @visibleForTesting
+  static bool isPrivilegedKey(String key) {
+    final k = key.trim();
+    if (k.startsWith('sb_secret_')) return true;
+    final parts = k.split('.');
+    if (parts.length != 3) return false;
+    try {
+      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final claims = jsonDecode(payload);
+      return claims is Map && claims['role'] == 'service_role';
+    } catch (_) {
+      return false; // not a decodable JWT (e.g. an sb_publishable_ key)
+    }
+  }
+
   static void requireConfigured() {
+    // Refuse to run with a privileged key: it would bypass every Row Level
+    // Security policy for anyone who unpacks the APK / IPA.
+    if (isPrivilegedKey(anonKey)) {
+      throw StateError(
+        'SUPABASE_ANON_KEY holds a privileged (service_role / secret) key. '
+        'Only the anon / publishable key may be used in the app. Replace it in '
+        'env/supabase.json with the anon key from Supabase Settings > API, and '
+        'rotate the privileged key you exposed. See SECURITY.md.',
+      );
+    }
     if (!isConfigured) {
       throw StateError(
         'Supabase URL/anon key are missing. Run with '

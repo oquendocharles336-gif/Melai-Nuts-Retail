@@ -1,14 +1,89 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import '../../../app/routes.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../core/widgets/secondary_button.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../app/routes.dart';
+import '../../../data/models/staff_models.dart';
+import '../../../data/repositories/staff_repository.dart';
 
-/// POS Cart Screen — Shows added items and a simulated RFID loyalty tap.
+/// Everything the checkout screens share. [idempotencyKey] is created once per
+/// checkout so that retrying after a dropped connection can never ring the
+/// same sale up twice (the database returns the original sale instead).
+class PosCheckout {
+  final Map<String, int> cart; // variantId -> quantity
+  final String? customerUid;
+  final String? customerName;
+  final String idempotencyKey;
+  final String? method; // cash | gcash | card
+
+  const PosCheckout({
+    required this.cart,
+    required this.idempotencyKey,
+    this.customerUid,
+    this.customerName,
+    this.method,
+  });
+
+  PosCheckout withMethod(String m) => PosCheckout(
+        cart: cart,
+        idempotencyKey: idempotencyKey,
+        customerUid: customerUid,
+        customerName: customerName,
+        method: m,
+      );
+
+  /// Display total using the prices the register currently shows. The
+  /// database recomputes the real total from the catalog when the sale is
+  /// recorded.
+  double get total {
+    double sum = 0;
+    cart.forEach((variantId, qty) {
+      final item = StaffStore.instance.itemByVariant(variantId);
+      if (item != null) sum += item.price * qty;
+    });
+    return sum;
+  }
+}
+
+String _newKey() {
+  final r = Random.secure();
+  final bytes = List<int>.generate(12, (_) => r.nextInt(256));
+  return 'pos-${DateTime.now().microsecondsSinceEpoch}-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+}
+
+/// Records the sale in the database and refreshes live data.
+Future<PosSaleResult> _submitSale(
+  PosCheckout c, {
+  String? reference,
+  double? cashReceived,
+}) async {
+  final store = StaffStore.instance;
+  final branchId = store.activeBranchId;
+  if (branchId == null) {
+    throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
+  }
+  final result = await StaffRepository.instance.createPosSale(
+    branchId: branchId,
+    quantitiesByVariant: c.cart,
+    paymentMethod: c.method!,
+    idempotencyKey: c.idempotencyKey,
+    paymentReference: reference,
+    cashReceived: cashReceived,
+    customerUid: c.customerUid,
+  );
+  unawaited(store.refreshLive());
+  return result;
+}
+
+/// POS Cart — review the sale and optionally attach a loyalty customer.
 class PosCartScreen extends StatefulWidget {
   final Map<String, int> initialCart;
 
@@ -19,181 +94,267 @@ class PosCartScreen extends StatefulWidget {
 }
 
 class _PosCartScreenState extends State<PosCartScreen> {
-  late Map<String, int> _cart;
-  bool _rfidDetected = false;
-  String _customerName = '';
+  late final Map<String, int> _cart = Map.from(widget.initialCart);
+  final String _key = _newKey();
+  CustomerMatch? _customer;
 
-  @override
-  void initState() {
-    super.initState();
-    _cart = Map.from(widget.initialCart);
+  PosCheckout get _checkout => PosCheckout(
+        cart: Map.from(_cart),
+        idempotencyKey: _key,
+        customerUid: _customer?.uid,
+        customerName: _customer?.name,
+      );
+
+  void _change(String variantId, int delta) {
+    final item = StaffStore.instance.itemByVariant(variantId);
+    final current = _cart[variantId] ?? 0;
+    final next = current + delta;
+    if (next <= 0) {
+      setState(() => _cart.remove(variantId));
+      if (_cart.isEmpty) Navigator.of(context).pop();
+      return;
+    }
+    if (item != null && next > item.quantity) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Only ${item.quantity} in stock.')));
+      return;
+    }
+    setState(() => _cart[variantId] = next);
   }
 
-  double get _subtotal {
-    double sum = 0;
-    _cart.forEach((id, qty) {
-      final p = findProductById(id);
-      sum += p.price * qty;
-    });
-    return sum;
-  }
-
-  void _simulateRfid() async {
-    showDialog(
+  Future<void> _lookupCustomer() async {
+    final picked = await showDialog<CustomerMatch>(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            Text('Searching for RFID card...', style: AppTextStyles.labelLg),
-          ],
-        ),
-      ),
+      builder: (_) => const _CustomerLookupDialog(),
     );
-
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    Navigator.of(context).pop();
-
-    setState(() {
-      _rfidDetected = true;
-      _customerName = 'Verified Customer';
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Loyalty Card Detected: Verified Customer')),
-    );
+    if (picked != null && mounted) setState(() => _customer = picked);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('POS Checkout')),
-      body: Column(
-        children: [
-          if (_rfidDetected)
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              color: AppColors.successBg,
-              child: Row(
-                children: [
-                  const Icon(Icons.verified_user_rounded, color: AppColors.success),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('CUSTOMER: $_customerName', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
-                        Text('Loyalty points will be added after checkout.', style: AppTextStyles.bodySm),
-                      ],
-                    ),
-                  ),
-                  TextButton(onPressed: () => setState(() => _rfidDetected = false), child: const Text('Remove')),
-                ],
-              ),
-            )
-          else
-            InkWell(
-              onTap: _simulateRfid,
-              child: Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                color: AppColors.primaryContainer.withValues(alpha: 0.3),
-                child: Row(
-                  children: [
-                    const Icon(Icons.contactless_rounded, color: AppColors.primary),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text('Tap Customer Loyalty Card', style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark))),
-                    const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.primary),
-                  ],
-                ),
-              ),
-            ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              children: [
-                Text('Order Summary', style: AppTextStyles.titleMd),
-                const SizedBox(height: 10),
-                ..._cart.entries.map((e) {
-                  final p = findProductById(e.key);
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(p.name, style: AppTextStyles.labelLg),
-                    subtitle: Text('₱${p.price.toStringAsFixed(0)} x ${e.value}'),
-                    trailing: Text('₱${(p.price * e.value).toStringAsFixed(0)}', style: AppTextStyles.labelLg),
-                  );
-                }),
-                const Divider(),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Subtotal', style: AppTextStyles.bodyMd),
-                    Text('₱${_subtotal.toStringAsFixed(0)}', style: AppTextStyles.bodyMd),
-                  ],
-                ),
-                if (_rfidDetected)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final store = StaffStore.instance;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final checkout = _checkout;
+        final total = checkout.total;
+        return Scaffold(
+          backgroundColor: AppColors.canvas,
+          appBar: AppBar(title: const Text('POS Checkout')),
+          body: Column(
+            children: [
+              if (_customer != null)
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  color: AppColors.successBg,
+                  child: Row(
                     children: [
-                      Text('Loyalty Discount (Demo)', style: AppTextStyles.bodyMd.copyWith(color: AppColors.success)),
-                      Text('-₱50.00', style: AppTextStyles.bodyMd.copyWith(color: AppColors.success)),
+                      const Icon(Icons.verified_user_rounded, color: AppColors.success),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('CUSTOMER: ${_customer!.name}', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
+                            Text('${_customer!.points} points • more points are added after checkout.', style: AppTextStyles.bodySm),
+                          ],
+                        ),
+                      ),
+                      TextButton(onPressed: () => setState(() => _customer = null), child: const Text('Remove')),
                     ],
                   ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                )
+              else
+                InkWell(
+                  onTap: _lookupCustomer,
+                  child: Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    color: AppColors.primaryContainer.withValues(alpha: 0.3),
+                    child: Row(
                       children: [
-                        Text('TOTAL PAYABLE', style: AppTextStyles.bodySm),
-                        Text('₱${(_subtotal - (_rfidDetected ? 50 : 0)).toStringAsFixed(0)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary)),
+                        const Icon(Icons.contactless_rounded, color: AppColors.primary),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text('Find loyalty customer (card no., phone or email)',
+                              style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.primary),
                       ],
                     ),
                   ),
-                  SizedBox(
-                    width: 160,
-                    child: PrimaryButton(
-                      label: 'Next: Payment',
-                      onPressed: () => Navigator.of(context).pushNamed(
-                        AppRoutes.staffPosPayment,
-                        arguments: {
-                          'amount': _subtotal - (_rfidDetected ? 50 : 0),
-                          'cart': _cart,
-                        },
-                      ),
+                ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  children: [
+                    Text('Order Summary', style: AppTextStyles.titleMd),
+                    const SizedBox(height: 10),
+                    for (final e in _cart.entries) _line(store, e.key, e.value),
+                    const Divider(),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Subtotal', style: AppTextStyles.bodyMd),
+                        Text(peso(total), style: AppTextStyles.bodyMd),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
+                ),
+                child: SafeArea(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('TOTAL PAYABLE', style: AppTextStyles.bodySm),
+                            Text(peso(total), style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary)),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 160,
+                        child: PrimaryButton(
+                          label: 'Next: Payment',
+                          onPressed: _cart.isEmpty
+                              ? null
+                              : () async {
+                                  final done = await Navigator.of(context)
+                                      .pushNamed(AppRoutes.staffPosPayment, arguments: _checkout);
+                                  if (done == true && context.mounted) Navigator.of(context).pop(true);
+                                },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
+        );
+      },
+    );
+  }
+
+  Widget _line(StaffStore store, String variantId, int qty) {
+    final item = store.itemByVariant(variantId);
+    if (item == null) return const SizedBox.shrink();
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(item.displayName, style: AppTextStyles.labelLg),
+      subtitle: Text('${peso(item.price)} each'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(icon: const Icon(Icons.remove_circle_outline_rounded), onPressed: () => _change(variantId, -1)),
+          Text('$qty', style: AppTextStyles.labelLg),
+          IconButton(icon: const Icon(Icons.add_circle_outline_rounded), onPressed: () => _change(variantId, 1)),
+          SizedBox(width: 72, child: Text(peso(item.price * qty), textAlign: TextAlign.right, style: AppTextStyles.labelLg)),
         ],
       ),
     );
   }
 }
 
+/// Looks a loyalty customer up by RFID card number, phone or email. The
+/// database only returns an exact match, so this cannot be used to browse
+/// customers.
+class _CustomerLookupDialog extends StatefulWidget {
+  const _CustomerLookupDialog();
+
+  @override
+  State<_CustomerLookupDialog> createState() => _CustomerLookupDialogState();
+}
+
+class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
+  final _controller = TextEditingController();
+  bool _busy = false;
+  String? _message;
+  List<CustomerMatch> _results = const [];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    final q = _controller.text.trim();
+    if (q.length < 4) {
+      setState(() => _message = 'Enter at least 4 characters.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final r = await StaffRepository.instance.lookupCustomer(q);
+      if (!mounted) return;
+      setState(() {
+        _results = r;
+        _busy = false;
+        _message = r.isEmpty ? 'No loyalty customer found.' : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _message = AppErrors.from(e).message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Loyalty customer'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            onSubmitted: (_) => _search(),
+            decoration: InputDecoration(
+              labelText: 'Card number, phone or email',
+              suffixIcon: IconButton(icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
+            ),
+          ),
+          if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator()),
+          if (_message != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_message!, style: AppTextStyles.bodySm)),
+          for (final c in _results)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_outline_rounded),
+              title: Text(c.name),
+              subtitle: Text('${c.points} points'),
+              onTap: () => Navigator.pop(context, c),
+            ),
+        ],
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))],
+    );
+  }
+}
+
 /// Payment selection screen for Staff.
 class PosPaymentScreen extends StatelessWidget {
-  final double amount;
-  final Map<String, int> cart;
-  const PosPaymentScreen({super.key, required this.amount, required this.cart});
+  final PosCheckout checkout;
+  const PosPaymentScreen({super.key, required this.checkout});
+
+  Future<void> _go(BuildContext context, String route, String method) async {
+    final done = await Navigator.of(context).pushNamed(route, arguments: checkout.withMethod(method));
+    if (done == true && context.mounted) Navigator.of(context).pop(true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -204,36 +365,27 @@ class PosPaymentScreen extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.md),
         children: [
           Text('Total Amount to Collect', style: AppTextStyles.bodyMd),
-          Text('₱${amount.toStringAsFixed(2)}', style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
+          Text(peso(checkout.total), style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
           const SizedBox(height: AppSpacing.lg),
           _PaymentOption(
             icon: Icons.money_rounded,
             title: 'Cash',
             subtitle: 'Collect physical cash from customer',
-            onTap: () => Navigator.of(context).pushNamed(
-              AppRoutes.staffPosCashInput,
-              arguments: {'amount': amount, 'cart': cart},
-            ),
+            onTap: () => _go(context, AppRoutes.staffPosCashInput, 'cash'),
           ),
           const SizedBox(height: 12),
           _PaymentOption(
             icon: Icons.account_balance_wallet_rounded,
             title: 'GCash',
-            subtitle: 'Scan customer QR or confirm via terminal',
-            onTap: () => Navigator.of(context).pushNamed(
-              AppRoutes.staffPosProcessing,
-              arguments: {'method': 'GCash', 'amount': amount, 'cart': cart},
-            ),
+            subtitle: 'Customer pays in GCash; enter the reference number',
+            onTap: () => _go(context, AppRoutes.staffPosProcessing, 'gcash'),
           ),
           const SizedBox(height: 12),
           _PaymentOption(
             icon: Icons.credit_card_rounded,
             title: 'Card (Visa/Mastercard)',
-            subtitle: 'Use connected card terminal',
-            onTap: () => Navigator.of(context).pushNamed(
-              AppRoutes.staffPosProcessing,
-              arguments: {'method': 'Card', 'amount': amount, 'cart': cart},
-            ),
+            subtitle: 'Charge on the card terminal; enter the approval code',
+            onTap: () => _go(context, AppRoutes.staffPosProcessing, 'card'),
           ),
         ],
       ),
@@ -287,12 +439,11 @@ class _PaymentOption extends StatelessWidget {
   }
 }
 
-/// Cash input screen for Staff.
+/// Cash: enter the amount handed over; the sale is recorded when confirmed.
 class PosCashInputScreen extends StatefulWidget {
-  final double amount;
-  final Map<String, int> cart;
+  final PosCheckout checkout;
 
-  const PosCashInputScreen({super.key, required this.amount, required this.cart});
+  const PosCashInputScreen({super.key, required this.checkout});
 
   @override
   State<PosCashInputScreen> createState() => _PosCashInputScreenState();
@@ -302,15 +453,12 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _controller = TextEditingController();
   double _received = 0;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _controller.addListener(() {
-      setState(() {
-        _received = double.tryParse(_controller.text) ?? 0;
-      });
-    });
+    _controller.addListener(() => setState(() => _received = double.tryParse(_controller.text) ?? 0));
   }
 
   @override
@@ -319,9 +467,24 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
     super.dispose();
   }
 
+  Future<void> _complete() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      final sale = await _submitSale(widget.checkout, cashReceived: _received);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosReceipt, arguments: sale);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      AppErrors.showSnack(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final double change = _received > widget.amount ? _received - widget.amount : 0;
+    final amount = widget.checkout.total;
+    final double change = _received > amount ? _received - amount : 0;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -334,7 +497,7 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('Total to Pay', style: AppTextStyles.bodyMd),
-              Text('₱${widget.amount.toStringAsFixed(2)}', style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
+              Text(peso(amount), style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
               const SizedBox(height: 24),
               TextFormField(
                 controller: _controller,
@@ -345,9 +508,7 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
                   final requiredError = ValidationUtils.validateRequired(v, 'Amount Received');
                   if (requiredError != null) return requiredError;
                   final val = double.tryParse(v!) ?? 0;
-                  if (val < widget.amount) {
-                    return 'Amount must be at least ₱${widget.amount.toStringAsFixed(2)}';
-                  }
+                  if (val < amount) return 'Amount must be at least ${peso(amount)}';
                   return null;
                 },
                 decoration: InputDecoration(
@@ -359,35 +520,17 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
               const SizedBox(height: 24),
               Container(
                 padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(12)),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Change Due', style: AppTextStyles.labelLg),
-                    Text('₱${change.toStringAsFixed(2)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.success)),
+                    Text(peso(change), style: AppTextStyles.headlineSm.copyWith(color: AppColors.success)),
                   ],
                 ),
               ),
               const Spacer(),
-              PrimaryButton(
-                label: 'Complete Payment',
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    Navigator.of(context).pushReplacementNamed(
-                      AppRoutes.staffPosReceipt,
-                      arguments: {
-                        'method': 'Cash',
-                        'amount': widget.amount,
-                        'cart': widget.cart,
-                        'cashReceived': _received,
-                      },
-                    );
-                  }
-                },
-              ),
+              PrimaryButton(label: 'Complete Payment', loading: _saving, onPressed: _complete),
             ],
           ),
         ),
@@ -396,213 +539,196 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
   }
 }
 
-/// Simulated processing screen.
+/// GCash / card: the customer pays on their phone or on the card terminal and
+/// staff enter the reference the payment app / terminal shows. The sale is
+/// recorded only when staff confirm the payment was received.
 class PosProcessingScreen extends StatefulWidget {
-  final String method;
-  final double amount;
-  final Map<String, int> cart;
-  const PosProcessingScreen({super.key, required this.method, required this.amount, required this.cart});
+  final PosCheckout checkout;
+
+  const PosProcessingScreen({super.key, required this.checkout});
 
   @override
   State<PosProcessingScreen> createState() => _PosProcessingScreenState();
 }
 
 class _PosProcessingScreenState extends State<PosProcessingScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _reference = TextEditingController();
+  bool _saving = false;
+
+  bool get _isGcash => widget.checkout.method == 'gcash';
+
   @override
-  void initState() {
-    super.initState();
-    _process();
+  void dispose() {
+    _reference.dispose();
+    super.dispose();
   }
 
-  void _process() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    // Simulate random failure 1 in 5 times
-    final success = DateTime.now().millisecond % 5 != 0;
-    if (success) {
-      Navigator.of(context).pushReplacementNamed(
-        AppRoutes.staffPosReceipt,
-        arguments: {
-          'method': widget.method,
-          'amount': widget.amount,
-          'cart': widget.cart,
-        },
-      );
-    } else {
-      Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosFailed);
+  Future<void> _confirm() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      final sale = await _submitSale(widget.checkout, reference: _reference.text.trim());
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosReceipt, arguments: sale);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosFailed, arguments: AppErrors.from(e).message);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 24),
-            Text('Processing ${widget.method} Payment...', style: AppTextStyles.headlineSm),
-            const SizedBox(height: 8),
-            Text('Please wait, communicating with terminal...', style: AppTextStyles.bodyMd),
-          ],
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: Text(_isGcash ? 'GCash Payment' : 'Card Payment')),
+      body: Form(
+        key: _formKey,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Amount to collect', style: AppTextStyles.bodyMd),
+              Text(peso(widget.checkout.total), style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary)),
+              const SizedBox(height: 16),
+              Text(
+                _isGcash
+                    ? 'Ask the customer to pay this amount in GCash, then enter the reference number from their payment confirmation.'
+                    : 'Charge this amount on the card terminal, then enter the approval / reference code printed on the terminal slip.',
+                style: AppTextStyles.bodyMd,
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _reference,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  labelText: _isGcash ? 'GCash reference number' : 'Approval / reference code',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                validator: (v) => (v ?? '').trim().length < 4 ? 'Enter the reference (at least 4 characters)' : null,
+              ),
+              const Spacer(),
+              PrimaryButton(label: 'Confirm Payment Received', loading: _saving, onPressed: _confirm),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// Receipt Screen (Success)
+/// Receipt for a recorded sale, loaded from the database.
 class PosReceiptScreen extends StatelessWidget {
-  final String method;
-  final double amount;
-  final Map<String, int>? cart;
-  final double? cashReceived;
+  final PosSaleResult sale;
 
-  const PosReceiptScreen({
-    super.key,
-    this.method = 'GCash',
-    this.amount = 245,
-    this.cart,
-    this.cashReceived,
-  });
+  const PosReceiptScreen({super.key, required this.sale});
 
   @override
   Widget build(BuildContext context) {
-    final double change = (cashReceived != null && cashReceived! > amount) ? cashReceived! - amount : 0;
-
+    final store = StaffStore.instance;
     return Scaffold(
-      backgroundColor: AppColors.successBg,
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Receipt'), automaticallyImplyLeading: false),
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
-            const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 60),
-            const SizedBox(height: 12),
-            Text('Sale Completed!', style: AppTextStyles.headlineMd.copyWith(color: AppColors.success)),
-            Text('Transaction #TXN-774218-MN', style: AppTextStyles.bodySm),
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.all(AppSpacing.md),
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, offset: const Offset(0, 10))],
-                ),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    Text('MELAI\'S NUTS & DELICACIES', textAlign: TextAlign.center, style: AppTextStyles.labelLg),
-                    Text('Official Receipt', textAlign: TextAlign.center, style: AppTextStyles.bodySm),
-                    const Divider(height: 32),
-                    if (cart != null) ...[
-                      ...cart!.entries.map((e) {
-                        final p = findProductById(e.key);
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(child: Text('${p.name} x${e.value}', style: AppTextStyles.bodyMd)),
-                              Text('₱${(p.price * e.value).toStringAsFixed(2)}', style: AppTextStyles.bodyMd),
-                            ],
-                          ),
-                        );
-                      }),
-                      const Divider(height: 32),
-                    ],
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('TOTAL', style: AppTextStyles.labelLg),
-                        Text('₱${amount.toStringAsFixed(2)}', style: AppTextStyles.labelLg.copyWith(color: AppColors.primary)),
+        child: FutureBuilder<StaffOrder?>(
+          future: StaffRepository.instance.fetchOrder(store.activeBranchId, sale.orderId),
+          builder: (context, snap) {
+            final order = snap.data;
+            return ListView(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              children: [
+                const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 64),
+                const SizedBox(height: 8),
+                Text('Payment Successful', textAlign: TextAlign.center, style: AppTextStyles.headlineSm),
+                Text(sale.orderId, textAlign: TextAlign.center, style: AppTextStyles.bodyMd),
+                const SizedBox(height: AppSpacing.lg),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    children: [
+                      if (snap.connectionState == ConnectionState.waiting)
+                        const Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator())
+                      else if (order != null) ...[
+                        for (final i in order.items)
+                          _row('${i.quantity} × ${i.productName}${i.variantLabel.isEmpty ? '' : ' • ${i.variantLabel}'}', peso(i.total)),
+                        const Divider(height: 24),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Payment Method', style: AppTextStyles.bodySm),
-                        Text(method, style: AppTextStyles.bodySm),
-                      ],
-                    ),
-                    if (method == 'Cash' && cashReceived != null) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Cash Received', style: AppTextStyles.bodySm),
-                          Text('₱${cashReceived!.toStringAsFixed(2)}', style: AppTextStyles.bodySm),
-                        ],
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Change', style: AppTextStyles.labelLg),
-                          Text('₱${change.toStringAsFixed(2)}', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
-                        ],
-                      ),
+                      _row('Total', peso(sale.total), bold: true),
+                      if (order != null) _row('Paid with', order.paymentMethod),
+                      if (order?.cashReceived != null) _row('Cash received', peso(order!.cashReceived!)),
+                      if (sale.change > 0) _row('Change', peso(sale.change)),
+                      if (sale.pointsEarned > 0) _row('Loyalty points earned', '+${sale.pointsEarned}'),
+                      if (sale.alreadyRecorded)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text('This sale had already been recorded; it was not charged twice.', style: AppTextStyles.bodySm),
+                        ),
                     ],
-                    const Divider(height: 40),
-                    const Center(child: Icon(Icons.qr_code_2_rounded, size: 100)),
-                    const SizedBox(height: 8),
-                    Text('Scan to download digital copy', textAlign: TextAlign.center, style: AppTextStyles.bodySm),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: PrimaryButton(
-                label: 'New Transaction',
-                onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.staffHome, (route) => false),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
+                const SizedBox(height: AppSpacing.lg),
+                PrimaryButton(
+                  label: 'New Sale',
+                  icon: Icons.add_shopping_cart_rounded,
+                  onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.staffHome, (route) => false),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
+
+  Widget _row(String label, String value, {bool bold = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: Text(label, style: bold ? AppTextStyles.labelLg : AppTextStyles.bodyMd)),
+            const SizedBox(width: 12),
+            Text(value, style: bold ? AppTextStyles.labelLg : AppTextStyles.bodyMd),
+          ],
+        ),
+      );
 }
 
-/// Payment Failed Screen
+/// Shown when the sale could not be recorded. Nothing was charged in the
+/// system; the message explains why (for example, stock changed).
 class PosFailedScreen extends StatelessWidget {
   const PosFailedScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final message = ModalRoute.of(context)?.settings.arguments as String? ??
+        'The sale could not be recorded. Please try again.';
     return Scaffold(
-      backgroundColor: AppColors.errorBg,
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Payment Failed'), automaticallyImplyLeading: false),
       body: SafeArea(
-        child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 80),
-              const SizedBox(height: 24),
-              Text('Payment Failed', style: AppTextStyles.headlineMd.copyWith(color: AppColors.error)),
-              const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 40),
-                child: Text('Terminal reported a connection timeout. Please try again or use a different method.', textAlign: TextAlign.center),
-              ),
-              const SizedBox(height: 40),
-              SizedBox(
-                width: 200,
-                child: PrimaryButton(
-                  label: 'Try Again',
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: 200,
-                child: SecondaryButton(
-                  label: 'Cancel Sale',
-                  onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.staffHome, (route) => false),
-                ),
+              const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 72),
+              const SizedBox(height: 16),
+              Text('Sale not recorded', style: AppTextStyles.headlineSm),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center, style: AppTextStyles.bodyMd),
+              const SizedBox(height: 32),
+              PrimaryButton(label: 'Try Again', onPressed: () => Navigator.of(context).pop()),
+              TextButton(
+                onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.staffHome, (route) => false),
+                child: const Text('Cancel Transaction'),
               ),
             ],
           ),

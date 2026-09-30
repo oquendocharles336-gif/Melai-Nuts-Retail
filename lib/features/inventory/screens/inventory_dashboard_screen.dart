@@ -4,25 +4,47 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/services/staff_store.dart';
+import '../../../core/widgets/staff_data_scope.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/dummy_data/dummy_inventory.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../widgets/inventory_card.dart';
 
 /// Shared dashboard content — used both as the Staff Portal's "Inventory"
 /// tab body and wrapped in [InventoryDashboardScreen] for direct/deep-link
-/// navigation.
+/// navigation. All numbers come from the branch's real inventory.
 class InventoryDashboardBody extends StatelessWidget {
   const InventoryDashboardBody({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final totalSkus = kProducts.length;
-    final lowStockCount = lowStockBatches.length;
+    return StaffDataScope(
+      builder: (context, store) => RefreshIndicator(
+        onRefresh: store.refreshInventory,
+        child: DataStateView(
+          isLoading: store.inventoryState.busy,
+          error: store.inventoryState.error,
+          isEmpty: store.inventoryItems.isEmpty,
+          onRetry: store.refreshInventory,
+          emptyIcon: Icons.inventory_2_outlined,
+          emptyTitle: 'No products yet.',
+          emptyMessage: 'Products added to the catalog will appear here.',
+          builder: (context) => _content(context, store),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context, StaffStore store) {
+    final items = store.inventoryItems;
+    final lowItems = items.where((i) => i.needsRestock).toList()
+      ..sort((a, b) => a.quantity.compareTo(b.quantity));
     final expiringSoonCount = batchesByPriority(FefoPriority.high).length;
-    final totalUnits = kInventoryBatches.fold<int>(0, (sum, b) => sum + b.quantity);
+    final totalUnits = items.fold<int>(0, (sum, i) => sum + i.quantity);
 
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
         Row(
@@ -30,7 +52,7 @@ class InventoryDashboardBody extends StatelessWidget {
             Expanded(
               child: _StatCard(
                 label: 'Total SKUs',
-                value: '$totalSkus',
+                value: '${items.length}',
                 icon: Icons.inventory_2_outlined,
                 color: AppColors.roleStaff,
               ),
@@ -51,8 +73,8 @@ class InventoryDashboardBody extends StatelessWidget {
           children: [
             Expanded(
               child: _StatCard(
-                label: 'Low Stock',
-                value: '$lowStockCount',
+                label: 'Low / Out of Stock',
+                value: '${lowItems.length}',
                 icon: Icons.warning_amber_rounded,
                 color: AppColors.error,
                 onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryLowStock),
@@ -96,14 +118,20 @@ class InventoryDashboardBody extends StatelessWidget {
               label: 'Branch Inventory',
               onTap: () => Navigator.of(context).pushNamed(
                 AppRoutes.inventoryBranch,
-                arguments: 'Calamba Highway Branch',
+                arguments: store.activeBranchName,
               ),
             ),
             _ActionTile(
-              icon: Icons.add_box_outlined,
-              label: 'Add Inventory',
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryAdd),
+              icon: Icons.sync_alt_rounded,
+              label: 'Stock Transfers',
+              onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryTransfers),
             ),
+            if (store.canManageInventory)
+              _ActionTile(
+                icon: Icons.add_box_outlined,
+                label: 'Add Inventory',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryAdd),
+              ),
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -118,18 +146,19 @@ class InventoryDashboardBody extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
-        if (lowStockBatches.isEmpty)
+        if (lowItems.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text('No low-stock batches right now.', style: AppTextStyles.bodyMd),
+            child: Text('Nothing is low on stock right now.', style: AppTextStyles.bodyMd),
           )
         else
-          for (final batch in lowStockBatches.take(3))
+          for (final item in lowItems.take(3))
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: InventoryCard.batch(
-                batch: batch,
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryBatchDetails, arguments: batch),
+              child: InventoryCard.item(
+                item: item,
+                onTap: () => Navigator.of(context)
+                    .pushNamed(AppRoutes.inventoryProductDetails, arguments: item.variantId),
               ),
             ),
       ],

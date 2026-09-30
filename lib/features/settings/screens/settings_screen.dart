@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -41,6 +42,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Staff accounts: notification preferences and the preferred-branch picker
+    // are customer features (staff notifications follow their assigned branch,
+    // which only the owner can change), so they are not offered here.
+    final isStaff = StaffStore.instance.profile != null;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Settings', showBack: true),
@@ -48,36 +53,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
+            if (!isStaff) ...[
             Text('PREFERENCES', style: AppTextStyles.labelSm),
-            const SizedBox(height: AppSpacing.xs),
-            _Section(
-              children: [
-                _Tile(
-                  icon: Icons.notifications_outlined,
-                  title: 'Notification Settings',
-                  subtitle: 'Manage what you get notified about',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()),
+              const SizedBox(height: AppSpacing.xs),
+              _Section(
+                children: [
+                  _Tile(
+                    icon: Icons.notifications_outlined,
+                    title: 'Notification Settings',
+                    subtitle: 'Manage what you get notified about',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()),
+                    ),
                   ),
-                ),
-                const Divider(height: 1),
-                _SwitchTile(
-                  icon: Icons.dark_mode_outlined,
-                  title: 'Dark Mode',
-                  subtitle: 'Preview only — full theme coming soon',
-                  value: _darkMode,
-                  onChanged: (v) => setState(() => _darkMode = v),
-                ),
-                const Divider(height: 1),
-                _Tile(
-                  icon: Icons.language_rounded,
-                  title: 'Language',
-                  subtitle: _language,
-                  onTap: _pickLanguage,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
+                  const Divider(height: 1),
+                  _SwitchTile(
+                    icon: Icons.dark_mode_outlined,
+                    title: 'Dark Mode',
+                    subtitle: 'Preview only — full theme coming soon',
+                    value: _darkMode,
+                    onChanged: (v) => setState(() => _darkMode = v),
+                  ),
+                  const Divider(height: 1),
+                  _Tile(
+                    icon: Icons.language_rounded,
+                    title: 'Language',
+                    subtitle: _language,
+                    onTap: _pickLanguage,
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             Text('ACCOUNT', style: AppTextStyles.labelSm),
             const SizedBox(height: AppSpacing.xs),
             _Section(
@@ -90,15 +97,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     MaterialPageRoute(builder: (_) => const SecurityScreen()),
                   ),
                 ),
-                const Divider(height: 1),
-                _Tile(
-                  icon: Icons.storefront_outlined,
-                  title: 'Branch Settings',
-                  subtitle: 'Set your preferred branch',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+                if (!isStaff) ...[
+                  const Divider(height: 1),
+                  _Tile(
+                    icon: Icons.storefront_outlined,
+                    title: 'Branch Settings',
+                    subtitle: 'Set your preferred branch',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
             const SizedBox(height: AppSpacing.lg),

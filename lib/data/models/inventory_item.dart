@@ -1,28 +1,61 @@
 import 'inventory_batch.dart';
 
-/// A per-product inventory summary — aggregates every [InventoryBatch] for
-/// one product (optionally scoped to a single branch) into the totals used
-/// by list-style inventory screens, so screens don't need to re-derive
-/// totals/priority from raw batches themselves.
+/// One sellable variant (e.g. "Garlic Peanuts — 100g") at one branch, with
+/// its real stock, restock level and the batches that make it up.
+///
+/// [quantity] is the branch's authoritative stock count (`branch_inventory`,
+/// which is also what customers and the register are checked against);
+/// [batches] are the FEFO batches recorded for it. [unassignedQuantity] is
+/// stock that is counted but not yet assigned to a batch.
 class InventoryItem {
   final String productId;
-  final String? branch; // null = aggregated across all branches
+  final String variantId;
+  final String productName;
+  final String variantLabel;
+  final String sku;
+  final String categoryId;
+  final double price;
+  final int quantity;
+  final int restockThreshold;
+  final int batchedQuantity;
+  final String? branch;
+  final String branchId;
   final List<InventoryBatch> batches;
 
-  InventoryItem({
+  const InventoryItem({
     required this.productId,
+    required this.variantId,
+    required this.productName,
+    required this.variantLabel,
+    required this.sku,
+    required this.categoryId,
+    required this.price,
+    required this.quantity,
+    required this.restockThreshold,
+    required this.batchedQuantity,
+    required this.branchId,
     required this.batches,
     this.branch,
   });
 
-  int get totalStock => batches.fold(0, (sum, b) => sum + b.quantity);
+  String get displayName =>
+      variantLabel.isEmpty ? productName : '$productName • $variantLabel';
+
+  int get totalStock => quantity;
 
   int get batchCount => batches.length;
 
-  bool get isLowStock => batches.any((b) => b.isLowStock);
+  bool get isOutOfStock => quantity <= 0;
+
+  /// Low but not empty (empty is reported separately as out of stock).
+  bool get isLowStock => quantity > 0 && quantity <= restockThreshold;
+
+  bool get needsRestock => quantity <= restockThreshold;
+
+  int get unassignedQuantity => (quantity - batchedQuantity).clamp(0, 999999);
 
   int get recommendedRestockQty =>
-      batches.fold(0, (sum, b) => sum + b.recommendedRestockQty);
+      needsRestock ? (restockThreshold * 2 - quantity).clamp(0, 999999) : 0;
 
   /// The most urgent FEFO tier among this item's batches (HIGH beats
   /// MEDIUM beats LOW), used to badge the item in list screens.
@@ -33,8 +66,7 @@ class InventoryItem {
         );
   }
 
-  /// Batches sorted soonest-to-expire first — the batch at index 0 is the
-  /// one that should be sold next under FEFO.
+  /// Batches sorted soonest-to-expire first — index 0 is sold next (FEFO).
   List<InventoryBatch> get batchesFefoSorted {
     final list = List<InventoryBatch>.from(batches);
     list.sort((a, b) => a.expirationDate.compareTo(b.expirationDate));

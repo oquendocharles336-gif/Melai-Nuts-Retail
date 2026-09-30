@@ -4,8 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../core/services/auth_service.dart';
+import '../core/services/staff_session_store.dart';
 import '../core/theme/app_colors.dart';
 import '../data/models/user_role.dart';
+import '../features/staff/widgets/staff_session_blocked_view.dart';
 import 'routes.dart';
 
 /// Client-side access gate for a screen.
@@ -19,6 +21,12 @@ import 'routes.dart';
 ///
 /// The protected screen is only *built* after access has been confirmed, using
 /// the validated profile from [AuthService] (never a locally stored role).
+///
+/// STAFF: a signed-in staff member's screens are additionally held back until
+/// [StaffSessionStore] has confirmed their Supabase profile, branch and
+/// permissions for exactly the account that is signed in. If the session is
+/// cleared (logout, account switch) the screen is swapped for a neutral view
+/// on the spot, so one staff member's data is never shown to the next.
 class RouteGuard extends StatefulWidget {
   const RouteGuard({
     super.key,
@@ -45,6 +53,12 @@ class _RouteGuardState extends State<RouteGuard> {
   bool _redirecting = false;
   bool _hasBuilt = false;
 
+  /// Set when this screen was opened by a staff member: the Firebase UID the
+  /// screen is bound to. It never changes for the life of the guard, so if the
+  /// session is later cleared or replaced the screen locks instead of showing
+  /// the next account an unbound (or the previous account's) staff UI.
+  String? _staffUid;
+
   bool get _customerOnly =>
       widget.allowedRoles != null &&
       widget.allowedRoles!.length == 1 &&
@@ -61,6 +75,7 @@ class _RouteGuardState extends State<RouteGuard> {
       if (widget.allowGuest) _allowed = true;
     } else if (profile != null && _roleAllowed(profile.role)) {
       _allowed = true;
+      if (profile.role == UserRole.staff) _staffUid = profile.uid;
     }
 
     _sub = auth.authStateChanges.listen(_onAuthChanged);
@@ -115,7 +130,10 @@ class _RouteGuardState extends State<RouteGuard> {
         );
         return;
       }
-      setState(() => _allowed = true);
+      setState(() {
+        _allowed = true;
+        if (profile.role == UserRole.staff) _staffUid = profile.uid;
+      });
     } on AuthException catch (e) {
       _deny(message: e.message, route: AppRoutes.login, clearStack: true);
     } catch (_) {
@@ -149,7 +167,18 @@ class _RouteGuardState extends State<RouteGuard> {
   @override
   Widget build(BuildContext context) {
     _hasBuilt = true;
-    if (_allowed && !_redirecting) return widget.builder(context);
+    if (_allowed && !_redirecting) {
+      final staffUid = _staffUid;
+      if (staffUid != null) {
+        return ListenableBuilder(
+          listenable: StaffSessionStore.instance,
+          builder: (context, _) => StaffSessionStore.instance.isReadyFor(staffUid)
+              ? widget.builder(context)
+              : const StaffSessionBlockedView(),
+        );
+      }
+      return widget.builder(context);
+    }
     return const Scaffold(
       backgroundColor: AppColors.canvas,
       body: Center(child: CircularProgressIndicator()),

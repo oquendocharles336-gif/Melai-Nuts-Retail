@@ -4,15 +4,18 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/services/staff_store.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../data/repositories/staff_repository.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
 
-/// Frontend-only stock adjustment form.
+/// Stock adjustment for one batch (damage, count correction, ...).
 ///
-/// Example from the spec: Current Stock 25, Adjustment +10 → New Stock 35.
-/// Nothing here is persisted — submitting just navigates to the success
-/// screen with the computed numbers.
+/// The change is saved by the database, which re-checks that the caller may
+/// manage inventory at this branch and that stock cannot go below zero. The
+/// success screen is only shown once the database has confirmed the change.
 class InventoryAdjustmentScreen extends StatefulWidget {
   final InventoryBatch batch;
 
@@ -24,9 +27,10 @@ class InventoryAdjustmentScreen extends StatefulWidget {
 
 class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
   final _formKey = GlobalKey<FormState>();
-  late int _adjustment = widget.batch.isLowStock ? widget.batch.recommendedRestockQty : 0;
+  int _adjustment = 0;
+  bool _saving = false;
   final _reasonController = TextEditingController();
-  String _reasonPreset = 'Restock delivery';
+  String _reasonPreset = 'Stock count correction';
 
   int get _rawNewStock => widget.batch.quantity + _adjustment;
   int get _newStock => _rawNewStock.clamp(0, 999999);
@@ -37,23 +41,38 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _submit() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
     if (_rawNewStock < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Stock cannot go below 0. Reduce the adjustment amount.')),
       );
       return;
     }
-    Navigator.of(context).pushReplacementNamed(
-      AppRoutes.inventoryAdjustmentSuccess,
-      arguments: {
-        'productId': widget.batch.productId,
-        'batch': widget.batch,
-        'adjustment': _adjustment,
-        'newStock': _newStock,
-      },
-    );
+    setState(() => _saving = true);
+    try {
+      final result = await StaffRepository.instance.adjustBatch(
+        batchId: widget.batch.id,
+        delta: _adjustment,
+        reason: _reasonPreset,
+        note: _reasonController.text,
+      );
+      if (!mounted) return;
+      StaffStore.instance.refreshLive();
+      Navigator.of(context).pushReplacementNamed(
+        AppRoutes.inventoryAdjustmentSuccess,
+        arguments: {
+          'productId': widget.batch.productId,
+          'batch': widget.batch,
+          'adjustment': (result['adjustment'] as num).toInt(),
+          'newStock': (result['new_quantity'] as num).toInt(),
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      AppErrors.showSnack(context, e);
+    }
   }
 
   @override
@@ -90,7 +109,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(product.name, style: AppTextStyles.labelLg),
-                          Text('Batch ${widget.batch.batchCode} • ${widget.batch.branch}', style: AppTextStyles.bodySm),
+                          Text('${widget.batch.variantLabel.isEmpty ? '' : '${widget.batch.variantLabel} • '}Batch ${widget.batch.batchCode} • ${widget.batch.branch}', style: AppTextStyles.bodySm),
                         ],
                       ),
                     ),
@@ -109,7 +128,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _StockNumber(label: 'Current Stock', value: '${widget.batch.quantity}'),
+                        _StockNumber(label: 'Batch Stock', value: '${widget.batch.quantity}'),
                         const Icon(Icons.arrow_forward_rounded, color: AppColors.textSecondary),
                         _StockNumber(
                           label: 'Adjustment',
@@ -148,7 +167,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final reason in const ['Restock delivery', 'Damaged goods', 'Stock count correction', 'Branch transfer'])
+                  for (final reason in const ['Stock count correction', 'Damaged goods', 'Expired / disposed', 'Found extra stock'])
                     ChoiceChip(
                       label: Text(reason),
                       selected: _reasonPreset == reason,
@@ -167,6 +186,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
               PrimaryButton(
                 label: 'Submit Adjustment',
                 icon: Icons.check_rounded,
+                loading: _saving,
                 onPressed: _adjustment == 0 || _rawNewStock < 0 ? null : _submit,
               ),
             ],

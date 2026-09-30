@@ -6,6 +6,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../core/widgets/staff_data_scope.dart';
 import '../../../data/dummy_data/dummy_inventory.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
@@ -21,6 +22,10 @@ class BatchDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return StaffDataScope(builder: (context, store) => _content(context, store.canManageInventory));
+  }
+
+  Widget _content(BuildContext context, bool canManage) {
     final product = findProductById(batch.productId);
     final siblings = batchesForProduct(batch.productId)
       ..sort((a, b) => a.expirationDate.compareTo(b.expirationDate));
@@ -88,6 +93,7 @@ class BatchDetailsScreen extends StatelessWidget {
                   ),
                   const Divider(height: 28),
                   _DetailRow(label: 'Branch', value: batch.branch),
+                  if (batch.variantLabel.isNotEmpty) _DetailRow(label: 'Variant', value: batch.variantLabel),
                   _DetailRow(label: 'Batch Code', value: batch.batchCode),
                   _DetailRow(label: 'Received Date', value: _formatDate(batch.receivedDate)),
                   _DetailRow(label: 'Expiration Date', value: _formatDate(batch.expirationDate)),
@@ -96,7 +102,8 @@ class BatchDetailsScreen extends StatelessWidget {
                     value: batch.daysUntilExpiry < 0 ? 'Expired' : '${batch.daysUntilExpiry} days',
                     valueColor: batch.fefoPriority.color,
                   ),
-                  _DetailRow(label: 'Current Stock', value: '${batch.quantity} packs'),
+                  _DetailRow(label: 'Units in this batch', value: '${batch.quantity}'),
+                  if (batch.variantStock != null) _DetailRow(label: 'Branch stock (all batches)', value: '${batch.variantStock}'),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 5),
                     child: Row(
@@ -117,18 +124,18 @@ class BatchDetailsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            PrimaryButton(
-              label: 'Adjust Stock',
-              icon: Icons.tune_rounded,
-              onPressed: () => Navigator.of(context).pushNamed(AppRoutes.inventoryAdjustment, arguments: batch),
-            ),
-            const SizedBox(height: 10),
-            SecondaryButton(
-              label: 'Mark for Branch Transfer',
-              icon: Icons.sync_alt_rounded,
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Simulated: batch flagged for transfer request.')),
+            if (canManage) ...[
+              PrimaryButton(
+                label: 'Adjust Stock',
+                icon: Icons.tune_rounded,
+                onPressed: () => Navigator.of(context).pushNamed(AppRoutes.inventoryAdjustment, arguments: batch),
               ),
+              const SizedBox(height: 10),
+            ],
+            SecondaryButton(
+              label: 'Stock Transfers',
+              icon: Icons.sync_alt_rounded,
+              onPressed: () => Navigator.of(context).pushNamed(AppRoutes.inventoryTransfers),
             ),
           ],
         ),

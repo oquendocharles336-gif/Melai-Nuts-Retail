@@ -4,7 +4,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../core/widgets/staff_data_scope.dart';
 import '../../../data/dummy_data/dummy_inventory.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../widgets/fefo_badge.dart';
@@ -18,8 +20,18 @@ class FefoScreen extends StatelessWidget {
 
   const FefoScreen({super.key, this.initialFilter});
 
+  /// Staff only work in one branch; the list holds the branch being viewed.
+  List<String> _branches() {
+    final name = StaffStore.instance.activeBranchName;
+    return name.isEmpty ? const [] : [name];
+  }
+
   @override
   Widget build(BuildContext context) {
+    return StaffDataScope(builder: (context, store) => _content(context));
+  }
+
+  Widget _content(BuildContext context) {
     // A specific tier was requested (e.g. tapped from the dashboard's
     // "Expiring Soon" stat) — show just that tier's batch list.
     if (initialFilter != null) {
@@ -105,7 +117,7 @@ class FefoScreen extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             Text('Stock by Branch', style: AppTextStyles.headlineSm),
             const SizedBox(height: AppSpacing.sm),
-            for (final branch in kInventoryBranches)
+            for (final branch in _branches())
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _BranchSummaryRow(

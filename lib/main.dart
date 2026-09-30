@@ -8,6 +8,8 @@ import 'core/services/branch_controller.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/customer_data_store.dart';
 import 'core/services/data_sync_service.dart';
+import 'core/services/staff_session_store.dart';
+import 'core/services/staff_store.dart';
 import 'core/services/supabase_service.dart';
 import 'data/repositories/products_repository.dart';
 import 'features/customer/cart_controller.dart';
@@ -25,6 +27,13 @@ Future<void> main() async {
   }
   await DataSyncService.instance.initializeLocalDatabase();
   await SupabaseService.instance.initialize();
+
+  // Tie the staff session to the Firebase identity: any account change or
+  // sign-out clears the previous staff member's identity immediately, and the
+  // live branch data (orders, stock, transfers, notifications, realtime
+  // channel) is wiped with it so nothing survives into the next account.
+  StaffSessionStore.instance.registerResetHook(StaffStore.instance.clear);
+  StaffSessionStore.instance.bindToAuth();
   // Catalog is public read data (see supabase/schema.sql policies) — load it
   // up front so it's ready the moment the storefront screens build, guest
   // browsing included. If this fails (e.g. offline), the screens themselves
@@ -45,6 +54,22 @@ Future<void> main() async {
       await ProductsRepository.instance.loadCatalog(
         branchId: BranchController.instance.selectedBranch?.id,
       );
+      return;
+    }
+    if (StaffSessionStore.instance.ownerUid == uid) {
+      // A staff member / owner is signed in: re-confirm their profile, branch
+      // and permissions (an administrator may have changed them while the
+      // device was offline), then reload the live branch data. Customer data
+      // (cart, loyalty, ...) does not exist for these accounts.
+      await Future.wait([
+        ProductsRepository.instance.loadCatalog(
+          branchId: BranchController.instance.selectedBranch?.id,
+        ),
+        StaffSessionStore.instance.refresh(),
+      ]);
+      if (StaffStore.instance.profile != null) {
+        await StaffStore.instance.refreshAll();
+      }
       return;
     }
     await Future.wait([
