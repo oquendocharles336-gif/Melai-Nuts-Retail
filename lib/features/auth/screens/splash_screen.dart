@@ -84,9 +84,13 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Column(
             children: [
               const SizedBox(height: 8),
               Row(
@@ -105,7 +109,8 @@ class _SplashScreenState extends State<SplashScreen> {
                       ),
                     ),
                   ),
-                  Container(
+                  Flexible(
+                    child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 6,
@@ -123,14 +128,18 @@ class _SplashScreenState extends State<SplashScreen> {
                           color: AppColors.success,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          'Multi-Branch Connected',
-                          style: AppTextStyles.labelMd.copyWith(
-                            color: AppColors.success,
+                        Flexible(
+                          child: Text(
+                            'Multi-Branch Connected',
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.labelMd.copyWith(
+                              color: AppColors.success,
+                            ),
                           ),
                         ),
                       ],
                     ),
+                  ),
                   ),
                 ],
               ),
@@ -274,6 +283,9 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
               const SizedBox(height: 12),
             ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
