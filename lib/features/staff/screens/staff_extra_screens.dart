@@ -290,7 +290,7 @@ class StaffProfileBody extends StatelessWidget {
                   border: Border.all(color: AppColors.border),
                   boxShadow: AppShadows.sm,
                 ),
-                child: Column(
+                child: Material(type: MaterialType.transparency, child: Column(
                   children: [
                     if (p.isOwner || p.canReviewRefunds) ...[
                       ListTile(
@@ -310,7 +310,7 @@ class StaffProfileBody extends StatelessWidget {
                       ),
                     ),
                   ],
-                ),
+                )),
               ),
               const SizedBox(height: AppSpacing.lg),
               SecondaryButton(

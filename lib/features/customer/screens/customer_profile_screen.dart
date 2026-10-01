@@ -228,7 +228,7 @@ class CustomerProfileScreen extends StatelessWidget {
                 border: Border.all(color: AppColors.border),
                 boxShadow: AppShadows.sm,
               ),
-              child: Column(
+              child: Material(type: MaterialType.transparency, child: Column(
                 children: [
                   _SettingsTile(
                     icon: Icons.settings_outlined,
@@ -269,7 +269,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).pushNamed(AppRoutes.customerRefundHistory),
                   ),
                 ],
-              ),
+              )),
             ),
             const SizedBox(height: AppSpacing.lg),
             SecondaryButton(

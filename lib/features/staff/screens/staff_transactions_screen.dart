@@ -56,23 +56,10 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
     final method = o.payment?.method ?? '';
     String? ref;
     if (method != 'cash') {
-      final controller = TextEditingController();
       ref = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Confirm payment'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Payment reference number'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Confirm')),
-          ],
-        ),
+        builder: (ctx) => const _PaymentReferenceDialog(),
       );
-      controller.dispose();
       if (ref == null) return;
     } else {
       final ok = await showDialog<bool>(
@@ -274,4 +261,44 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
           ],
         ),
       );
+}
+
+
+/// Owns its own [TextEditingController] so it is disposed together with the
+/// dialog (after the close animation) rather than while the field is still
+/// on screen.
+class _PaymentReferenceDialog extends StatefulWidget {
+  const _PaymentReferenceDialog();
+
+  @override
+  State<_PaymentReferenceDialog> createState() => _PaymentReferenceDialogState();
+}
+
+class _PaymentReferenceDialogState extends State<_PaymentReferenceDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Confirm payment'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'Payment reference number'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('Confirm'),
+        ),
+      ],
+    );
+  }
 }

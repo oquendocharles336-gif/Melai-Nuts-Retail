@@ -259,12 +259,12 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(24),
                 child: Center(child: Text('No activity yet.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
               )
-                  : Column(
+                  : Material(type: MaterialType.transparency, child: Column(
                 children: [
                   for (final tx in CustomerDataStore.instance.loyaltyTransactions.take(3))
                     _ActivityRow(tx: tx, isLast: tx == CustomerDataStore.instance.loyaltyTransactions.take(3).last),
                 ],
-              ),
+              )),
             ),
           ],
         ),

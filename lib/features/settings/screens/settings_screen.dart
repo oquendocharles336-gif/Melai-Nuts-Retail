@@ -147,7 +147,7 @@ class _Section extends StatelessWidget {
         border: Border.all(color: AppColors.border),
         boxShadow: AppShadows.sm,
       ),
-      child: Column(children: children),
+      child: Material(type: MaterialType.transparency, child: Column(children: children)),
     );
   }
 }

@@ -54,7 +54,7 @@ class LoyaltyHistoryScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                     border: Border.all(color: AppColors.border),
                   ),
-                  child: ListTile(
+                  child: Material(type: MaterialType.transparency, child: ListTile(
                     leading: CircleAvatar(
                       backgroundColor: isEarn ? AppColors.successBg : AppColors.errorBg,
                       child: Icon(
@@ -88,7 +88,7 @@ class LoyaltyHistoryScreen extends StatelessWidget {
                       '/customer/loyalty/transaction',
                       arguments: tx,
                     ),
-                  ),
+                  )),
                 );
               },
             ),

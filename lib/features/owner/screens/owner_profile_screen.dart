@@ -70,7 +70,7 @@ class OwnerProfileBody extends StatelessWidget {
             border: Border.all(color: AppColors.border),
             boxShadow: AppShadows.sm,
           ),
-          child: Column(
+          child: Material(type: MaterialType.transparency, child: Column(
             children: [
               ListTile(
                 leading: const Icon(Icons.settings_outlined, color: AppColors.darkBrown),
@@ -88,7 +88,7 @@ class OwnerProfileBody extends StatelessWidget {
                 onTap: () {},
               ),
             ],
-          ),
+          )),
         ),
         const SizedBox(height: AppSpacing.lg),
         SecondaryButton(

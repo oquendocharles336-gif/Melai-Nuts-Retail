@@ -33,16 +33,16 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^2.0.0
+  cupertino_icons: ^1.0.8
 
   # Vector rendering for the Melai Nuts logo/brand mark
   flutter_svg: ^2.0.10+1
 
   # Plus Jakarta Sans typography (matches the prototype design system)
-  google_fonts: ^9.0.0
+  google_fonts: ^6.2.1
 
   # Date and number formatting
-  intl: ^0.20.3
+  intl: ^0.19.0
   firebase_core: ^4.15.0
   firebase_auth: ^6.7.0
   cloud_firestore: ^6.10.0
@@ -58,7 +58,7 @@ dependencies:
   # Real connectivity detection (not a guess from failed requests) so the
   # app can tell "offline" apart from "server error" and refresh real data
   # the moment a connection comes back — see lib/core/services/connectivity_service.dart.
-  connectivity_plus: ^7.3.2
+  connectivity_plus: ^6.1.0
 
   # Local SQLite database for the staff offline foundation (cached staff
   # context + the synchronization queue) — see lib/core/services/sqlite_service.dart.

@@ -139,6 +139,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  void _guestAccess() {
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(AppRoutes.homeFor(UserRole.customer), (r) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -368,6 +374,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: _submit,
                       ),
                     ],
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: () =>
+                          Navigator.of(context).pushNamed(AppRoutes.security),
+                      icon: const Icon(Icons.shield_outlined, size: 16),
+                      label: const Text('Login & Security Settings'),
+                    ),
+                    Center(
+                      child: TextButton(
+                        onPressed: _guestAccess,
+                        child: const Text('Browse Catalog as Guest →'),
+                      ),
+                    ),
                   ],
                 ),
               ),
