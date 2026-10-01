@@ -15,6 +15,7 @@ import 'data_sync_service.dart';
 import 'email_verification_service.dart';
 import 'staff_session_store.dart';
 import 'staff_store.dart';
+import 'sync_service.dart';
 import '../../data/repositories/staff_repository.dart';
 
 /// A user-facing authentication failure. The [message] is already written
@@ -155,6 +156,7 @@ class AuthService {
     bool allowVerificationResume = false,
   }) async {
     _throwIfBraked(_signInBrake);
+    StaffSessionStore.instance.beginAuthentication();
     try {
       final credential = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
@@ -174,6 +176,10 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       if (e.code != 'network-request-failed') _signInBrake.recordFailure();
       throw AuthException(_messageFor(e));
+    } finally {
+      // No-op once a staff session owns the store; otherwise (failed or
+      // non-staff sign-in) it leaves the "authenticating" phase.
+      StaffSessionStore.instance.endAuthentication();
     }
   }
 
@@ -487,6 +493,14 @@ class AuthService {
   /// wiped on the next app start (see [DataSyncService.initializeLocalDatabase]).
   Future<void> signOut() async {
     _userInitiatedSignOut = true;
+    final signingOutStaffUid = StaffSessionStore.instance.ownerUid;
+    // While the session is still valid: push any queued staff operations
+    // (bounded, best effort — whatever cannot be sent stays queued on the
+    // device for this staff member and is never deleted). Skipped when there
+    // is nothing queued so a normal sign-out stays instant.
+    if (StaffSessionStore.instance.isServerValidated && SyncService.instance.pendingCount > 0) {
+      await SyncService.instance.flushBeforeSignOut();
+    }
     _currentProfile = null;
     // Drop the staff member's profile, branch, permissions and every hook
     // registered by later staff stores, synchronously, before anything awaits.
@@ -505,6 +519,13 @@ class AuthService {
     CustomerDataStore.instance.clear();
     StaffStore.instance.clear();
     BranchController.instance.clear();
+    if (signingOutStaffUid != null) {
+      // A signed-out device holds no staff authorization: delete the offline
+      // copy of their context. Synced operations are tidied; unsent and
+      // failed ones are kept for when this staff member signs in again.
+      await SyncService.instance.tidyForSignOut(signingOutStaffUid);
+      await StaffSessionStore.instance.forgetCachedContext(signingOutStaffUid);
+    }
     await DataSyncService.instance.syncPendingWrites();
     await _auth.signOut();
   }
@@ -626,6 +647,24 @@ class AuthService {
       await signOut();
       throw const AuthException(
         'This account has been deactivated. Please contact your administrator.',
+      );
+    }
+    if (status == StaffSessionStatus.suspended) {
+      await signOut();
+      throw const AuthException(
+        'This account has been suspended. Please contact your administrator.',
+      );
+    }
+    if (status == StaffSessionStatus.invalidRole) {
+      await signOut();
+      throw const AuthException(
+        'This account has a role the app does not recognise. Please contact your administrator.',
+      );
+    }
+    if (status == StaffSessionStatus.invalidBranch) {
+      await signOut();
+      throw const AuthException(
+        'This account is not assigned to a valid branch. Please contact your administrator.',
       );
     }
   }

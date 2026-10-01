@@ -52,6 +52,7 @@ import '../features/inventory/screens/receive_batch_screen.dart';
 import '../features/inventory/screens/stock_transfers_screen.dart';
 import '../features/staff/screens/staff_refunds_screen.dart';
 import '../data/models/inventory_item.dart';
+import '../data/models/staff_context.dart';
 import '../data/models/staff_models.dart';
 import '../data/models/inventory_batch.dart';
 import '../features/products/screens/product_management_screen.dart';
@@ -298,6 +299,16 @@ class AppRoutes {
   // Owner is a superset of staff (matches firestore.rules); the Owner portal
   // also links into the inventory / OCR screens.
   static const _Access _staff = _Access({UserRole.staff, UserRole.owner});
+  // Staff screens that only make sense with a management permission. Owners
+  // hold every permission. UX gate only: the staff RPCs enforce the same rule.
+  static const _Access _staffManageInventory = _Access(
+    {UserRole.staff, UserRole.owner},
+    permissions: {StaffPermission.manageInventory},
+  );
+  static const _Access _staffManageRefunds = _Access(
+    {UserRole.staff, UserRole.owner},
+    permissions: {StaffPermission.manageRefunds},
+  );
   static const _Access _owner = _Access({UserRole.owner});
   // Delivery screens shared by riders and the Owner's delivery management.
   static const _Access _rider = _Access({UserRole.delivery, UserRole.owner});
@@ -366,12 +377,12 @@ class AppRoutes {
     inventoryFefo: _staff,
     inventoryBatchDetails: _staff,
     inventoryLowStock: _staff,
-    inventoryAdjustment: _staff,
-    inventoryAdjustmentSuccess: _staff,
-    inventoryAdd: _staff,
-    inventoryReceive: _staff,
+    inventoryAdjustment: _staffManageInventory,
+    inventoryAdjustmentSuccess: _staffManageInventory,
+    inventoryAdd: _staffManageInventory,
+    inventoryReceive: _staffManageInventory,
     inventoryTransfers: _staff,
-    staffRefunds: _staff,
+    staffRefunds: _staffManageRefunds,
     ocrCapture: _staff,
     ocrPreview: _staff,
     ocrProcessing: _staff,
@@ -428,6 +439,7 @@ class AppRoutes {
     return (context) => RouteGuard(
           allowedRoles: effective.roles,
           allowGuest: effective.guest,
+          requiredPermissions: effective.permissions,
           builder: builder,
         );
   }
@@ -848,9 +860,14 @@ class _Access {
   final bool guest;
   final bool isPublic;
 
-  const _Access(this.roles, {this.guest = false}) : isPublic = false;
+  /// Permissions a staff member must hold (see `StaffPermission`).
+  final Set<String> permissions;
+
+  const _Access(this.roles, {this.guest = false, this.permissions = const <String>{}})
+      : isPublic = false;
   const _Access.public()
       : roles = null,
         guest = true,
-        isPublic = true;
+        isPublic = true,
+        permissions = const <String>{};
 }

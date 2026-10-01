@@ -1,8 +1,8 @@
 -- =============================================================================
 -- Melai Nuts — staff identity test suite
 -- =============================================================================
--- Verifies 20260930000000_staff_backend.sql (staff_members registry +
--- get_my_staff_context) the way a hostile
+-- Verifies 20260930000000_staff_backend.sql + 20260930010000_staff_foundation.sql
+-- (staff_members registry + get_my_staff_context) the way a hostile
 -- client would: as the `anon` / `authenticated` Postgres roles carrying a
 -- Firebase-shaped JWT (`request.jwt.claims`).
 --
@@ -102,14 +102,14 @@ select
 grant select on fx to public;
 
 insert into public.staff_members
-  (firebase_uid, full_name, email, role, branch_id, is_active, can_manage_inventory, can_review_refunds)
-select 'staff-a',   'Staff A',   'a@test.local',   'staff', branch_a, true,  true,  false from fx
+  (firebase_uid, full_name, email, role, branch_id, account_status, can_manage_inventory, can_review_refunds)
+select 'staff-a',   'Staff A',   'a@test.local',   'staff', branch_a, 'active',   true,  false from fx
 union all
-select 'staff-b',   'Staff B',   'b@test.local',   'staff', branch_b, true,  false, true  from fx
+select 'staff-b',   'Staff B',   'b@test.local',   'staff', branch_b, 'active',   false, true  from fx
 union all
-select 'staff-off', 'Staff Off', 'off@test.local', 'staff', branch_a, false, true,  true  from fx
+select 'staff-off', 'Staff Off', 'off@test.local', 'staff', branch_a, 'inactive', true,  true  from fx
 union all
-select 'owner-1',   'Owner One', 'o@test.local',   'owner', null,     true,  false, false from fx;
+select 'owner-1',   'Owner One', 'o@test.local',   'owner', null,     'active',   false, false from fx;
 -- 'staff-none' has NO registry row at all (a customer's or unprovisioned Firebase account).
 
 -- ===========================================================================
@@ -174,7 +174,7 @@ select pg_temp.chk('Staff cannot promote self to owner', 'staff-a',
 select pg_temp.chk('Staff cannot move self to another branch', 'staff-a',
   format($$update public.staff_members set branch_id = %L where firebase_uid = 'staff-a'$$, (select branch_b from fx)), 'error');
 select pg_temp.chk('Staff cannot reactivate self', 'staff-off',
-  $$update public.staff_members set is_active = true where firebase_uid = 'staff-off'$$, 'error');
+  $$update public.staff_members set account_status = 'active' where firebase_uid = 'staff-off'$$, 'error');
 select pg_temp.chk('Stranger cannot mint a registry row for self', 'staff-none',
   $$insert into public.staff_members (firebase_uid, role, branch_id) values ('staff-none', 'owner', null)$$, 'error');
 select pg_temp.chk('Staff cannot delete a registry row', 'staff-a',
@@ -213,7 +213,7 @@ select pg_temp.chk_true('staff_is_owner: owner true, staff false',
 -- 4. Deactivation and reassignment take effect immediately (same token)
 -- ===========================================================================
 
-update public.staff_members set is_active = false where firebase_uid = 'staff-a';
+update public.staff_members set account_status = 'inactive' where firebase_uid = 'staff-a';
 select pg_temp.chk_true('Deactivating A flips context to inactive at once',
   pg_temp.scalar_as('staff-a', $$select public.get_my_staff_context() ->> 'status'$$) = 'inactive');
 select pg_temp.chk_true('Deactivating A revokes helper access at once',
@@ -221,11 +221,14 @@ select pg_temp.chk_true('Deactivating A revokes helper access at once',
 select pg_temp.chk('Deactivated A can no longer read inventory', 'staff-a',
   format($$select public.staff_get_inventory(%L)$$, (select branch_a from fx)), 'error');
 
-update public.staff_members set is_active = true, branch_id = (select branch_b from fx) where firebase_uid = 'staff-a';
+update public.staff_members set account_status = 'active', branch_id = (select branch_b from fx) where firebase_uid = 'staff-a';
 select pg_temp.chk_true('Reassigning A to branch B is reflected at once',
   pg_temp.scalar_as('staff-a', $$select public.get_my_staff_context() -> 'profile' ->> 'branch_name'$$) = 'STAFF-TEST Branch B');
-select pg_temp.chk('A can no longer read branch A''s inventory after the move', 'staff-a',
-  format($$select public.staff_get_inventory(%L)$$, (select branch_a from fx)), 'error');
+-- staff_get_inventory ignores a staff member's requested branch and serves
+-- their assigned one, so after the move asking for branch A returns branch B.
+select pg_temp.chk_true('A asking for branch A''s inventory after the move gets branch B, never A',
+  pg_temp.scalar_as('staff-a', format($$select public.staff_get_inventory(%L) ->> 'branch_id'$$, (select branch_a from fx)))
+    = (select branch_b::text from fx));
 
 update public.staff_members set can_manage_inventory = false where firebase_uid = 'staff-a';
 select pg_temp.chk_true('Revoking a flag is reflected at once',

@@ -33,6 +33,7 @@ class RouteGuard extends StatefulWidget {
     required this.builder,
     this.allowedRoles,
     this.allowGuest = false,
+    this.requiredPermissions = const <String>{},
   });
 
   final WidgetBuilder builder;
@@ -42,6 +43,11 @@ class RouteGuard extends StatefulWidget {
 
   /// Whether an unauthenticated visitor may view it (public catalog browsing).
   final bool allowGuest;
+
+  /// Permissions (see `StaffPermission`) a signed-in STAFF member must hold to
+  /// see the screen. Owners hold every permission and are not checked. UX only:
+  /// the database enforces the same rules on every request.
+  final Set<String> requiredPermissions;
 
   @override
   State<RouteGuard> createState() => _RouteGuardState();
@@ -172,9 +178,14 @@ class _RouteGuardState extends State<RouteGuard> {
       if (staffUid != null) {
         return ListenableBuilder(
           listenable: StaffSessionStore.instance,
-          builder: (context, _) => StaffSessionStore.instance.isReadyFor(staffUid)
-              ? widget.builder(context)
-              : const StaffSessionBlockedView(),
+          builder: (context, _) {
+            final session = StaffSessionStore.instance;
+            if (!session.isReadyFor(staffUid)) return const StaffSessionBlockedView();
+            if (!session.canAll(widget.requiredPermissions)) {
+              return const StaffPermissionDeniedView();
+            }
+            return widget.builder(context);
+          },
         );
       }
       return widget.builder(context);

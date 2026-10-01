@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+/// The app's connection state. Later batches extend this with `syncing`,
+/// `synced` and `syncError`; today the device is either reachable or not.
+enum ConnectionStatus { online, offline }
+
 /// Tracks real device connectivity (not a guess from a failed request) and
 /// tells every customer-data screen apart from a network state:
 ///
@@ -22,15 +26,35 @@ import 'package:flutter/foundation.dart';
 /// This is genuinely a signal about the network path, not a simulation:
 /// `connectivity_plus` reports the OS's own connectivity state.
 class ConnectivityService extends ChangeNotifier {
-  ConnectivityService._();
+  ConnectivityService._()
+      : _check = (() => Connectivity().checkConnectivity()),
+        _changes = (() => Connectivity().onConnectivityChanged),
+        _settleDelay = const Duration(seconds: 1);
+
+  /// Test seam: drive the service with a fake platform source.
+  @visibleForTesting
+  ConnectivityService.testing({
+    required Future<List<ConnectivityResult>> Function() check,
+    required Stream<List<ConnectivityResult>> Function() changes,
+    Duration settleDelay = Duration.zero,
+  })  : _check = check,
+        _changes = changes,
+        _settleDelay = settleDelay;
+
   static final ConnectivityService instance = ConnectivityService._();
 
-  final Connectivity _connectivity = Connectivity();
+  final Future<List<ConnectivityResult>> Function() _check;
+  final Stream<List<ConnectivityResult>> Function() _changes;
+  final Duration _settleDelay;
+
   StreamSubscription<List<ConnectivityResult>>? _subscription;
   Timer? _debounce;
 
   bool _isOnline = true;
   bool get isOnline => _isOnline;
+
+  /// Typed view of [isOnline] for code that will also need the sync states.
+  ConnectionStatus get status => _isOnline ? ConnectionStatus.online : ConnectionStatus.offline;
 
   final List<Future<void> Function()> _reconnectCallbacks = [];
 
@@ -41,7 +65,7 @@ class ConnectivityService extends ChangeNotifier {
     if (_started) return;
     _started = true;
     try {
-      final initial = await _connectivity.checkConnectivity();
+      final initial = await _check();
       _isOnline = _hasConnection(initial);
     } catch (_) {
       // Plugin unavailable (unsupported platform, etc.) — assume online
@@ -50,7 +74,7 @@ class ConnectivityService extends ChangeNotifier {
     }
     notifyListeners();
 
-    _subscription = _connectivity.onConnectivityChanged.listen((results) {
+    _subscription = _changes().listen((results) {
       final nowOnline = _hasConnection(results);
       if (nowOnline == _isOnline) return;
       final wasOffline = !_isOnline;
@@ -60,7 +84,7 @@ class ConnectivityService extends ChangeNotifier {
         _debounce?.cancel();
         // Small settle delay: the OS can report "connected" a moment
         // before the network is actually usable (captive portals, DHCP).
-        _debounce = Timer(const Duration(seconds: 1), _fireReconnectCallbacks);
+        _debounce = Timer(_settleDelay, _fireReconnectCallbacks);
       }
     });
   }

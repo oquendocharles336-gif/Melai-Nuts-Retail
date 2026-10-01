@@ -7,13 +7,23 @@ DateTime _time(dynamic v) => DateTime.parse(v as String).toLocal();
 /// The signed-in staff member as recorded in the database's own staff
 /// registry (`staff_members`). This — not anything cached on the device — is
 /// what the database checks on every staff request.
+///
+/// Identity is [uid] (the Firebase UID). [email] is a contact/display field
+/// kept in step with the Firebase account by the server
+/// (`staff_sync_my_identity`); it is never used to decide who someone is.
 class StaffProfile {
   final String uid;
   final String fullName;
   final String email;
+  final String? phone;
+  final String? profileImage;
   final String role; // 'staff' | 'owner'
   final String? branchId;
   final String? branchName;
+
+  /// 'active' | 'inactive' | 'suspended'. Only 'active' ever reaches the app
+  /// as a usable profile; the others are reported as session statuses.
+  final String accountStatus;
   final bool isActive;
   final bool canManageInventory;
   final bool canReviewRefunds;
@@ -30,6 +40,9 @@ class StaffProfile {
     required this.canManageInventory,
     required this.canReviewRefunds,
     required this.createdAt,
+    this.phone,
+    this.profileImage,
+    this.accountStatus = 'active',
   });
 
   bool get isOwner => role == 'owner';
@@ -42,18 +55,41 @@ class StaffProfile {
     return (parts.first[0] + parts.last[0]).toUpperCase();
   }
 
-  factory StaffProfile.fromJson(Map<String, dynamic> j) => StaffProfile(
-        uid: j['firebase_uid'] as String,
-        fullName: (j['full_name'] as String?) ?? '',
-        email: (j['email'] as String?) ?? '',
-        role: (j['role'] as String?) ?? 'staff',
-        branchId: j['branch_id'] as String?,
-        branchName: j['branch_name'] as String?,
-        isActive: (j['is_active'] as bool?) ?? false,
-        canManageInventory: (j['can_manage_inventory'] as bool?) ?? false,
-        canReviewRefunds: (j['can_review_refunds'] as bool?) ?? false,
-        createdAt: j['created_at'] == null ? null : _time(j['created_at']),
-      );
+  factory StaffProfile.fromJson(Map<String, dynamic> j) {
+    final isActive = (j['is_active'] as bool?) ?? false;
+    return StaffProfile(
+      uid: j['firebase_uid'] as String,
+      fullName: (j['full_name'] as String?) ?? '',
+      email: (j['email'] as String?) ?? '',
+      phone: j['phone'] as String?,
+      profileImage: j['profile_image'] as String?,
+      role: (j['role'] as String?) ?? 'staff',
+      branchId: j['branch_id'] as String?,
+      branchName: j['branch_name'] as String?,
+      accountStatus: (j['account_status'] as String?) ?? (isActive ? 'active' : 'inactive'),
+      isActive: isActive,
+      canManageInventory: (j['can_manage_inventory'] as bool?) ?? false,
+      canReviewRefunds: (j['can_review_refunds'] as bool?) ?? false,
+      createdAt: j['created_at'] == null ? null : _time(j['created_at']),
+    );
+  }
+
+  /// Same shape [StaffProfile.fromJson] reads (used for the offline cache).
+  Map<String, dynamic> toJson() => {
+        'firebase_uid': uid,
+        'full_name': fullName,
+        'email': email,
+        'phone': phone,
+        'profile_image': profileImage,
+        'role': role,
+        'branch_id': branchId,
+        'branch_name': branchName,
+        'account_status': accountStatus,
+        'is_active': isActive,
+        'can_manage_inventory': canManageInventory,
+        'can_review_refunds': canReviewRefunds,
+        'created_at': createdAt?.toUtc().toIso8601String(),
+      };
 }
 
 class StaffBranchInfo {

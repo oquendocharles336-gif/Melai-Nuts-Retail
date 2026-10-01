@@ -23,6 +23,19 @@ enum AppErrorKind {
   orderFailed,
   refundFailed,
   database,
+
+  /// The on-device database (SQLite) failed. Never about the person's data
+  /// on the server.
+  localStorage,
+
+  /// Staff access states (see `StaffSessionStore`): each has a fixed,
+  /// person-readable message and never any backend detail.
+  staffNotProvisioned,
+  accountInactive,
+  accountSuspended,
+  invalidRole,
+  invalidBranch,
+  accessDenied,
   unknown,
 }
 
@@ -106,6 +119,13 @@ class AppErrors {
     if (error is TimeoutException) return _timeout(scope);
     if (error is PostgrestException) return _fromPostgrest(error, scope);
     if (error is AuthException) return _fromAuthException(error);
+
+    // On-device database failures (sqflite / sqlite). Checked before the
+    // generic text rules because their messages can contain SQL.
+    final lowered = error.toString().toLowerCase();
+    if (_hasAny(lowered, const ['databaseexception', 'sqliteexception', 'sqflite', 'sqlite_', 'no such table'])) {
+      return localStorageError();
+    }
 
     // String checks (not runtimeType) so this keeps working in minified web
     // builds and without importing dart:io.
@@ -322,6 +342,42 @@ class AppErrors {
       'This is taking longer than expected. Please try again.',
     );
   }
+
+  /// The on-device database could not be read or written.
+  static AppError localStorageError() => const AppError(
+        AppErrorKind.localStorage,
+        'We couldn\'t read or save information on this device. Please try again.',
+      );
+
+  static AppError staffNotProvisioned() => const AppError(
+        AppErrorKind.staffNotProvisioned,
+        'Your staff account has not been set up yet. Please contact your administrator.',
+      );
+
+  static AppError accountInactive() => const AppError(
+        AppErrorKind.accountInactive,
+        'This staff account has been deactivated. Please contact your administrator.',
+      );
+
+  static AppError accountSuspended() => const AppError(
+        AppErrorKind.accountSuspended,
+        'This staff account has been suspended. Please contact your administrator.',
+      );
+
+  static AppError invalidRole() => const AppError(
+        AppErrorKind.invalidRole,
+        'This account has a role the app does not recognise. Please contact your administrator.',
+      );
+
+  static AppError invalidBranch() => const AppError(
+        AppErrorKind.invalidBranch,
+        'Your account is not assigned to a valid branch. Please contact your administrator.',
+      );
+
+  static AppError accessDenied() => const AppError(
+        AppErrorKind.accessDenied,
+        'You don\'t have access to this area.',
+      );
 
   static AppError _authExpired() => const AppError(
         AppErrorKind.authExpired,

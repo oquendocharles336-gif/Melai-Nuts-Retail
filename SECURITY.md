@@ -212,6 +212,64 @@ scheduled job that deletes Auth users with `emailVerified == false` and no
 `users/{uid}` document older than ~24h. Existing customers who registered before
 this change already have profiles and are unaffected.
 
+## Staff foundation (Batch 1): identity, offline and audit
+
+**Who decides what**
+
+| Layer | Authority for |
+|---|---|
+| Firebase Auth | who you are (UID, login, password reset, verification) |
+| Supabase (`staff_members`, RLS, RPCs) | what you may do: role, branch, permissions, account status |
+| SQLite on the device | nothing — a cache and a retry queue |
+
+A Firebase account alone grants no staff access. After sign-in the app asks
+`get_my_staff_context()`, and staff screens stay locked until the server confirms
+an **active** profile with a valid role and branch for exactly that UID.
+`inactive`, `suspended`, no profile, an unknown role or a missing branch each
+produce their own access-denied state; nothing is auto-created.
+
+**Offline sessions (the honest limits)**
+
+- Firebase persists the signed-in session itself. The app never stores a password
+  and there is no offline "login".
+- After every server confirmation the context is saved to SQLite. If the next
+  start cannot reach the server, a copy for the *same UID*, confirmed active within
+  the last **72 hours** (`StaffLocalRepository.maxOfflineAge`), restores the session
+  read-only-ish: `StaffSessionStore.isServerValidated` is `false`.
+- Sensitive actions must call `StaffSessionStore.requireServerValidation()` (or use
+  `canSensitive`) and wait for the backend. The database enforces every rule on
+  each request regardless.
+- The moment the server says inactive / suspended / not set up / invalid, the cached
+  copy is deleted, so a revoked account cannot be restored offline. A cached row is
+  also rejected if it is expired, dated in the future, corrupt, for a different UID,
+  or not `active`.
+- **Residual risk:** an account revoked while a device stays offline keeps its cached
+  read access for up to 72 hours (it cannot write anything — writes need the server).
+  Shorten `maxOfflineAge` if that is too long for your business. The SQLite file is
+  not encrypted at rest.
+
+**No leakage between accounts.** The store is bound to one Firebase UID; on any
+identity change it clears synchronously, drops late responses meant for the previous
+account, runs every registered reset hook (later staff stores must register one with
+`StaffSessionStore.registerResetHook`) and purges other accounts' cached data.
+Queued operations are owned by a UID and every query is scoped to it.
+
+**Sign-out** flushes queued work (bounded, best effort), deletes the cached
+authorization, tidies *synced* queue rows, and **keeps unsent/failed operations** for
+their owner. Nothing unsynced is deleted silently.
+
+**Audit log.** `staff_audit_logs` is append-only. Actor, branch and time are set by the
+server from the verified token; clients cannot insert, update or delete rows.
+`AuditService.record` goes through the sync queue with an idempotency key, so entries
+made offline are recorded exactly once later. Never put secrets or full customer
+details in audit metadata.
+
+**Secrets.** Only the anon/publishable Supabase key belongs in the app (the app
+refuses a `service_role` / `sb_secret_` key). Note: `env/firebase.example.json` and
+`android/app/google-services.json` carry Firebase *client* config; they are not
+secrets but are tied to your project — keep `google-services.json` out of Git (it is
+in `.gitignore`) and restrict the keys in the Google Cloud console.
+
 ## Known limits (cannot be fully fixed from the Flutter client)
 
 - **Account creation by Owner** still creates the Auth user client-side. Moving it

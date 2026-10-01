@@ -60,6 +60,16 @@ dependencies:
   # the moment a connection comes back — see lib/core/services/connectivity_service.dart.
   connectivity_plus: ^6.1.0
 
+  # Local SQLite database for the staff offline foundation (cached staff
+  # context + the synchronization queue) — see lib/core/services/sqlite_service.dart.
+  # sqflite_common is the pure-Dart API (safe to import on web builds);
+  # sqflite_common_ffi provides the desktop (Windows/Linux/macOS) implementation
+  # and is what the unit tests run against.
+  sqflite: ^2.4.1
+  sqflite_common: ^2.5.4
+  sqflite_common_ffi: ^2.3.4
+  path: ^1.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

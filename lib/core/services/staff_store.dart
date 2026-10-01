@@ -135,13 +135,7 @@ class StaffStore extends ChangeNotifier {
       if (gen != _generation) return;
       final ctx = StaffSessionStore.instance.context;
       if (status != StaffSessionStatus.ready || ctx == null) {
-        throw StaffSessionStore.instance.error ??
-            AppError(
-              AppErrorKind.notFound,
-              status == StaffSessionStatus.inactive
-                  ? 'This account has been deactivated. Please contact your administrator.'
-                  : 'Your staff account is not set up yet. Please contact your administrator.',
-            );
+        throw StaffSessionStore.instance.accessError ?? AppErrors.staffNotProvisioned();
       }
       final p = ctx.profile;
       profile = p;
