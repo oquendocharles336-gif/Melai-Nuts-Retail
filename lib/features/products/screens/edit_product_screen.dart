@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../../../data/repositories/staff_repository.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -12,8 +15,8 @@ import '../../../data/dummy_data/dummy_inventory.dart';
 import '../../../data/models/product.dart';
 
 /// "Edit Product" — same section layout as [AddProductScreen], pre-filled
-/// with the selected product's current data. Frontend-only: "Save Changes"
-/// just confirms and pops back.
+/// with the selected product's current data. "Save Changes"
+/// writes to Supabase through [StaffRepository.saveProduct].
 class EditProductScreen extends StatefulWidget {
   final String productId;
 
@@ -59,13 +62,48 @@ class _EditProductScreenState extends State<EditProductScreen> {
     }
 
     setState(() => _saving = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Simulated: "${_nameController.text}" changes saved.')),
-    );
-    Navigator.of(context).pop();
+    try {
+      final branchIds = kBranches.where((b) => _selectedBranches.contains(b.name)).map((b) => b.id).toList();
+      // A single-variant product follows the edited price; multi-variant
+      // products keep their variants (managed on the variants screen).
+      final variants = _product.variants.length <= 1
+          ? [
+              {
+                if (_product.variants.isNotEmpty) 'id': _product.variants.first.id,
+                'label': _product.variants.isNotEmpty ? _product.variants.first.label : 'Standard',
+                'price': _srp,
+                'cost_price': _cogs > 0 ? _cogs : null,
+                'sku': _product.variants.isNotEmpty ? _product.variants.first.sku : null,
+                'badge': _product.variants.isNotEmpty ? _product.variants.first.badge : null,
+              },
+            ]
+          : _product.variants
+              .map((v) => {'id': v.id, 'label': v.label, 'price': v.price, 'cost_price': v.costPrice, 'sku': v.sku, 'badge': v.badge})
+              .toList();
+      await StaffRepository.instance.saveProduct(
+        productId: _product.id,
+        name: _nameController.text.trim(),
+        description: _descriptionController.text.trim(),
+        categoryId: _category.isEmpty ? null : _category,
+        price: _srp,
+        sku: _product.sku,
+        images: _product.images,
+        isActive: _isActive,
+        isFeatured: _product.isFeatured,
+        variants: variants,
+        branchIds: branchIds,
+      );
+      await ProductsRepository.instance.loadCatalog();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${_nameController.text.trim()}" changes saved.')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppError ? e.message : 'Could not save changes. Please try again.')));
+    }
   }
 
   @override

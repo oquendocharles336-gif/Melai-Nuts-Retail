@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../../../data/repositories/staff_repository.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -56,13 +59,30 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
 
     setState(() => _saving = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Simulated: "${_nameController.text.isEmpty ? 'New product' : _nameController.text}" saved & published.')),
-    );
-    Navigator.of(context).pop();
+    try {
+      final branchIds = kBranches.where((b) => _selectedBranches.contains(b.name)).map((b) => b.id).toList();
+      await StaffRepository.instance.saveProduct(
+        name: _nameController.text.trim(),
+        description: _descriptionController.text.trim(),
+        categoryId: _category,
+        price: _srp,
+        isActive: _publishImmediately,
+        variants: [
+          {'label': 'Standard', 'price': _srp, 'cost_price': _cogs > 0 ? _cogs : null},
+        ],
+        branchIds: branchIds,
+      );
+      await ProductsRepository.instance.loadCatalog();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${_nameController.text.trim()}" saved.')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppError ? e.message : 'Could not save the product. Please try again.')));
+    }
   }
 
   @override

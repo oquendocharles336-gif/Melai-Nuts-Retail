@@ -65,6 +65,48 @@ class StaffRepository {
   List<Map<String, dynamic>> _list(dynamic v) =>
       ((v as List?) ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
+  // ---- Product catalog (shared with the customer app) --------------------
+
+  /// Creates ([productId] null) or updates a product. The database checks the
+  /// `manage_products` permission and branch scope; customers read the same rows.
+  Future<String> saveProduct({
+    String? productId,
+    required String name,
+    required String description,
+    String? categoryId,
+    required double price,
+    String? sku,
+    List<String> images = const [],
+    bool isActive = true,
+    bool isFeatured = false,
+    List<Map<String, dynamic>> variants = const [],
+    List<String> branchIds = const [],
+  }) async =>
+      (await _rpc('staff_save_product', {
+        'p_product_id': productId,
+        'p_name': name,
+        'p_description': description,
+        'p_category_id': categoryId,
+        'p_price': price,
+        'p_sku': sku,
+        'p_images': images,
+        'p_is_active': isActive,
+        'p_is_featured': isFeatured,
+        'p_variants': variants,
+        'p_branch_ids': branchIds,
+      })) as String;
+
+  Future<void> setProductActive(String productId, bool isActive) =>
+      _rpc('staff_set_product_active', {'p_product_id': productId, 'p_is_active': isActive});
+
+  Future<String> saveCategory({String? categoryId, required String label, String? iconName, int? sortOrder}) async =>
+      (await _rpc('staff_save_category', {
+        'p_category_id': categoryId,
+        'p_label': label,
+        'p_icon_name': iconName,
+        'p_sort_order': sortOrder,
+      })) as String;
+
   // ---- Account / dashboard ------------------------------------------------
 
   Future<StaffDashboard> getDashboard(String? branchId) async =>

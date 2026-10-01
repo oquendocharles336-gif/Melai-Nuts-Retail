@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/app_error.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../../../data/repositories/staff_repository.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -58,13 +61,42 @@ class _ProductPricingScreenState extends State<ProductPricingScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _saving = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Simulated: pricing updated for ${_product.name} across all Laguna branches.')),
-    );
-    Navigator.of(context).pop();
+    try {
+      final variants = [
+        for (final r in _rows)
+          {
+            'id': r.variant.id,
+            'label': r.variant.label,
+            'price': r.srpValue,
+            'cost_price': r.cogsValue > 0 ? r.cogsValue : null,
+            'sku': r.variant.sku,
+            'badge': r.variant.badge,
+          },
+      ];
+      final lowest = _rows.isEmpty ? _product.price : _rows.map((r) => r.srpValue).reduce((a, b) => a < b ? a : b);
+      await StaffRepository.instance.saveProduct(
+        productId: _product.id,
+        name: _product.name,
+        description: _product.description,
+        categoryId: _product.categoryId.isEmpty ? null : _product.categoryId,
+        price: lowest,
+        sku: _product.sku,
+        images: _product.images,
+        isActive: _product.isActive,
+        isFeatured: _product.isFeatured,
+        variants: variants,
+      );
+      await ProductsRepository.instance.loadCatalog();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Pricing updated for ${_product.name}.')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppError ? e.message : 'Could not update pricing. Please try again.')));
+    }
   }
 
   @override
