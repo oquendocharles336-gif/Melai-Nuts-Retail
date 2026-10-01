@@ -54,15 +54,12 @@ class SyncService extends ChangeNotifier {
 
   @visibleForTesting
   SyncService.create({
-    required SyncQueueRepository queue,
-    required String? Function() currentUid,
-    required bool Function() isServerValidated,
-    required bool Function() isOnline,
+    required this._queue,
+    required this._currentUid,
+    required this._isServerValidated,
+    required this._isOnline,
     this.maxAttempts = 5,
-  })  : _queue = queue,
-        _currentUid = currentUid,
-        _isServerValidated = isServerValidated,
-        _isOnline = isOnline;
+  });
 
   static final SyncService instance = SyncService._app();
 

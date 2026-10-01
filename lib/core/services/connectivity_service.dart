@@ -34,12 +34,10 @@ class ConnectivityService extends ChangeNotifier {
   /// Test seam: drive the service with a fake platform source.
   @visibleForTesting
   ConnectivityService.testing({
-    required Future<List<ConnectivityResult>> Function() check,
-    required Stream<List<ConnectivityResult>> Function() changes,
-    Duration settleDelay = Duration.zero,
-  })  : _check = check,
-        _changes = changes,
-        _settleDelay = settleDelay;
+    required this._check,
+    required this._changes,
+    this._settleDelay = Duration.zero,
+  });
 
   static final ConnectivityService instance = ConnectivityService._();
 

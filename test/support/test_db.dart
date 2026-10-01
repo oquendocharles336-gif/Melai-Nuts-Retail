@@ -1,5 +1,4 @@
 import 'package:melai_nuts/core/services/sqlite_service.dart';
-import 'package:sqflite_common/sqlite_api.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// A fresh in-memory database with the REAL schema (`SqliteService.migrations`).

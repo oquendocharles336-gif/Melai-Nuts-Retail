@@ -160,20 +160,14 @@ class StaffSessionStore extends ChangeNotifier {
   /// tests use this with fakes.
   @visibleForTesting
   StaffSessionStore.create({
-    required StaffAuthSource auth,
-    required StaffContextFetcher fetcher,
-    StaffLocalRepository? local,
-    Future<void> Function()? identitySync,
-    List<IdentityPurger> identityPurgers = const <IdentityPurger>[],
-    Duration maxOfflineAge = StaffLocalRepository.maxOfflineAge,
+    required this._auth,
+    required this._fetcher,
+    this._local,
+    this._identitySync,
+    this._identityPurgers = const <IdentityPurger>[],
+    this._maxOfflineAge = StaffLocalRepository.maxOfflineAge,
     DateTime Function()? now,
-  })  : _auth = auth,
-        _fetcher = fetcher,
-        _local = local,
-        _identitySync = identitySync,
-        _identityPurgers = identityPurgers,
-        _maxOfflineAge = maxOfflineAge,
-        _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now;
 
   static final StaffSessionStore instance = StaffSessionStore._app();
 

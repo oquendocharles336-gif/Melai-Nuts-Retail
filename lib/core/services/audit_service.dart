@@ -35,12 +35,10 @@ class AuditService {
 
   @visibleForTesting
   AuditService.create({
-    required SyncService sync,
-    required Future<dynamic> Function(String fn, Map<String, dynamic> params) rpc,
-    required Future<List<Map<String, dynamic>>> Function(int limit) fetchRows,
-  })  : _sync = sync,
-        _rpc = rpc,
-        _fetchRows = fetchRows;
+    required this._sync,
+    required this._rpc,
+    required this._fetchRows,
+  });
 
   static final AuditService instance = AuditService._app();
 
