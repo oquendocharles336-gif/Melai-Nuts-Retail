@@ -1,7 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import 'offline_read_cache_client.dart';
+import 'supabase_token.dart';
 
 /// Bootstraps the Supabase client and makes every request identify itself
 /// as the signed-in Firebase user.
@@ -38,11 +38,7 @@ class SupabaseService {
       // network is down. Writes and mutating RPCs pass through untouched —
       // see OfflineReadCacheClient.
       httpClient: OfflineReadCacheClient(),
-      accessToken: () async {
-        final user = fb.FirebaseAuth.instance.currentUser;
-        if (user == null) return null;
-        return user.getIdToken();
-      },
+      accessToken: SupabaseToken.fetch,
     );
 
     _initialized = true;
