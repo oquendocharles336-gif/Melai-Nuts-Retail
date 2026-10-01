@@ -139,12 +139,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _guestAccess() {
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(AppRoutes.homeFor(UserRole.customer), (r) => false);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
