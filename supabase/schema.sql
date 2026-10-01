@@ -233,6 +233,8 @@ create table if not exists public.carts (
 alter table public.carts add column if not exists branch_id uuid references public.branches(id);
 alter table public.carts add column if not exists voucher_code text;
 alter table public.carts add column if not exists redeem_points boolean not null default false;
+alter table public.carts add column if not exists created_at timestamptz not null default now();
+alter table public.carts add column if not exists updated_at timestamptz not null default now();
 update public.carts c
 set branch_id = cp.default_branch_id
 from public.customer_profiles cp
@@ -279,6 +281,8 @@ begin
   end if;
 end $$;
 alter table public.cart_items add column if not exists current_price numeric(10, 2);
+alter table public.cart_items add column if not exists created_at timestamptz not null default now();
+alter table public.cart_items add column if not exists updated_at timestamptz not null default now();
 update public.cart_items ci
 set current_price = pv.price
 from public.product_variants pv
