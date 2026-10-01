@@ -60,6 +60,15 @@ create table if not exists public.branches (
   delivery_fee numeric(10, 2) not null default 0 check (delivery_fee >= 0),
   created_at timestamptz not null default now()
 );
+-- Bring a branches table created by an older version of this script up to date.
+alter table public.branches add column if not exists address text;
+alter table public.branches add column if not exists is_active boolean not null default true;
+alter table public.branches add column if not exists contact_phone text;
+alter table public.branches add column if not exists operating_hours text;
+alter table public.branches add column if not exists supports_delivery boolean not null default true;
+alter table public.branches add column if not exists supports_pickup boolean not null default true;
+alter table public.branches add column if not exists created_at timestamptz not null default now();
+create unique index if not exists branches_name_key on public.branches (name);
 alter table public.branches add column if not exists delivery_fee numeric(10, 2) not null default 0;
 alter table public.branches drop constraint if exists branches_delivery_fee_check;
 alter table public.branches add constraint branches_delivery_fee_check check (delivery_fee >= 0);
@@ -71,6 +80,11 @@ create table if not exists public.product_categories (
   sort_order int not null default 0,
   created_at timestamptz not null default now()
 );
+-- Bring a product_categories table created by an older version of this script up to date.
+alter table public.product_categories add column if not exists label text not null default '';
+alter table public.product_categories add column if not exists icon_name text not null default 'category';
+alter table public.product_categories add column if not exists sort_order int not null default 0;
+alter table public.product_categories add column if not exists created_at timestamptz not null default now();
 
 create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
@@ -101,6 +115,18 @@ create table if not exists public.products (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- Bring a products table created by an older version of this script up to date.
+alter table public.products add column if not exists category_id uuid references public.product_categories(id) on delete set null;
+alter table public.products add column if not exists name text not null default '';
+alter table public.products add column if not exists price numeric(10, 2) not null default 0;
+alter table public.products add column if not exists unit text not null default 'pack';
+alter table public.products add column if not exists description text not null default '';
+alter table public.products add column if not exists icon_name text not null default 'nuts';
+alter table public.products add column if not exists color_hex text not null default '#8D6E63';
+alter table public.products add column if not exists is_active boolean not null default true;
+alter table public.products add column if not exists is_featured boolean not null default false;
+alter table public.products add column if not exists created_at timestamptz not null default now();
+alter table public.products add column if not exists updated_at timestamptz not null default now();
 drop trigger if exists products_set_updated_at on public.products;
 create trigger products_set_updated_at before update on public.products
   for each row execute function public.set_updated_at();
@@ -124,6 +150,13 @@ create table if not exists public.product_variants (
   sku text,
   sort_order int not null default 0
 );
+-- Bring a product_variants table created by an older version of this script up to date.
+alter table public.product_variants add column if not exists label text not null default '';
+alter table public.product_variants add column if not exists price numeric(10, 2) not null default 0;
+alter table public.product_variants add column if not exists badge text;
+alter table public.product_variants add column if not exists cost_price numeric(10, 2);
+alter table public.product_variants add column if not exists sku text;
+alter table public.product_variants add column if not exists sort_order int not null default 0;
 
 create table if not exists public.branch_inventory (
   id uuid primary key default gen_random_uuid(),
@@ -133,6 +166,9 @@ create table if not exists public.branch_inventory (
   quantity int not null default 0 check (quantity >= 0),
   unique (branch_id, product_id, variant_id)
 );
+-- Bring a branch_inventory table created by an older version of this script up to date.
+alter table public.branch_inventory add column if not exists variant_id uuid references public.product_variants(id) on delete cascade;
+alter table public.branch_inventory add column if not exists quantity int not null default 0;
 
 -- -----------------------------------------------------------------------------
 -- Customer profile, addresses, notification preferences
@@ -553,6 +589,15 @@ create table if not exists public.rewards (
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
+-- Bring a rewards table created by an older version of this script up to date.
+alter table public.rewards add column if not exists description text not null default '';
+alter table public.rewards add column if not exists points_required int not null default 1;
+alter table public.rewards add column if not exists badge_label text not null default '';
+alter table public.rewards add column if not exists icon_name text not null default 'redeem';
+alter table public.rewards add column if not exists color_hex text not null default '#8D6E63';
+alter table public.rewards add column if not exists stock int;
+alter table public.rewards add column if not exists is_active boolean not null default true;
+alter table public.rewards add column if not exists created_at timestamptz not null default now();
 
 -- Home dashboard promo banner(s). Real, staff/owner-managed rows — the app
 -- never shows a promo that isn't actually here, and shows none at all
@@ -570,6 +615,15 @@ create table if not exists public.promotions (
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
+-- Bring a promotions table created by an older version of this script up to date.
+alter table public.promotions add column if not exists subtitle text not null default '';
+alter table public.promotions add column if not exists badge_label text not null default 'LIMITED TIME OFFER';
+alter table public.promotions add column if not exists icon_name text not null default 'local_offer';
+alter table public.promotions add column if not exists starts_at timestamptz;
+alter table public.promotions add column if not exists ends_at timestamptz;
+alter table public.promotions add column if not exists sort_order int not null default 0;
+alter table public.promotions add column if not exists is_active boolean not null default true;
+alter table public.promotions add column if not exists created_at timestamptz not null default now();
 
 create table if not exists public.reward_redemptions (
   id uuid primary key default gen_random_uuid(),
