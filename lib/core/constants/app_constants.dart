@@ -7,8 +7,8 @@ class AppConstants {
       'Laguna Provincial Hub (Calamba • Los Baños • Santa Cruz)';
 
   static const List<String> branches = [
-    'Santa Cruz Main',
+    'Santa Cruz Branch',
     'Calamba Branch',
-    'Los Baños Hub',
+    'Los Baños Branch',
   ];
 }
