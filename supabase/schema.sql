@@ -101,6 +101,7 @@ create table if not exists public.products (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+drop trigger if exists products_set_updated_at on public.products;
 create trigger products_set_updated_at before update on public.products
   for each row execute function public.set_updated_at();
 
@@ -147,6 +148,7 @@ create table if not exists public.customer_profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+drop trigger if exists customer_profiles_set_updated_at on public.customer_profiles;
 create trigger customer_profiles_set_updated_at before update on public.customer_profiles
   for each row execute function public.set_updated_at();
 
@@ -172,6 +174,7 @@ create table if not exists public.notification_preferences (
   delivery_updates boolean not null default true,
   updated_at timestamptz not null default now()
 );
+drop trigger if exists notification_prefs_set_updated_at on public.notification_preferences;
 create trigger notification_prefs_set_updated_at before update on public.notification_preferences
   for each row execute function public.set_updated_at();
 
@@ -209,6 +212,7 @@ end $$;
 drop index if exists public.carts_one_open_per_customer;
 create unique index if not exists carts_one_open_per_customer_branch
   on public.carts (firebase_uid, branch_id) where (status = 'open');
+drop trigger if exists carts_set_updated_at on public.carts;
 create trigger carts_set_updated_at before update on public.carts
   for each row execute function public.set_updated_at();
 
@@ -245,6 +249,7 @@ from public.product_variants pv
 where ci.variant_id = pv.id and ci.current_price is null;
 delete from public.cart_items where current_price is null;
 alter table public.cart_items alter column current_price set not null;
+drop trigger if exists cart_items_set_updated_at on public.cart_items;
 create trigger cart_items_set_updated_at before update on public.cart_items
   for each row execute function public.set_updated_at();
 
@@ -299,6 +304,7 @@ create table if not exists public.orders (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+drop trigger if exists orders_set_updated_at on public.orders;
 create trigger orders_set_updated_at before update on public.orders
   for each row execute function public.set_updated_at();
 
@@ -351,6 +357,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists orders_log_status_event on public.orders;
 create trigger orders_log_status_event
   after insert or update of status on public.orders
   for each row execute function public.log_order_status_event();
@@ -367,6 +374,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists orders_compute_points on public.orders;
 create trigger orders_compute_points before insert on public.orders
   for each row execute function public.compute_points_earned();
 
@@ -388,6 +396,7 @@ create table if not exists public.payments (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+drop trigger if exists payments_set_updated_at on public.payments;
 create trigger payments_set_updated_at before update on public.payments
   for each row execute function public.set_updated_at();
 
@@ -410,6 +419,7 @@ create table if not exists public.refund_requests (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+drop trigger if exists refund_requests_set_updated_at on public.refund_requests;
 create trigger refund_requests_set_updated_at before update on public.refund_requests
   for each row execute function public.set_updated_at();
 
@@ -445,6 +455,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists refund_requests_log_status_event on public.refund_requests;
 create trigger refund_requests_log_status_event
   after insert or update of status on public.refund_requests
   for each row execute function public.log_refund_status_event();
@@ -474,6 +485,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists refund_requests_sync_order_status on public.refund_requests;
 create trigger refund_requests_sync_order_status
   after insert or update of status on public.refund_requests
   for each row execute function public.sync_order_status_from_refund();
@@ -488,6 +500,7 @@ create table if not exists public.loyalty_accounts (
   lifetime_points int not null default 0,
   updated_at timestamptz not null default now()
 );
+drop trigger if exists loyalty_accounts_set_updated_at on public.loyalty_accounts;
 create trigger loyalty_accounts_set_updated_at before update on public.loyalty_accounts
   for each row execute function public.set_updated_at();
 
@@ -524,6 +537,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists orders_award_points on public.orders;
 create trigger orders_award_points after insert on public.orders
   for each row execute function public.award_order_points();
 
@@ -663,6 +677,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists orders_notify on public.orders;
 create trigger orders_notify after insert or update of status on public.orders
   for each row execute function public.notify_on_order_status();
 
@@ -683,6 +698,7 @@ begin
   return new;
 end;
 $$;
+drop trigger if exists refunds_notify on public.refund_requests;
 create trigger refunds_notify after insert or update of status on public.refund_requests
   for each row execute function public.notify_on_refund_status();
 
@@ -750,37 +766,51 @@ alter table public.reward_redemptions enable row level security;
 alter table public.notifications enable row level security;
 
 -- Catalog: anyone (including guests browsing without an account) can read.
+drop policy if exists "catalog is publicly readable" on public.branches;
 create policy "catalog is publicly readable" on public.branches for select using (true);
+drop policy if exists "catalog is publicly readable" on public.product_categories;
 create policy "catalog is publicly readable" on public.product_categories for select using (true);
+drop policy if exists "catalog is publicly readable" on public.products;
 create policy "catalog is publicly readable" on public.products for select using (is_active);
+drop policy if exists "catalog is publicly readable" on public.product_variants;
 create policy "catalog is publicly readable" on public.product_variants for select using (true);
+drop policy if exists "catalog is publicly readable" on public.branch_inventory;
 create policy "catalog is publicly readable" on public.branch_inventory for select using (true);
+drop policy if exists "rewards are publicly readable" on public.rewards;
 create policy "rewards are publicly readable" on public.rewards for select using (is_active);
+drop policy if exists "active promotions are publicly readable" on public.promotions;
 create policy "active promotions are publicly readable" on public.promotions for select
   using (is_active and (starts_at is null or starts_at <= now()) and (ends_at is null or ends_at >= now()));
 
 -- Customer profile
+drop policy if exists "read own profile" on public.customer_profiles;
 create policy "read own profile" on public.customer_profiles for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "create own profile" on public.customer_profiles;
 create policy "create own profile" on public.customer_profiles for insert
   with check (firebase_uid = current_firebase_uid());
+drop policy if exists "update own profile" on public.customer_profiles;
 create policy "update own profile" on public.customer_profiles for update
   using (firebase_uid = current_firebase_uid());
 
 -- Addresses
+drop policy if exists "manage own addresses" on public.customer_addresses;
 create policy "manage own addresses" on public.customer_addresses for all
   using (firebase_uid = current_firebase_uid())
   with check (firebase_uid = current_firebase_uid());
 
 -- Notification preferences
+drop policy if exists "manage own notification prefs" on public.notification_preferences;
 create policy "manage own notification prefs" on public.notification_preferences for all
   using (firebase_uid = current_firebase_uid())
   with check (firebase_uid = current_firebase_uid());
 
 -- Cart
+drop policy if exists "manage own cart" on public.carts;
 create policy "manage own cart" on public.carts for all
   using (firebase_uid = current_firebase_uid())
   with check (firebase_uid = current_firebase_uid());
+drop policy if exists "manage own cart items" on public.cart_items;
 create policy "manage own cart items" on public.cart_items for all
   using (exists (select 1 from public.carts c where c.id = cart_id and c.firebase_uid = current_firebase_uid()))
   with check (exists (select 1 from public.carts c where c.id = cart_id and c.firebase_uid = current_firebase_uid()));
@@ -788,51 +818,70 @@ create policy "manage own cart items" on public.cart_items for all
 -- Orders: customers can create and read their own; status changes going
 -- forward belong to staff/delivery tooling (not exposed here), so no
 -- customer update/delete policy is defined.
+drop policy if exists "read own orders" on public.orders;
 create policy "read own orders" on public.orders for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "create own orders" on public.orders;
 create policy "create own orders" on public.orders for insert
   with check (firebase_uid = current_firebase_uid());
+drop policy if exists "read own order items" on public.order_items;
 create policy "read own order items" on public.order_items for select
   using (exists (select 1 from public.orders o where o.id = order_id and o.firebase_uid = current_firebase_uid()));
+drop policy if exists "create own order items" on public.order_items;
 create policy "create own order items" on public.order_items for insert
   with check (exists (select 1 from public.orders o where o.id = order_id and o.firebase_uid = current_firebase_uid()));
+drop policy if exists "read own order status events" on public.order_status_events;
 create policy "read own order status events" on public.order_status_events for select
   using (exists (select 1 from public.orders o where o.id = order_id and o.firebase_uid = current_firebase_uid()));
 
 -- Payments: customers can record and read their own; no update/delete.
+drop policy if exists "read own payments" on public.payments;
 create policy "read own payments" on public.payments for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "create own payments" on public.payments;
 create policy "create own payments" on public.payments for insert
   with check (firebase_uid = current_firebase_uid());
 
 -- Refunds
+drop policy if exists "read own refund requests" on public.refund_requests;
 create policy "read own refund requests" on public.refund_requests for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "create own refund requests" on public.refund_requests;
 create policy "create own refund requests" on public.refund_requests for insert
-  with check (firebase_uid = current_firebase_uid());create policy "read own refund items" on public.refund_items for select
+  with check (firebase_uid = current_firebase_uid());
+drop policy if exists "read own refund items" on public.refund_items;
+create policy "read own refund items" on public.refund_items for select
   using (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = current_firebase_uid()));
+drop policy if exists "create own refund items" on public.refund_items;
 create policy "create own refund items" on public.refund_items for insert
   with check (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = current_firebase_uid()));
+drop policy if exists "read own refund status events" on public.refund_status_events;
 create policy "read own refund status events" on public.refund_status_events for select
   using (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = current_firebase_uid()));
 
 -- Loyalty: balance and history are read-only from the client — every change
 -- goes through the order/redemption triggers and the redeem_reward()
 -- function above, never a direct client update.
+drop policy if exists "read own loyalty account" on public.loyalty_accounts;
 create policy "read own loyalty account" on public.loyalty_accounts for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "read own loyalty transactions" on public.loyalty_transactions;
 create policy "read own loyalty transactions" on public.loyalty_transactions for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "read own redemptions" on public.reward_redemptions;
 create policy "read own redemptions" on public.reward_redemptions for select
   using (firebase_uid = current_firebase_uid());
 
 -- Notifications: customers can read, mark read, and delete their own; rows
 -- are only ever created by the notify_* trigger functions above.
+drop policy if exists "manage own notifications" on public.notifications;
 create policy "manage own notifications" on public.notifications for select
   using (firebase_uid = current_firebase_uid());
+drop policy if exists "update own notifications" on public.notifications;
 create policy "update own notifications" on public.notifications for update
   using (firebase_uid = current_firebase_uid())
   with check (firebase_uid = current_firebase_uid());
+drop policy if exists "delete own notifications" on public.notifications;
 create policy "delete own notifications" on public.notifications for delete
   using (firebase_uid = current_firebase_uid());
 
@@ -854,12 +903,15 @@ on conflict (name) do update set
   supports_delivery = excluded.supports_delivery,
   supports_pickup = excluded.supports_pickup;
 
-insert into public.product_categories (label, icon_name, sort_order) values
+insert into public.product_categories (label, icon_name, sort_order)
+select v.label, v.icon_name, v.sort_order
+from (values
   ('Roasted Nuts', 'nuts', 1),
   ('Trail Mixes', 'grain', 2),
   ('Flavored Nuts', 'local_fire_department', 3),
   ('Gift Packs', 'card_giftcard', 4)
-on conflict do nothing;
+) as v(label, icon_name, sort_order)
+where not exists (select 1 from public.product_categories c where c.label = v.label);
 
 insert into public.products (category_id, name, price, unit, description, icon_name, color_hex)
 select c.id, p.name, p.price, p.unit, p.description, p.icon_name, p.color_hex
@@ -886,15 +938,21 @@ on conflict (branch_id, product_id, variant_id) do nothing;
 update public.products set is_featured = true
 where name in ('Chili Garlic Peanuts', 'Melai Nuts Gift Box');
 
-insert into public.promotions (title, subtitle, badge_label, icon_name, sort_order) values
+insert into public.promotions (title, subtitle, badge_label, icon_name, sort_order)
+select v.title, v.subtitle, v.badge_label, v.icon_name, v.sort_order
+from (values
   ('Fresh Batch Every Friday', 'All Roasted Nuts restocked weekly at every branch.', 'FRESH THIS WEEK', 'local_offer', 1)
-on conflict do nothing;
+) as v(title, subtitle, badge_label, icon_name, sort_order)
+where not exists (select 1 from public.promotions x where x.title = v.title);
 
-insert into public.rewards (title, description, points_required, badge_label, icon_name, color_hex) values
+insert into public.rewards (title, description, points_required, badge_label, icon_name, color_hex)
+select v.title, v.description, v.points_required, v.badge_label, v.icon_name, v.color_hex
+from (values
   ('₱50 Off Voucher', 'Instant ₱50 off your next order.', 200, 'Instant Voucher', 'local_offer', '#8D6E63'),
   ('Free 100g Roasted Cashew', 'Redeem a free small pack of roasted cashew.', 350, 'Most Popular', 'redeem', '#6D4C41'),
   ('Free Delivery Voucher', 'Waive the delivery fee on your next order.', 150, 'Instant Voucher', 'local_shipping', '#A1887F')
-on conflict do nothing;
+) as v(title, description, points_required, badge_label, icon_name, color_hex)
+where not exists (select 1 from public.rewards r where r.title = v.title);
 
 -- =============================================================================
 -- Migration: real category management + product-targeted promotions +
