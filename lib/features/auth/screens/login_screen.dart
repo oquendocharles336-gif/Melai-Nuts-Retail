@@ -245,9 +245,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (_isSignIn) ...[
                       const InfoBanner(
                         icon: Icons.shield_outlined,
-                        title: 'Security Policy',
+                        title: 'Login Security',
                         text:
-                            'Sign in with the email & password for your customer, staff, owner, or delivery account.',
+                            'Sign in with the email & password for your account.',
                       ),
                       const SizedBox(height: AppSpacing.md),
                       AppTextField(
