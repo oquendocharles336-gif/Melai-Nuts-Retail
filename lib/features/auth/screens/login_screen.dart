@@ -10,9 +10,8 @@ import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
-import '../../../data/models/user_role.dart';
 import 'email_verification_screen.dart';
-
+import '../../../data/models/user_role.dart';
 /// Single sign-in / create-account screen shared by every account type
 /// (customer, staff, owner, and delivery). One set of credentials, one
 /// form — after signing in, the person is routed to whichever home screen
@@ -137,12 +136,6 @@ class _LoginScreenState extends State<LoginScreen> {
       MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
       (r) => r.settings.name == AppRoutes.splash,
     );
-  }
-
-  void _guestAccess() {
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(AppRoutes.homeFor(UserRole.customer), (r) => false);
   }
 
   @override
@@ -374,19 +367,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: _submit,
                       ),
                     ],
-                    const SizedBox(height: 10),
-                    TextButton.icon(
-                      onPressed: () =>
-                          Navigator.of(context).pushNamed(AppRoutes.security),
-                      icon: const Icon(Icons.shield_outlined, size: 16),
-                      label: const Text('Login & Security Settings'),
-                    ),
-                    Center(
-                      child: TextButton(
-                        onPressed: _guestAccess,
-                        child: const Text('Browse Catalog as Guest →'),
-                      ),
-                    ),
                   ],
                 ),
               ),
