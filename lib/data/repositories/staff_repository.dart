@@ -6,6 +6,7 @@ import '../../core/services/supabase_service.dart';
 import '../../core/utils/app_error.dart';
 import '../models/inventory_batch.dart';
 import '../models/inventory_item.dart';
+import '../models/owner_sales.dart';
 import '../models/staff_models.dart';
 
 /// The inventory read model for one branch.
@@ -19,6 +20,30 @@ class StaffInventorySnapshot {
     required this.items,
     required this.batches,
   });
+}
+
+/// A product that is switched off in the catalog (`is_active = false`).
+/// The shared storefront catalog never loads these, so management screens
+/// read them separately in order to offer reactivation.
+class InactiveProduct {
+  final String id;
+  final String name;
+  final double price;
+  final String? sku;
+
+  const InactiveProduct({
+    required this.id,
+    required this.name,
+    required this.price,
+    this.sku,
+  });
+
+  factory InactiveProduct.fromJson(Map<String, dynamic> j) => InactiveProduct(
+        id: j['id'] as String,
+        name: (j['name'] as String?) ?? '',
+        price: (j['price'] as num?)?.toDouble() ?? 0,
+        sku: j['sku'] as String?,
+      );
 }
 
 /// Every staff-side call to the backend.
@@ -99,6 +124,17 @@ class StaffRepository {
   Future<void> setProductActive(String productId, bool isActive) =>
       _rpc('staff_set_product_active', {'p_product_id': productId, 'p_is_active': isActive});
 
+  /// Products currently switched off. Active staff may read these (RLS policy
+  /// "staff read all products"); customers cannot.
+  Future<List<InactiveProduct>> listInactiveProducts() => _guard(() async {
+        final rows = await _client
+            .from('products')
+            .select('id, name, price, sku')
+            .eq('is_active', false)
+            .order('name');
+        return _list(rows).map(InactiveProduct.fromJson).toList();
+      });
+
   Future<String> saveCategory({String? categoryId, required String label, String? iconName, int? sortOrder}) async =>
       (await _rpc('staff_save_category', {
         'p_category_id': categoryId,
@@ -111,6 +147,11 @@ class StaffRepository {
 
   Future<StaffDashboard> getDashboard(String? branchId) async =>
       StaffDashboard.fromJson(_map(await _rpc('staff_get_dashboard', {'p_branch_id': branchId})));
+
+  /// Owner-only sales figures, computed by the database
+  /// (`owner_sales_summary`). [days] is clamped to 1-365 server-side.
+  Future<OwnerSalesSummary> getOwnerSalesSummary({int days = 30}) async =>
+      OwnerSalesSummary.fromJson(_map(await _rpc('owner_sales_summary', {'p_days': days})));
 
   // ---- Inventory ------------------------------------------------------------
 
@@ -168,6 +209,11 @@ class StaffRepository {
     DateTime? receivedDate,
     int? restockThreshold,
     bool assignExisting = false,
+
+    /// Makes a retry of THIS request safe: the server creates one batch and
+    /// replays its id (instead of "batch code already exists"). See
+    /// `RequestKeyHolder`.
+    String? idempotencyKey,
   }) async {
     final id = await _rpc('staff_receive_batch', {
       'p_branch_id': branchId,
@@ -178,6 +224,7 @@ class StaffRepository {
       'p_received_date': receivedDate == null ? null : _date(receivedDate),
       'p_restock_threshold': restockThreshold,
       'p_assign_existing': assignExisting,
+      if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
     });
     return id as String;
   }
@@ -188,12 +235,17 @@ class StaffRepository {
     required int delta,
     required String reason,
     String? note,
+
+    /// Makes a retry of THIS request safe: the server applies it once and
+    /// replays the original result. See `RequestKeyHolder`.
+    String? idempotencyKey,
   }) async =>
       _map(await _rpc('staff_adjust_batch', {
         'p_batch_id': batchId,
         'p_delta': delta,
         'p_reason': reason,
         'p_note': note,
+        if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
       }));
 
   // ---- Transfers --------------------------------------------------------------
@@ -209,6 +261,10 @@ class StaffRepository {
     required String variantId,
     required int quantity,
     String? note,
+
+    /// Makes a retry of THIS request safe: the server creates one transfer and
+    /// replays its id. See `RequestKeyHolder`.
+    String? idempotencyKey,
   }) async =>
       (await _rpc('staff_request_transfer', {
         'p_from_branch_id': fromBranchId,
@@ -216,6 +272,7 @@ class StaffRepository {
         'p_variant_id': variantId,
         'p_quantity': quantity,
         'p_note': note,
+        if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
       })) as String;
 
   /// [action]: ship | reject (source branch) or cancel | receive (destination).

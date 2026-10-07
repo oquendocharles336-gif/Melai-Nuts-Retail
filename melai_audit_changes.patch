@@ -1,0 +1,3192 @@
+diff -ruN a/README.md b/README.md
+--- a/README.md	2026-10-07 05:41:25.965114501 +0000
++++ b/README.md	2026-10-07 05:41:25.996639797 +0000
+@@ -87,6 +87,23 @@
+ 6. Verify on a dev database with `psql -v ON_ERROR_STOP=1 -f supabase/tests/staff_identity_test.sql`
+    and `psql -v ON_ERROR_STOP=1 -f supabase/tests/staff_foundation_test.sql`.
+ 
++### Later migrations (run in filename order after the staff foundation)
++
++| Migration | What it does |
++|---|---|
++| `20261001000000_staff_product_management.sql` | Staff product/variant/cost management; adds the staff catalog read policy. |
++| `20261001010000_fix_cart_updated_at.sql` | Cart `updated_at` fix. |
++| `20261001020000_seed_loyalty_cart_settings.sql` | Seeds `loyalty_cart_settings`. |
++| `20261002000000_owner_sales_summary.sql` | `owner_sales_summary()` for the owner analytics screens. |
++| `20261002010000_fix_staff_products_policy.sql` | **Required.** Scopes the staff product policy `TO authenticated`; without it signed-out (guest) catalog reads fail. |
++| `20261002020000_staff_idempotency_keys.sql` | Optional `p_idempotency_key` on `staff_adjust_batch` and `staff_request_transfer`: a retry applies once and replays the original result; the same key for a different request is refused. Apply **before** shipping the app build that sends keys. |
++| `20261002030000_staff_replay_safe_receive_and_transfer.sql` | `staff_respond_transfer` (ship / reject / cancel / receive) is idempotent by outcome: asking for the state a transfer is already in succeeds as a no-op (authorization still runs first; conflicting actions still error). `staff_receive_batch` gains the optional `p_idempotency_key`, so a replay returns the original batch instead of "code already exists". Same deploy order as above: migration first. |
++
++Verify with the suites in `supabase/tests/`, including
++`staff_cross_branch_test.sql` (cross-branch isolation, permission flags, replay
++behaviour) and `staff_idempotency_concurrency_test.sh` (simultaneous duplicate
++requests apply once).
++
+ ### Staff foundation (migration `20260930010000_staff_foundation.sql`)
+ 
+ Run it right after the staff backend migration (it is idempotent).
+diff -ruN a/SECURITY.md b/SECURITY.md
+--- a/SECURITY.md	2026-10-07 05:41:25.963261699 +0000
++++ b/SECURITY.md	2026-10-07 05:41:26.001437846 +0000
+@@ -13,7 +13,8 @@
+ |---|---|---|
+ | Who you are | Firebase Auth | Firebase |
+ | Your role / branch / active flag | `users/{uid}` document, read **server-side** by rules | `firestore.rules` |
+-| Who can read/write each Firestore collection | Firestore Security Rules | `firestore.rules` (deploy it!) |
++| Who can read/write Firestore | Firestore Security Rules: only `users` is open; **every other collection is denied to everyone** | `firestore.rules` (deploy it!) |
++| Whether a deactivated account can sign in | `supabaseRoleOnSignIn` blocking function (server-side), plus the app's own check | `functions/index.js` |
+ | Who can read/write each Supabase table / call each function | Postgres grants + RLS + `SECURITY DEFINER` functions | `supabase/schema.sql` then `supabase/migrations/*.sql` |
+ | Prices, totals, stock, points, refund amounts | Server-side SQL functions/triggers | `place_order`, `request_refund`, triggers |
+ | Screens shown for a role | `RouteGuard` (UX / defence-in-depth only) | `lib/app/route_guard.dart` |
+@@ -73,6 +74,24 @@
+    release keystore (kept out of Git — `.gitignore` covers `*.jks`, `key.properties`).
+    Build releases with `--obfuscate --split-debug-info=...`.
+ 
++## Deactivating an account
++
++Three layers, because each stops something different:
++
++| Layer | Stops | Takes effect |
++|---|---|---|
++| App "User Management" screen (`setAccountActive`) | Staff/owner/rider data access (it updates the **Supabase staff registry first**, then `users/{uid}.isActive`) | Immediately |
++| `supabaseRoleOnSignIn` blocking function | **New sign-ins** of any account whose profile has `isActive` present and not `true`. This replaces reliance on the app's own client-side check, which a modified app can skip. A missing profile is allowed (registration), and a Firestore outage does not lock everyone out (it fails open and logs) | At next sign-in |
++| `functions/deactivate-user.js <uid>` | Disables the Firebase Auth user and **revokes refresh tokens**, then flags the profile. Use it for **customers** (the app cannot deactivate them) and in emergencies | Existing ID tokens live up to 1 hour |
++
++The blocking function does **not** run when an existing session refreshes its token, so on its
++own it cannot end a live session; that is what the script's disable + revoke is for. The script
++refuses to deactivate an owner without `--allow-owner` and never deactivates the last active
++owner. For staff and owners prefer the app screen (the script has no Supabase credentials).
++
++Tests: `cd functions && npm install && npm test` (runs offline) and
++`cd firestore-tests && npm install && npm test` (needs Java and the Firestore emulator).
++
+ ## Supabase (customer data) — setup and guarantees
+ 
+ **Run order** (Supabase SQL Editor, or `psql`): `supabase/schema.sql` →
+@@ -281,5 +300,7 @@
+   MFA needs Firebase MFA (Identity Platform) or a `local_auth` flow.
+ - The Firestore offline cache is not encrypted at rest by Firestore. It is
+   size-bounded and wiped at app start when no user is signed in.
+-- Order/price integrity is now enforced in Postgres (`place_order`, `request_refund`);
+-  the Firestore `orders`/`payments` rules from the prototype are no longer used by the app.
++- Order/price integrity is now enforced in Postgres (`place_order`, `request_refund`).
++  The prototype's Firestore `products`/`inventory`/`orders`/`deliveries`/`refunds` rules were
++  removed (those collections are now denied to everyone); they are archived, with their
++  known defects, in `docs/firestore-dormant-collections.md`.
+diff -ruN a/docs/firestore-dormant-collections.md b/docs/firestore-dormant-collections.md
+--- a/docs/firestore-dormant-collections.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/firestore-dormant-collections.md	2026-10-07 05:41:26.022446848 +0000
+@@ -0,0 +1,153 @@
++# Firestore: collections that are locked down (archived rules)
++
++`firestore.rules` now allows **one** collection, `users`. Everything else is denied to
++everyone, owners included. The app never reads or writes `products`, `inventory`,
++`orders`, `deliveries` or `refunds` in Firestore; that data lives in Supabase Postgres
++(RLS + `SECURITY DEFINER` functions). The rules that used to guard those collections are
++kept below **for reference only**. They are not deployed.
++
++## Why they were removed
++
++Live rules on collections nothing uses are pure attack surface:
++
++* Any signed-in customer could create arbitrary `orders` and `refunds` documents (no field
++  allow-list, so `total: 0` or `paymentStatus: 'paid'` were accepted).
++* `refunds` could be read by **any** staff member across **all** branches, unlike every
++  other branch-scoped rule.
++* A future screen pointed at these collections would have trusted client-written data.
++
++## Defects in the archived rules (fix before reusing any of it)
++
++1. **No field allow-lists on create.** Rules cannot recompute totals from line items;
++   without a Cloud Function a client controls price fields. Supabase already enforces this
++   in `place_order`; do not rebuild it in Firestore.
++2. **`refunds` read is not branch-scoped** (`isStaffOrOwner()` only).
++3. **`refunds` create does not check the order belongs to the customer** or constrain the
++   amount, and nothing stops several refund documents per order.
++4. **Staff status changes have no state machine.** Staff could set any status from any
++   status; Postgres enforces transitions with triggers.
++5. **`inventory` quantity writes are unaudited** and unbatched (Supabase has FEFO batches and
++   a movement ledger).
++6. `inMyBranch` compares a branch **name** string, while Supabase identifies branches by
++   UUID: two sources of truth.
++
++## Before re-enabling a collection
++
++Add the rule, then add emulator tests for every role (signed-out, customer, staff, rider,
++owner, **deactivated** staff and owner), including create/update/delete and list queries, and
++remove that collection from `DENIED_COLLECTIONS` in `firestore-tests/rules.test.js` in the
++same change.
++
++## Archived helpers (they used `isStaff()` etc., now removed from the rules)
++
++```
++    function isStaff()    { return hasRole('staff'); }
++    function isRider()    { return hasRole('delivery'); }
++    function isCustomer() { return hasRole('customer'); }
++    function isStaffOrOwner() { return isStaff() || isOwner(); }
++
++    // Owner sees every branch; staff only their own assigned branch.
++    function inMyBranch(branch) {
++      return isOwner() ||
++             (isStaff() && me().get('branch', null) != null && me().get('branch', null) == branch);
++    }
++```
++
++## Archived collection rules
++
++```
++    // --------------------------------------------------------------- products
++    // Public catalog (guests browse the store). Only the Owner manages
++    // products, prices and variants — Staff cannot change prices.
++    match /products/{productId} {
++      allow read: if true;
++      allow create, update, delete: if isOwner();
++    }
++
++    // -------------------------------------------------------------- inventory
++    // Branch-scoped stock. Staff read/adjust only their own branch's batches;
++    // Owner all branches. Riders and customers have no access.
++    match /inventory/{batchId} {
++      allow read: if isStaffOrOwner() && inMyBranch(resource.data.branch);
++
++      allow create: if isStaffOrOwner() &&
++        inMyBranch(request.resource.data.branch) &&
++        request.resource.data.quantity is int &&
++        request.resource.data.quantity >= 0;
++
++      // Branch cannot be changed by staff (no moving stock to another branch).
++      allow update: if isStaffOrOwner() &&
++        inMyBranch(resource.data.branch) &&
++        inMyBranch(request.resource.data.branch) &&
++        (isOwner() || request.resource.data.branch == resource.data.branch) &&
++        request.resource.data.quantity is int &&
++        request.resource.data.quantity >= 0;
++
++      allow delete: if isOwner();
++    }
++
++    // ----------------------------------------------------------------- orders
++    // Money/ownership fields are set at creation and are immutable for
++    // everyone except the Owner. NOTE: line-item prices are supplied by the
++    // client; rules cannot recompute totals from arrays. Enforcing price
++    // integrity needs a Cloud Function (see SECURITY.md).
++    match /orders/{orderId} {
++      allow read: if isOwner() ||
++        (isStaff() && inMyBranch(resource.data.branch)) ||
++        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
++        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
++
++      // A customer can only create an order for THEMSELVES, in 'pending', and
++      // cannot pre-assign a rider. Staff create counter (POS) orders for their
++      // own branch.
++      allow create:
++        if (isCustomer() &&
++              request.resource.data.customerId == request.auth.uid &&
++              request.resource.data.status == 'pending' &&
++              !request.resource.data.keys().hasAny(['riderId']))
++        || (isStaffOrOwner() &&
++              inMyBranch(request.resource.data.branch) &&
++              request.resource.data.status in ['pending', 'confirmed', 'completed']);
++
++      // Staff: status only, own branch. Assigned rider: status only, and only
++      // to out-for-delivery / completed. Owner: full edit.
++      allow update: if isOwner() ||
++        (isStaff() && inMyBranch(resource.data.branch) &&
++          changedKeys().hasOnly(['status', 'updatedAt']) &&
++          request.resource.data.status in
++            ['pending', 'confirmed', 'preparing', 'outForDelivery', 'completed', 'cancelled']) ||
++        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
++          changedKeys().hasOnly(['status', 'updatedAt']) &&
++          request.resource.data.status in ['outForDelivery', 'completed']);
++
++      allow delete: if isOwner();
++    }
++
++    // -------------------------------------------------------------- deliveries
++    // The Owner dispatches deliveries; the assigned rider updates progress.
++    match /deliveries/{deliveryId} {
++      allow read: if isOwner() ||
++        (isStaff() && inMyBranch(resource.data.get('branch', null))) ||
++        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
++        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
++
++      allow create, delete: if isOwner();
++
++      allow update: if isOwner() ||
++        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
++          changedKeys().hasOnly(['status', 'stops', 'updatedAt']));
++    }
++
++    // ---------------------------------------------------------------- refunds
++    // Customers request refunds for themselves; only the Owner decides them.
++    match /refunds/{refundId} {
++      allow read: if isStaffOrOwner() ||
++        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
++
++      allow create: if isCustomer() &&
++        request.resource.data.customerId == request.auth.uid &&
++        request.resource.data.status == 'pending';
++
++      allow update, delete: if isOwner();
++    }
++```
+diff -ruN a/firebase.json b/firebase.json
+--- a/firebase.json	2026-10-07 05:41:25.967391802 +0000
++++ b/firebase.json	2026-10-07 05:41:26.005502697 +0000
+@@ -1 +1 @@
+-{"flutter":{"platforms":{"android":{"default":{"projectId":"melai-nuts-app-2026","appId":"1:865090291609:android:231a67991e6cea8e1db508","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"melai-nuts-app-2026","configurations":{"android":"1:865090291609:android:231a67991e6cea8e1db508","ios":"1:865090291609:ios:860e86831b6af8691db508","macos":"1:865090291609:ios:860e86831b6af8691db508","web":"1:865090291609:web:1ab56a62928f50fb1db508","windows":"1:865090291609:web:bdab53b6c10393f01db508"}}}}},"firestore":{"rules":"firestore.rules"},"functions":[{"source":"functions","codebase":"default","ignore":["node_modules",".git","backfill-role-claim.js"]}]}
+\ No newline at end of file
++{"flutter":{"platforms":{"android":{"default":{"projectId":"melai-nuts-app-2026","appId":"1:865090291609:android:231a67991e6cea8e1db508","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"melai-nuts-app-2026","configurations":{"android":"1:865090291609:android:231a67991e6cea8e1db508","ios":"1:865090291609:ios:860e86831b6af8691db508","macos":"1:865090291609:ios:860e86831b6af8691db508","web":"1:865090291609:web:1ab56a62928f50fb1db508","windows":"1:865090291609:web:bdab53b6c10393f01db508"}}}}},"firestore":{"rules":"firestore.rules"},"functions":[{"source":"functions","codebase":"default","ignore":["node_modules",".git","backfill-role-claim.js","deactivate-user.js","test"]}]}
+\ No newline at end of file
+diff -ruN a/firestore-tests/rules.test.js b/firestore-tests/rules.test.js
+--- a/firestore-tests/rules.test.js	2026-10-07 05:41:25.964875574 +0000
++++ b/firestore-tests/rules.test.js	2026-10-07 05:41:26.014647473 +0000
+@@ -1,9 +1,14 @@
+ // Firestore rules tests. Run:  cd firestore-tests && npm install && npm test
+ // (needs Java; downloads the Firestore emulator on first run).
+ // NOTE: written alongside the rules but NOT executed in the authoring sandbox
+-// (emulator download was blocked) — run them before deploying.
++// (the emulator download is blocked there: storage.googleapis.com is not on the
++// network allowlist) — run them before deploying.
++//
++// The app uses exactly ONE Firestore collection (`users`). Every other
++// collection is denied to everyone, including owners; the matrix below pins
++// that down so a collection cannot be re-opened by accident.
+ const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
+-const { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } = require('firebase/firestore');
++const { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp } = require('firebase/firestore');
+ const { readFileSync } = require('node:fs');
+ const { test, before, after, beforeEach } = require('node:test');
+ 
+@@ -30,10 +35,14 @@
+     await setDoc(doc(db, 'users/rider1'), profile('delivery', { branch: 'Calamba Branch' }));
+     await setDoc(doc(db, 'users/cust1'), profile('customer'));
+     await setDoc(doc(db, 'users/cust2'), profile('customer'));
++    await setDoc(doc(db, 'users/ownerOff'), profile('owner', { isActive: false }));
+     await setDoc(doc(db, 'products/p1'), { name: 'Cashew', price: 100 });
+     await setDoc(doc(db, 'inventory/b1'), { branch: 'Calamba Branch', quantity: 10, productId: 'p1' });
+     await setDoc(doc(db, 'inventory/b2'), { branch: 'Los Baños Hub', quantity: 10, productId: 'p1' });
+     await setDoc(doc(db, 'orders/o1'), { customerId: 'cust1', branch: 'Calamba Branch', status: 'pending', riderId: 'rider1', total: 100 });
++    await setDoc(doc(db, 'deliveries/d1'), { branch: 'Calamba Branch', riderId: 'rider1', customerId: 'cust1', status: 'assigned' });
++    await setDoc(doc(db, 'refunds/r1'), { customerId: 'cust1', branch: 'Calamba Branch', status: 'pending', orderId: 'o1' });
++    await setDoc(doc(db, 'refunds/r2'), { customerId: 'cust2', branch: 'Los Baños Hub', status: 'pending', orderId: 'o9' });
+   });
+ });
+ const as = (uid, email) => env.authenticatedContext(uid, email ? { email } : {}).firestore();
+@@ -75,42 +84,115 @@
+   await assertFails(getDoc(doc(as('cust1'), 'users/cust2')));
+   await assertSucceeds(getDoc(doc(as('cust1'), 'users/cust1')));
+ });
+-test('deactivated staff lose all privileges immediately', async () => {
+-  await assertFails(getDoc(doc(as('staffOff'), 'inventory/b1')));
++test('a deactivated owner loses every owner privilege immediately', async () => {
++  const db = as('ownerOff');
++  await assertFails(getDoc(doc(db, 'users/cust1')));
++  await assertFails(getDocs(collection(db, 'users')));
++  await assertFails(setDoc(doc(db, 'users/s20'), { email: 's@x.com', name: 'S', role: 'staff', phone: null, branch: 'Calamba Branch', isActive: true, createdAt: serverTimestamp() }));
++  await assertFails(updateDoc(doc(db, 'users/cust1'), { name: 'Renamed' }));
++  await assertFails(deleteDoc(doc(db, 'users/cust2')));
++});
++test('a deactivated user can still read their own profile (so the app can say why) but cannot edit it', async () => {
++  await assertSucceeds(getDoc(doc(as('staffOff'), 'users/staffOff')));
++  await assertFails(updateDoc(doc(as('staffOff'), 'users/staffOff'), { name: 'Sneaky' }));
++  await assertSucceeds(getDoc(doc(as('ownerOff'), 'users/ownerOff')));
++});
++test('only an owner may delete a profile; nobody deletes their own', async () => {
++  await assertFails(deleteDoc(doc(as('cust1'), 'users/cust1')));
++  await assertFails(deleteDoc(doc(as('staffA'), 'users/staffA')));
++  await assertSucceeds(deleteDoc(doc(as('owner1'), 'users/cust2')));
++});
++test('a client-supplied createdAt is rejected (it must be the server time)', async () => {
++  const db = asVerified('new4', 'new4@x.com');
++  await assertFails(setDoc(doc(db, 'users/new4'), { email: 'new4@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: new Date('2020-01-01') }));
++});
++test('unknown profile fields are rejected on create and on update', async () => {
++  const db = asVerified('new6', 'new6@x.com');
++  await assertFails(setDoc(doc(db, 'users/new6'), { email: 'new6@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp(), isAdmin: true }));
++  await assertFails(updateDoc(doc(as('cust1'), 'users/cust1'), { name: 'Ok', isAdmin: true }));
++  await assertFails(updateDoc(doc(as('owner1'), 'users/cust1'), { isAdmin: true }));
++});
++test('name and phone are validated on self-edit', async () => {
++  const db = as('cust1');
++  await assertSucceeds(updateDoc(doc(db, 'users/cust1'), { phone: '09171234567' }));
++  await assertFails(updateDoc(doc(db, 'users/cust1'), { phone: '0'.repeat(21) }));
++  await assertFails(updateDoc(doc(db, 'users/cust1'), { name: '' }));
++  await assertFails(updateDoc(doc(db, 'users/cust1'), { name: 'x'.repeat(101) }));
++});
++test('registration compares the email case-insensitively', async () => {
++  const db = asVerified('new5', 'new5@x.com');
++  await assertSucceeds(setDoc(doc(db, 'users/new5'), { email: 'New5@X.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() }));
++});
++test('owner must give staff and delivery accounts a branch', async () => {
++  const base = { email: 'm@x.com', name: 'M', phone: null, isActive: true, createdAt: serverTimestamp() };
++  await assertFails(setDoc(doc(as('owner1'), 'users/m1'), { ...base, role: 'staff', branch: null }));
++  await assertFails(setDoc(doc(as('owner1'), 'users/m2'), { ...base, role: 'delivery', branch: null }));
++  await assertSucceeds(setDoc(doc(as('owner1'), 'users/m3'), { ...base, role: 'delivery', branch: 'Calamba Branch' }));
++});
++test('owner may deactivate and reactivate an account; the account itself may not', async () => {
++  await assertSucceeds(updateDoc(doc(as('owner1'), 'users/cust1'), { isActive: false }));
++  await assertSucceeds(updateDoc(doc(as('owner1'), 'users/cust1'), { isActive: true }));
++  await assertFails(updateDoc(doc(as('cust1'), 'users/cust1'), { isActive: false }));
++});
++test('non-owners cannot read other profiles or list users', async () => {
++  for (const who of ['cust1', 'staffA', 'rider1']) {
++    await assertFails(getDoc(doc(as(who), 'users/cust2')));
++    await assertFails(getDocs(collection(as(who), 'users')));
++  }
++  await assertSucceeds(getDocs(collection(as('owner1'), 'users')));
++});
++
++// ---- every collection except `users` is denied to everyone ----------------
++// The app never reads or writes these in Firestore (business data is in
++// Supabase). Each payload below is one the OLD rules would have accepted from
++// at least one of these roles, so a denial here is the lockdown working, not a
++// malformed request. Includes owners and deactivated accounts.
++const DENIED_COLLECTIONS = {
++  products:   { id: 'p1', create: { name: 'Almond', price: 90 } },
++  inventory:  { id: 'b1', create: { branch: 'Calamba Branch', quantity: 3, productId: 'p1' } },
++  orders:     { id: 'o1', create: { customerId: 'cust1', branch: 'Calamba Branch', status: 'pending', total: 1 } },
++  deliveries: { id: 'd1', create: { branch: 'Calamba Branch', riderId: 'rider1', customerId: 'cust1', status: 'assigned' } },
++  refunds:    { id: 'r1', create: { customerId: 'cust1', status: 'pending', orderId: 'o1', amount: 100 } },
++};
++const PERSONAS = {
++  'signed-out visitor': () => env.unauthenticatedContext().firestore(),
++  'customer': () => as('cust1'),
++  'staff': () => as('staffA'),
++  'deactivated staff': () => as('staffOff'),
++  'rider': () => as('rider1'),
++  'owner': () => as('owner1'),
++  'deactivated owner': () => as('ownerOff'),
++};
++for (const [col, cfg] of Object.entries(DENIED_COLLECTIONS)) {
++  for (const [who, makeDb] of Object.entries(PERSONAS)) {
++    test(`${col}: ${who} cannot read, list, create, update or delete`, async () => {
++      const db = makeDb();
++      await assertFails(getDoc(doc(db, col, cfg.id)));
++      await assertFails(getDocs(collection(db, col)));
++      await assertFails(setDoc(doc(db, col, 'zz-new'), cfg.create));
++      await assertFails(updateDoc(doc(db, col, cfg.id), { status: 'x' }));
++      await assertFails(deleteDoc(doc(db, col, cfg.id)));
++    });
++  }
++}
++test('regression: a customer can no longer write junk refund or order documents', async () => {
++  await assertFails(setDoc(doc(as('cust1'), 'refunds/mine'), { customerId: 'cust1', status: 'pending' }));
++  await assertFails(setDoc(doc(as('cust1'), 'orders/mine'), { customerId: 'cust1', branch: 'Calamba Branch', status: 'pending', total: 0, paymentStatus: 'paid' }));
++});
++test('regression: staff can no longer read another branch\'s refunds', async () => {
++  await assertFails(getDoc(doc(as('staffA'), 'refunds/r2')));
++  await assertFails(getDocs(collection(as('staffA'), 'refunds')));
+ });
+-
+-// ---- products / inventory ------------------------------------------------
+-test('products: public read, owner-only write (staff cannot change prices)', async () => {
+-  await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), 'products/p1')));
+-  await assertFails(updateDoc(doc(as('staffA'), 'products/p1'), { price: 1 }));
+-  await assertSucceeds(updateDoc(doc(as('owner1'), 'products/p1'), { price: 120 }));
+-});
+-test('inventory: staff limited to own branch, no negatives, no delete', async () => {
+-  await assertSucceeds(updateDoc(doc(as('staffA'), 'inventory/b1'), { quantity: 5 }));
+-  await assertFails(updateDoc(doc(as('staffA'), 'inventory/b2'), { quantity: 5 }));
+-  await assertFails(updateDoc(doc(as('staffA'), 'inventory/b1'), { quantity: -1 }));
+-  await assertFails(updateDoc(doc(as('staffA'), 'inventory/b1'), { branch: 'Los Baños Hub' }));
+-  await assertFails(deleteDoc(doc(as('staffA'), 'inventory/b1')));
+-  await assertFails(getDoc(doc(as('cust1'), 'inventory/b1')));
+-});
+-
+-// ---- orders --------------------------------------------------------------
+-test('orders: customer creates only own pending order; cannot edit or read others', async () => {
+-  await assertSucceeds(setDoc(doc(as('cust1'), 'orders/o2'), { customerId: 'cust1', branch: 'Calamba Branch', status: 'pending', total: 50 }));
+-  await assertFails(setDoc(doc(as('cust1'), 'orders/o3'), { customerId: 'cust2', branch: 'Calamba Branch', status: 'pending' }));
+-  await assertFails(setDoc(doc(as('cust1'), 'orders/o4'), { customerId: 'cust1', branch: 'Calamba Branch', status: 'completed' }));
+-  await assertFails(updateDoc(doc(as('cust1'), 'orders/o1'), { total: 1 }));
+-  await assertFails(getDoc(doc(as('cust2'), 'orders/o1')));
+-  await assertSucceeds(getDoc(doc(as('cust1'), 'orders/o1')));
+-});
+-test('orders: staff may change status only; rider only if assigned', async () => {
+-  await assertSucceeds(updateDoc(doc(as('staffA'), 'orders/o1'), { status: 'preparing' }));
+-  await assertFails(updateDoc(doc(as('staffA'), 'orders/o1'), { total: 1 }));
+-  await assertSucceeds(updateDoc(doc(as('rider1'), 'orders/o1'), { status: 'outForDelivery' }));
+-  await assertFails(updateDoc(doc(as('rider1'), 'orders/o1'), { status: 'cancelled' }));
++test('regression: the public product catalogue is no longer readable from Firestore', async () => {
++  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'products/p1')));
+ });
+ 
+ // ---- default deny --------------------------------------------------------
+-test('unknown collections are denied', async () => {
+-  await assertFails(getDoc(doc(as('owner1'), 'secrets/x')));
++test('unknown collections are denied to everyone, owners included', async () => {
++  for (const [who, makeDb] of Object.entries(PERSONAS)) {
++    const db = makeDb();
++    await assertFails(getDoc(doc(db, 'secrets/x')));
++    await assertFails(setDoc(doc(db, 'secrets/x'), { a: 1 }));
++    await assertFails(getDoc(doc(db, 'users/someone/private/x')));
++  }
+ });
+diff -ruN a/firestore.rules b/firestore.rules
+--- a/firestore.rules	2026-10-07 05:41:25.964783770 +0000
++++ b/firestore.rules	2026-10-07 05:41:26.009525190 +0000
+@@ -12,19 +12,25 @@
+ // Roles (existing): customer, staff, owner, delivery. Owner is a superset of
+ // staff, as in the previous rules. Default for anything not matched: DENY.
+ //
+-// STATUS OF EACH COLLECTION
+-//   users        -> used by the app today (auth profile). Rules are exact.
+-//   products, inventory, orders, deliveries, refunds
+-//                -> the app currently keeps these in memory (prototype data)
+-//                   and does not read/write them in Firestore yet. Rules below
+-//                   are least-privilege for the field names in lib/data/models
+-//                   (customerId, branch, status, quantity, riderId, ...).
+-//                   Re-verify field names when those collections are wired up.
++// COLLECTIONS
++//   users  -> the ONLY Firestore collection the app uses (auth profile / role).
++//             Rules are exact; see below.
++//   anything else (products, inventory, orders, deliveries, refunds, ...)
++//          -> DENIED to everyone, including owners. Business data lives in
++//             Supabase Postgres (RLS + SECURITY DEFINER functions); the app
++//             never reads or writes these in Firestore. Leaving live rules on
++//             unused collections only gave signed-in users a place to write
++//             junk, and the old refunds rule let ANY staff member read every
++//             branch's refunds. The previous rules are archived, with the
++//             fixes needed before reuse, in docs/firestore-dormant-collections.md.
++//             Do not re-open a collection without adding tests for it.
++//
++// ACCOUNT DEACTIVATION: `isActive: false` here only stops Firestore access. To
++// actually cut an account off (Supabase access, new sign-ins, existing
++// sessions) use functions/deactivate-user.js; the sign-in blocking function in
++// functions/index.js refuses sign-in for any user whose profile is inactive.
+ //
+ // DEPLOY:  firebase deploy --only firestore:rules   (firebase.json points here)
+-// NOTE: staff queries on branch-scoped collections must filter by their own
+-//       branch (where('branch', isEqualTo: <their branch>)) or Firestore will
+-//       reject the query — that is the rules working as intended.
+ // =============================================================================
+ 
+ service cloud.firestore {
+@@ -60,16 +66,6 @@
+     }
+ 
+     function isOwner()    { return hasRole('owner'); }
+-    function isStaff()    { return hasRole('staff'); }
+-    function isRider()    { return hasRole('delivery'); }
+-    function isCustomer() { return hasRole('customer'); }
+-    function isStaffOrOwner() { return isStaff() || isOwner(); }
+-
+-    // Owner sees every branch; staff only their own assigned branch.
+-    function inMyBranch(branch) {
+-      return isOwner() ||
+-             (isStaff() && me().get('branch', null) != null && me().get('branch', null) == branch);
+-    }
+ 
+     function validRole(role) {
+       return role in ['customer', 'staff', 'owner', 'delivery'];
+@@ -141,102 +137,8 @@
+       allow delete: if isOwner();
+     }
+ 
+-    // --------------------------------------------------------------- products
+-    // Public catalog (guests browse the store). Only the Owner manages
+-    // products, prices and variants — Staff cannot change prices.
+-    match /products/{productId} {
+-      allow read: if true;
+-      allow create, update, delete: if isOwner();
+-    }
+-
+-    // -------------------------------------------------------------- inventory
+-    // Branch-scoped stock. Staff read/adjust only their own branch's batches;
+-    // Owner all branches. Riders and customers have no access.
+-    match /inventory/{batchId} {
+-      allow read: if isStaffOrOwner() && inMyBranch(resource.data.branch);
+-
+-      allow create: if isStaffOrOwner() &&
+-        inMyBranch(request.resource.data.branch) &&
+-        request.resource.data.quantity is int &&
+-        request.resource.data.quantity >= 0;
+-
+-      // Branch cannot be changed by staff (no moving stock to another branch).
+-      allow update: if isStaffOrOwner() &&
+-        inMyBranch(resource.data.branch) &&
+-        inMyBranch(request.resource.data.branch) &&
+-        (isOwner() || request.resource.data.branch == resource.data.branch) &&
+-        request.resource.data.quantity is int &&
+-        request.resource.data.quantity >= 0;
+-
+-      allow delete: if isOwner();
+-    }
+-
+-    // ----------------------------------------------------------------- orders
+-    // Money/ownership fields are set at creation and are immutable for
+-    // everyone except the Owner. NOTE: line-item prices are supplied by the
+-    // client; rules cannot recompute totals from arrays. Enforcing price
+-    // integrity needs a Cloud Function (see SECURITY.md).
+-    match /orders/{orderId} {
+-      allow read: if isOwner() ||
+-        (isStaff() && inMyBranch(resource.data.branch)) ||
+-        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
+-        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
+-
+-      // A customer can only create an order for THEMSELVES, in 'pending', and
+-      // cannot pre-assign a rider. Staff create counter (POS) orders for their
+-      // own branch.
+-      allow create:
+-        if (isCustomer() &&
+-              request.resource.data.customerId == request.auth.uid &&
+-              request.resource.data.status == 'pending' &&
+-              !request.resource.data.keys().hasAny(['riderId']))
+-        || (isStaffOrOwner() &&
+-              inMyBranch(request.resource.data.branch) &&
+-              request.resource.data.status in ['pending', 'confirmed', 'completed']);
+-
+-      // Staff: status only, own branch. Assigned rider: status only, and only
+-      // to out-for-delivery / completed. Owner: full edit.
+-      allow update: if isOwner() ||
+-        (isStaff() && inMyBranch(resource.data.branch) &&
+-          changedKeys().hasOnly(['status', 'updatedAt']) &&
+-          request.resource.data.status in
+-            ['pending', 'confirmed', 'preparing', 'outForDelivery', 'completed', 'cancelled']) ||
+-        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
+-          changedKeys().hasOnly(['status', 'updatedAt']) &&
+-          request.resource.data.status in ['outForDelivery', 'completed']);
+-
+-      allow delete: if isOwner();
+-    }
+-
+-    // -------------------------------------------------------------- deliveries
+-    // The Owner dispatches deliveries; the assigned rider updates progress.
+-    match /deliveries/{deliveryId} {
+-      allow read: if isOwner() ||
+-        (isStaff() && inMyBranch(resource.data.get('branch', null))) ||
+-        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
+-        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
+-
+-      allow create, delete: if isOwner();
+-
+-      allow update: if isOwner() ||
+-        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
+-          changedKeys().hasOnly(['status', 'stops', 'updatedAt']));
+-    }
+-
+-    // ---------------------------------------------------------------- refunds
+-    // Customers request refunds for themselves; only the Owner decides them.
+-    match /refunds/{refundId} {
+-      allow read: if isStaffOrOwner() ||
+-        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
+-
+-      allow create: if isCustomer() &&
+-        request.resource.data.customerId == request.auth.uid &&
+-        request.resource.data.status == 'pending';
+-
+-      allow update, delete: if isOwner();
+-    }
+-
+     // ---------------------------------------------------------- default: deny
++    // Every collection other than `users` (see header) lands here.
+     match /{document=**} {
+       allow read, write: if false;
+     }
+diff -ruN a/functions/deactivate-user.js b/functions/deactivate-user.js
+--- a/functions/deactivate-user.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/deactivate-user.js	2026-10-07 05:41:26.041533409 +0000
+@@ -0,0 +1,45 @@
++/**
++ * Fully deactivate (or reactivate) one account: disables the Firebase Auth
++ * user, revokes their sessions and flags users/{uid}.isActive.
++ *
++ *   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
++ *   node deactivate-user.js <uid>                  # deactivate
++ *   node deactivate-user.js <uid> --reactivate
++ *   node deactivate-user.js <uid> --allow-owner    # needed for owner accounts
++ *
++ * Staff/owner: prefer the app's User Management screen (it also updates the
++ * Supabase staff registry). See lib/account-status.js for the details.
++ * Run with admin credentials that stay on your machine, never in the app.
++ */
++const { initializeApp } = require('firebase-admin/app');
++const { getAuth } = require('firebase-admin/auth');
++const { getFirestore } = require('firebase-admin/firestore');
++const { deactivateAccount, reactivateAccount } = require('./lib/account-status');
++
++async function main() {
++  const args = process.argv.slice(2);
++  const uid = args.find((a) => !a.startsWith('--'));
++  if (!uid) {
++    console.error('Usage: node deactivate-user.js <uid> [--reactivate] [--allow-owner]');
++    process.exit(2);
++  }
++  initializeApp();
++  const deps = { auth: getAuth(), firestore: getFirestore() };
++  try {
++    const steps = args.includes('--reactivate')
++      ? await reactivateAccount(deps, uid)
++      : await deactivateAccount(deps, uid, { allowOwner: args.includes('--allow-owner') });
++    console.log(`Done for ${uid}: ${steps.join(', ')}`);
++    if (!args.includes('--reactivate')) {
++      console.log('Existing ID tokens stay valid for up to 1 hour; refresh tokens are revoked.');
++    }
++  } catch (e) {
++    console.error(`Failed for ${uid}: ${e.message}`);
++    if (e.completedSteps && e.completedSteps.length) {
++      console.error(`Steps already completed: ${e.completedSteps.join(', ')}`);
++    }
++    process.exit(1);
++  }
++}
++
++main();
+diff -ruN a/functions/index.js b/functions/index.js
+--- a/functions/index.js	2026-10-07 05:41:25.977618697 +0000
++++ b/functions/index.js	2026-10-07 05:41:26.031030033 +0000
+@@ -12,6 +12,10 @@
+  *    is enforced by firestore.rules. Never put an app role in this claim.
+  *  - A client cannot set its own custom claims; only these functions / the
+  *    Admin SDK can.
++ *  - supabaseRoleOnSignIn also REFUSES sign-in when the account's Firestore
++ *    profile is inactive (users/{uid}.isActive present and not true). It runs at
++ *    sign-in only, not on token refresh: to end an existing session use
++ *    functions/deactivate-user.js (disables the user + revokes refresh tokens).
+  *  - Staff/owner/delivery accounts also receive it. That is harmless: every
+  *    customer policy is scoped to the caller's own firebase_uid.
+  *
+@@ -22,8 +26,26 @@
+  * Then run functions/backfill-role-claim.js ONCE for users created earlier.
+  */
+ const { beforeUserCreated, beforeUserSignedIn } = require('firebase-functions/v2/identity');
++const logger = require('firebase-functions/logger');
++const { initializeApp, getApps } = require('firebase-admin/app');
++const { getFirestore } = require('firebase-admin/firestore');
++const { makeSignInHandler, CLAIMS } = require('./lib/handlers');
+ 
+-const claims = { role: 'authenticated' };
++function firestore() {
++  if (!getApps().length) initializeApp();
++  return getFirestore();
++}
+ 
+-exports.supabaseRoleOnCreate = beforeUserCreated(() => ({ customClaims: claims }));
+-exports.supabaseRoleOnSignIn = beforeUserSignedIn(() => ({ customClaims: claims }));
++/** The caller's Firestore profile, or null when none exists yet. */
++async function readUserProfile(uid) {
++  const snap = await firestore().collection('users').doc(uid).get();
++  return snap.exists ? snap.data() : null;
++}
++
++exports.supabaseRoleOnCreate = beforeUserCreated(() => ({ customClaims: CLAIMS }));
++
++// Also refuses sign-in for deactivated accounts (users/{uid}.isActive is not
++// true), so that check is enforced server-side and not only in the Flutter app.
++exports.supabaseRoleOnSignIn = beforeUserSignedIn(
++  makeSignInHandler({ readProfile: readUserProfile, log: logger }),
++);
+diff -ruN a/functions/lib/account-status.js b/functions/lib/account-status.js
+--- a/functions/lib/account-status.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/lib/account-status.js	2026-10-07 05:41:26.053073486 +0000
+@@ -0,0 +1,88 @@
++'use strict';
++
++/**
++ * Fully deactivate / reactivate a Firebase account (Admin SDK). Used by
++ * deactivate-user.js; dependencies are injected so the logic is unit tested.
++ *
++ * Why this exists: the sign-in blocking function only stops NEW sign-ins, and
++ * `users/{uid}.isActive: false` only stops Firestore access. To end an account
++ * you also have to disable the Auth user and revoke its refresh tokens (a token
++ * already issued stays valid for up to an hour).
++ *
++ * Deactivate order is access-first, so a failure part-way still leaves the
++ * account locked out: disable -> revoke sessions -> flag profile.
++ * Reactivate order is the reverse: flag profile -> enable.
++ *
++ * STAFF / OWNER accounts: prefer the app's User Management screen. It also
++ * updates the Supabase staff registry, which is what blocks database access
++ * immediately; this script has no Supabase credentials. Use this script for
++ * customers, or in an emergency (then the account is dead within the token
++ * lifetime, <= 1 hour).
++ */
++async function activeOwnerCount(firestore) {
++  const snap = await firestore.collection('users')
++    .where('role', '==', 'owner')
++    .where('isActive', '==', true)
++    .limit(2)
++    .get();
++  return snap.docs.length;
++}
++
++async function deactivateAccount({ auth, firestore }, uid, { allowOwner = false } = {}) {
++  const completed = [];
++  const fail = (error) => { error.completedSteps = completed.slice(); throw error; };
++
++  try {
++    await auth.getUser(uid); // unknown uid -> auth/user-not-found, before anything is touched
++
++    const ref = firestore.collection('users').doc(uid);
++    const snap = await ref.get();
++    const profile = snap.exists ? snap.data() : null;
++
++    if (profile && profile.role === 'owner') {
++      if (!allowOwner) {
++        throw new Error('That account is an owner. Re-run with --allow-owner if you really mean it.');
++      }
++      if (profile.isActive !== false && (await activeOwnerCount(firestore)) <= 1) {
++        throw new Error('Refusing: this is the last active owner. Create another owner first.');
++      }
++    }
++
++    await auth.updateUser(uid, { disabled: true });
++    completed.push('auth-disabled');
++    await auth.revokeRefreshTokens(uid);
++    completed.push('sessions-revoked');
++    if (snap.exists) {
++      await ref.update({ isActive: false });
++      completed.push('profile-flagged-inactive');
++    } else {
++      completed.push('no-profile-to-flag');
++    }
++  } catch (error) {
++    fail(error);
++  }
++  return completed;
++}
++
++async function reactivateAccount({ auth, firestore }, uid) {
++  const completed = [];
++  try {
++    await auth.getUser(uid);
++    const ref = firestore.collection('users').doc(uid);
++    const snap = await ref.get();
++    if (snap.exists) {
++      await ref.update({ isActive: true });
++      completed.push('profile-flagged-active');
++    } else {
++      completed.push('no-profile-to-flag');
++    }
++    await auth.updateUser(uid, { disabled: false });
++    completed.push('auth-enabled');
++  } catch (error) {
++    error.completedSteps = completed.slice();
++    throw error;
++  }
++  return completed;
++}
++
++module.exports = { deactivateAccount, reactivateAccount };
+diff -ruN a/functions/lib/handlers.js b/functions/lib/handlers.js
+--- a/functions/lib/handlers.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/lib/handlers.js	2026-10-07 05:41:26.049233364 +0000
+@@ -0,0 +1,39 @@
++'use strict';
++
++const { HttpsError } = require('firebase-functions/v2/identity');
++const { decideSignIn } = require('./sign-in-policy');
++
++/**
++ * Marker the Flutter app looks for in the error Firebase returns when a
++ * blocking function refuses a sign-in (reported as `internal-error` with this
++ * text inside the message). Keep in sync with AuthService._messageFor.
++ */
++const DEACTIVATED_MARKER = 'ACCOUNT_DEACTIVATED';
++
++/** The Postgres role claim every Supabase request needs (see index.js). */
++const CLAIMS = { role: 'authenticated' };
++
++/**
++ * Builds the `beforeUserSignedIn` handler. Refuses deactivated accounts and
++ * otherwise stamps the Supabase role claim, exactly as before.
++ *
++ * NOTE: this runs when a user SIGNS IN, not when an existing session's ID
++ * token refreshes. To cut off an existing session as well, disable the user
++ * and revoke their refresh tokens (functions/deactivate-user.js).
++ */
++function makeSignInHandler({ readProfile, log = console, failClosed = false }) {
++  return async function onSignIn(event) {
++    const uid = event && event.data && event.data.uid;
++    const decision = await decideSignIn(uid, readProfile, { log, failClosed });
++    if (!decision.allow) {
++      log.warn('sign-in refused', { uid, reason: decision.reason });
++      throw new HttpsError(
++        'permission-denied',
++        `${DEACTIVATED_MARKER}: This account has been deactivated. Please contact your administrator.`,
++      );
++    }
++    return { customClaims: CLAIMS };
++  };
++}
++
++module.exports = { makeSignInHandler, CLAIMS, DEACTIVATED_MARKER };
+diff -ruN a/functions/lib/sign-in-policy.js b/functions/lib/sign-in-policy.js
+--- a/functions/lib/sign-in-policy.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/lib/sign-in-policy.js	2026-10-07 05:41:26.045424359 +0000
+@@ -0,0 +1,63 @@
++'use strict';
++
++/**
++ * Decides whether a user may sign in, from their Firestore `users/{uid}`
++ * profile. Pure logic with injected I/O so it can be unit tested without
++ * Firebase.
++ *
++ * The rule mirrors firestore.rules (`activeUser()`): a profile whose
++ * `isActive` field is PRESENT and not exactly `true` is inactive. A missing
++ * field counts as active (the rules default it to true).
++ *
++ *   no profile document -> ALLOW. A brand-new account signs in once before the
++ *                          client has written its profile; blocking that would
++ *                          make registration impossible.
++ *   isActive absent     -> allow
++ *   isActive === true   -> allow
++ *   isActive anything else (false, null, "false", 0, ...) -> DENY
++ *
++ * If the profile cannot be read (Firestore error or timeout) the default is
++ * to ALLOW and log, because a Firestore hiccup must not lock every user out;
++ * the Supabase staff registry and Firestore rules still gate real access.
++ * Pass `failClosed: true` to deny instead.
++ *
++ * Blocking functions have a hard 7 s limit, so the read gets its own, shorter
++ * timeout.
++ */
++const DEFAULT_TIMEOUT_MS = 4000;
++
++function withTimeout(promise, ms) {
++  let timer;
++  const timeout = new Promise((_, reject) => {
++    timer = setTimeout(() => reject(new Error(`profile read timed out after ${ms} ms`)), ms);
++  });
++  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
++}
++
++async function decideSignIn(uid, readProfile, options = {}) {
++  const { failClosed = false, timeoutMs = DEFAULT_TIMEOUT_MS, log = console } = options;
++
++  if (typeof uid !== 'string' || uid === '') {
++    return { allow: false, reason: 'missing-uid' };
++  }
++
++  let profile;
++  try {
++    profile = await withTimeout(Promise.resolve().then(() => readProfile(uid)), timeoutMs);
++  } catch (error) {
++    log.error('sign-in policy: could not read the user profile', { uid, error: String(error && error.message || error) });
++    return failClosed
++      ? { allow: false, reason: 'profile-unavailable' }
++      : { allow: true, reason: 'profile-unavailable-allowed' };
++  }
++
++  if (profile === null || profile === undefined) {
++    return { allow: true, reason: 'no-profile' };
++  }
++  if (Object.prototype.hasOwnProperty.call(profile, 'isActive') && profile.isActive !== true) {
++    return { allow: false, reason: 'deactivated' };
++  }
++  return { allow: true, reason: 'active' };
++}
++
++module.exports = { decideSignIn, DEFAULT_TIMEOUT_MS };
+diff -ruN a/functions/package.json b/functions/package.json
+--- a/functions/package.json	2026-10-07 05:41:25.977647662 +0000
++++ b/functions/package.json	2026-10-07 05:41:26.037273021 +0000
+@@ -6,7 +6,8 @@
+   "main": "index.js",
+   "scripts": {
+     "deploy": "firebase deploy --only functions",
+-    "backfill": "node backfill-role-claim.js"
++    "backfill": "node backfill-role-claim.js",
++    "test": "node --test"
+   },
+   "dependencies": {
+     "firebase-admin": "^12.6.0",
+diff -ruN a/functions/test/account-status.test.js b/functions/test/account-status.test.js
+--- a/functions/test/account-status.test.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/test/account-status.test.js	2026-10-07 05:41:26.065064466 +0000
+@@ -0,0 +1,124 @@
++'use strict';
++const { test } = require('node:test');
++const assert = require('node:assert/strict');
++const { deactivateAccount, reactivateAccount } = require('../lib/account-status');
++
++// Minimal in-memory fakes that record every call in order.
++function fakes({ users = {}, authUsers = ['u1', 'owner1', 'owner2'], failOn = {} } = {}) {
++  const calls = [];
++  const maybeFail = (name) => { if (failOn[name]) throw new Error(`${name} failed`); };
++  const auth = {
++    async getUser(uid) { calls.push(['getUser', uid]); if (!authUsers.includes(uid)) { const e = new Error('no such user'); e.code = 'auth/user-not-found'; throw e; } },
++    async updateUser(uid, patch) { maybeFail('updateUser'); calls.push(['updateUser', uid, patch]); },
++    async revokeRefreshTokens(uid) { maybeFail('revokeRefreshTokens'); calls.push(['revokeRefreshTokens', uid]); },
++  };
++  const firestore = {
++    collection(name) {
++      assert.equal(name, 'users');
++      return {
++        doc: (uid) => ({
++          async get() { calls.push(['profile.get', uid]); return { exists: uid in users, data: () => users[uid] }; },
++          async update(patch) { maybeFail('profile.update'); calls.push(['profile.update', uid, patch]); Object.assign(users[uid], patch); },
++        }),
++        where(field, op, value) {
++          const filters = [[field, op, value]];
++          const q = {
++            where(f, o, v) { filters.push([f, o, v]); return q; },
++            limit() { return q; },
++            async get() {
++              const docs = Object.entries(users).filter(([, d]) => filters.every(([f, , v]) => d[f] === v)).map(([id, d]) => ({ id, data: () => d }));
++              return { docs: docs.slice(0, 2) };
++            },
++          };
++          return q;
++        },
++      };
++    },
++  };
++  return { deps: { auth, firestore }, calls, users };
++}
++const names = (calls) => calls.map((c) => c[0]);
++
++test('deactivate: disables sign-in, revokes sessions, then flags the profile, in that order', async () => {
++  const { deps, calls, users } = fakes({ users: { u1: { role: 'customer', isActive: true } } });
++  const steps = await deactivateAccount(deps, 'u1');
++  assert.deepEqual(steps, ['auth-disabled', 'sessions-revoked', 'profile-flagged-inactive']);
++  assert.deepEqual(names(calls), ['getUser', 'profile.get', 'updateUser', 'revokeRefreshTokens', 'profile.update']);
++  assert.deepEqual(calls.find((c) => c[0] === 'updateUser')[2], { disabled: true });
++  assert.equal(users.u1.isActive, false);
++});
++
++test('deactivate: an unknown uid fails before anything is touched', async () => {
++  const { deps, calls } = fakes({ users: {} });
++  await assert.rejects(deactivateAccount(deps, 'ghost'), (e) => e.code === 'auth/user-not-found' && Array.isArray(e.completedSteps) && e.completedSteps.length === 0);
++  assert.deepEqual(names(calls), ['getUser']);
++});
++
++test('deactivate: an account with no profile is still locked out', async () => {
++  const { deps, calls } = fakes({ users: {} });
++  const steps = await deactivateAccount(deps, 'u1');
++  assert.deepEqual(steps, ['auth-disabled', 'sessions-revoked', 'no-profile-to-flag']);
++  assert.ok(!names(calls).includes('profile.update'));
++});
++
++test('deactivate: running it twice is harmless', async () => {
++  const { deps, users } = fakes({ users: { u1: { role: 'customer', isActive: true } } });
++  await deactivateAccount(deps, 'u1');
++  await deactivateAccount(deps, 'u1');
++  assert.equal(users.u1.isActive, false);
++});
++
++test('deactivate: a failure part-way reports exactly what was already done (and access is already cut)', async () => {
++  const { deps, calls, users } = fakes({ users: { u1: { role: 'customer', isActive: true } }, failOn: { revokeRefreshTokens: true } });
++  await assert.rejects(deactivateAccount(deps, 'u1'), (e) => {
++    assert.deepEqual(e.completedSteps, ['auth-disabled']);
++    return /revokeRefreshTokens failed/.test(e.message);
++  });
++  assert.equal(users.u1.isActive, true, 'profile not touched yet');
++  assert.ok(calls.some((c) => c[0] === 'updateUser'), 'sign-in was already disabled');
++});
++
++test('deactivate: an owner needs --allow-owner, and nothing is changed without it', async () => {
++  const { deps, calls } = fakes({ users: { owner1: { role: 'owner', isActive: true }, owner2: { role: 'owner', isActive: true } } });
++  await assert.rejects(deactivateAccount(deps, 'owner1'), /--allow-owner/);
++  assert.ok(!names(calls).includes('updateUser'));
++});
++
++test('deactivate: the LAST active owner can never be deactivated, even with --allow-owner', async () => {
++  const { deps, calls, users } = fakes({ users: { owner1: { role: 'owner', isActive: true } } });
++  await assert.rejects(deactivateAccount(deps, 'owner1', { allowOwner: true }), /last active owner/);
++  assert.ok(!names(calls).includes('updateUser'));
++  assert.equal(users.owner1.isActive, true);
++});
++
++test('deactivate: an owner can be deactivated when another active owner exists', async () => {
++  const { deps, users } = fakes({ users: { owner1: { role: 'owner', isActive: true }, owner2: { role: 'owner', isActive: true } } });
++  await deactivateAccount(deps, 'owner1', { allowOwner: true });
++  assert.equal(users.owner1.isActive, false);
++  assert.equal(users.owner2.isActive, true);
++});
++
++test('deactivate: re-running on an owner who is already inactive is allowed (cleanup after a partial run)', async () => {
++  const { deps } = fakes({ users: { owner1: { role: 'owner', isActive: false }, owner2: { role: 'owner', isActive: true } } });
++  assert.deepEqual(await deactivateAccount(deps, 'owner1', { allowOwner: true }), ['auth-disabled', 'sessions-revoked', 'profile-flagged-inactive']);
++});
++
++test('reactivate: flags the profile active first, then enables sign-in', async () => {
++  const { deps, calls, users } = fakes({ users: { u1: { role: 'customer', isActive: false } } });
++  const steps = await reactivateAccount(deps, 'u1');
++  assert.deepEqual(steps, ['profile-flagged-active', 'auth-enabled']);
++  assert.deepEqual(names(calls), ['getUser', 'profile.get', 'profile.update', 'updateUser']);
++  assert.deepEqual(calls.find((c) => c[0] === 'updateUser')[2], { disabled: false });
++  assert.equal(users.u1.isActive, true);
++});
++
++test('reactivate: a failure part-way reports what was done', async () => {
++  const { deps } = fakes({ users: { u1: { role: 'customer', isActive: false } }, failOn: { updateUser: true } });
++  await assert.rejects(reactivateAccount(deps, 'u1'), (e) => { assert.deepEqual(e.completedSteps, ['profile-flagged-active']); return true; });
++});
++
++test('reactivate: unknown uid fails before anything is touched', async () => {
++  const { deps, calls } = fakes({ users: {} });
++  await assert.rejects(reactivateAccount(deps, 'ghost'), (e) => e.code === 'auth/user-not-found');
++  assert.deepEqual(names(calls), ['getUser']);
++});
+diff -ruN a/functions/test/handlers.test.js b/functions/test/handlers.test.js
+--- a/functions/test/handlers.test.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/test/handlers.test.js	2026-10-07 05:41:26.061039941 +0000
+@@ -0,0 +1,59 @@
++'use strict';
++const { test } = require('node:test');
++const assert = require('node:assert/strict');
++const { HttpsError } = require('firebase-functions/v2/identity');
++const { makeSignInHandler, CLAIMS, DEACTIVATED_MARKER } = require('../lib/handlers');
++
++const log = () => { const entries = { error: [], warn: [] }; return { entries, error: (...a) => entries.error.push(a), warn: (...a) => entries.warn.push(a), info() {} }; };
++const event = (uid) => ({ data: { uid } });
++const handlerFor = (profile, opts = {}) => makeSignInHandler({ readProfile: async () => profile, log: log(), ...opts });
++
++test('the claim is ONLY the Postgres role, never an app role', () => {
++  assert.deepEqual(CLAIMS, { role: 'authenticated' });
++});
++
++test('an active user gets the Supabase role claim', async () => {
++  assert.deepEqual(await handlerFor({ role: 'customer', isActive: true })(event('u1')), { customClaims: { role: 'authenticated' } });
++});
++
++test('a user with no profile yet gets the claim (first sign-in during registration)', async () => {
++  assert.deepEqual(await handlerFor(null)(event('new')), { customClaims: { role: 'authenticated' } });
++});
++
++test('a deactivated user is refused with permission-denied and the marker the app looks for', async () => {
++  await assert.rejects(handlerFor({ role: 'staff', isActive: false })(event('u1')), (err) => {
++    assert.ok(err instanceof HttpsError);
++    assert.equal(err.code, 'permission-denied');
++    assert.ok(err.message.includes(DEACTIVATED_MARKER));
++    assert.match(err.message, /deactivated/i);
++    return true;
++  });
++});
++
++test('the refusal is logged with the uid and reason, not the profile contents', async () => {
++  const l = log();
++  const h = makeSignInHandler({ readProfile: async () => ({ isActive: false, email: 'secret@x.com' }), log: l });
++  await assert.rejects(h(event('u9')));
++  assert.equal(l.entries.warn.length, 1);
++  const logged = JSON.stringify(l.entries.warn[0]);
++  assert.match(logged, /u9/);
++  assert.match(logged, /deactivated/);
++  assert.doesNotMatch(logged, /secret@x\.com/);
++});
++
++test('a profile read failure still lets the user in by default', async () => {
++  const h = makeSignInHandler({ readProfile: async () => { throw new Error('down'); }, log: log() });
++  assert.deepEqual(await h(event('u1')), { customClaims: { role: 'authenticated' } });
++});
++
++test('failClosed turns a read failure into a refusal', async () => {
++  const h = makeSignInHandler({ readProfile: async () => { throw new Error('down'); }, log: log(), failClosed: true });
++  await assert.rejects(h(event('u1')), (err) => err.code === 'permission-denied');
++});
++
++test('a malformed event is refused rather than crashing or allowing', async () => {
++  const h = handlerFor(null);
++  for (const bad of [undefined, null, {}, { data: {} }, { data: { uid: '' } }]) {
++    await assert.rejects(h(bad), (err) => err instanceof HttpsError && err.code === 'permission-denied');
++  }
++});
+diff -ruN a/functions/test/index.test.js b/functions/test/index.test.js
+--- a/functions/test/index.test.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/test/index.test.js	2026-10-07 05:41:26.068965108 +0000
+@@ -0,0 +1,104 @@
++'use strict';
++// Loads the REAL index.js with only the Firebase Admin SDK and the trigger
++// registration stubbed, to prove the wiring: what is exported, that the
++// sign-in handler really reads users/{uid}, and that the Admin SDK is
++// initialised lazily and once.
++const { test, before } = require('node:test');
++const assert = require('node:assert/strict');
++const Module = require('node:module');
++const path = require('node:path');
++
++const realIdentity = require('firebase-functions/v2/identity');
++const state = { apps: [], inits: 0, reads: [], profiles: {}, failRead: false };
++
++const stubs = {
++  'firebase-admin/app': { initializeApp: () => { state.inits++; state.apps.push({}); }, getApps: () => state.apps },
++  'firebase-admin/firestore': {
++    getFirestore: () => ({
++      collection: (name) => ({
++        doc: (id) => ({
++          get: async () => {
++            state.reads.push(`${name}/${id}`);
++            if (state.failRead) throw new Error('firestore unavailable');
++            const data = state.profiles[id];
++            return { exists: data !== undefined, data: () => data };
++          },
++        }),
++      }),
++    }),
++  },
++  'firebase-functions/v2/identity': {
++    ...realIdentity,
++    beforeUserCreated: (handler) => ({ trigger: 'beforeUserCreated', handler }),
++    beforeUserSignedIn: (handler) => ({ trigger: 'beforeUserSignedIn', handler }),
++  },
++};
++
++let index;
++before(() => {
++  const originalLoad = Module._load;
++  Module._load = function patched(request, parent, isMain) {
++    if (Object.prototype.hasOwnProperty.call(stubs, request)) return stubs[request];
++    return originalLoad.call(this, request, parent, isMain);
++  };
++  try {
++    for (const key of Object.keys(require.cache)) {
++      if (key.startsWith(path.resolve(__dirname, '..') + path.sep) && !key.includes('node_modules')) delete require.cache[key];
++    }
++    index = require('../index.js');
++  } finally {
++    Module._load = originalLoad;
++  }
++});
++
++const quietly = async (fn) => {
++  const orig = [console.error, console.warn, console.log, console.info];
++  console.error = console.warn = console.log = console.info = () => {};
++  try { return await fn(); } finally { [console.error, console.warn, console.log, console.info] = orig; }
++};
++
++test('index.js exports exactly the two blocking functions (no accidental extra deploy surface)', () => {
++  assert.deepEqual(Object.keys(index).sort(), ['supabaseRoleOnCreate', 'supabaseRoleOnSignIn']);
++  assert.equal(index.supabaseRoleOnCreate.trigger, 'beforeUserCreated');
++  assert.equal(index.supabaseRoleOnSignIn.trigger, 'beforeUserSignedIn');
++});
++
++test('sign-up still stamps the Supabase role claim', () => {
++  assert.deepEqual(index.supabaseRoleOnCreate.handler(), { customClaims: { role: 'authenticated' } });
++});
++
++test('Admin SDK is not initialised at load time', () => {
++  assert.equal(state.inits, 0);
++});
++
++test('sign-in for an active user reads users/{uid} and returns the claim', async () => {
++  state.profiles = { u1: { role: 'customer', isActive: true } };
++  const out = await quietly(() => index.supabaseRoleOnSignIn.handler({ data: { uid: 'u1' } }));
++  assert.deepEqual(out, { customClaims: { role: 'authenticated' } });
++  assert.deepEqual(state.reads.slice(-1), ['users/u1']);
++});
++
++test('sign-in for a deactivated user is refused', async () => {
++  state.profiles = { u2: { role: 'staff', isActive: false } };
++  await quietly(async () => {
++    await assert.rejects(index.supabaseRoleOnSignIn.handler({ data: { uid: 'u2' } }), (e) => e.code === 'permission-denied' && /ACCOUNT_DEACTIVATED/.test(e.message));
++  });
++});
++
++test('sign-in for a user with no profile yet is allowed', async () => {
++  state.profiles = {};
++  const out = await quietly(() => index.supabaseRoleOnSignIn.handler({ data: { uid: 'fresh' } }));
++  assert.deepEqual(out, { customClaims: { role: 'authenticated' } });
++});
++
++test('a Firestore outage does not lock users out', async () => {
++  state.failRead = true;
++  try {
++    const out = await quietly(() => index.supabaseRoleOnSignIn.handler({ data: { uid: 'u1' } }));
++    assert.deepEqual(out, { customClaims: { role: 'authenticated' } });
++  } finally { state.failRead = false; }
++});
++
++test('the Admin SDK was initialised once, lazily, on first use', () => {
++  assert.equal(state.inits, 1);
++});
+diff -ruN a/functions/test/sign-in-policy.test.js b/functions/test/sign-in-policy.test.js
+--- a/functions/test/sign-in-policy.test.js	1970-01-01 00:00:00.000000000 +0000
++++ b/functions/test/sign-in-policy.test.js	2026-10-07 05:41:26.056932412 +0000
+@@ -0,0 +1,72 @@
++'use strict';
++const { test } = require('node:test');
++const assert = require('node:assert/strict');
++const { decideSignIn } = require('../lib/sign-in-policy');
++
++const quiet = () => { const calls = []; return { calls, error: (...a) => calls.push(a), warn() {}, info() {} }; };
++const returns = (profile) => async () => profile;
++
++test('a brand-new account with no profile yet may sign in (registration needs this)', async () => {
++  assert.deepEqual(await decideSignIn('u1', returns(null)), { allow: true, reason: 'no-profile' });
++  assert.deepEqual(await decideSignIn('u1', returns(undefined)), { allow: true, reason: 'no-profile' });
++});
++
++test('an active profile may sign in, with or without the isActive field', async () => {
++  assert.equal((await decideSignIn('u1', returns({ role: 'customer', isActive: true }))).allow, true);
++  assert.equal((await decideSignIn('u1', returns({ role: 'customer' }))).allow, true, 'absent isActive counts as active, like firestore.rules');
++});
++
++test('isActive anything other than true is refused (matches firestore.rules activeUser())', async () => {
++  for (const value of [false, null, 'false', 'true', 0, 1, [], {}]) {
++    const d = await decideSignIn('u1', returns({ role: 'staff', isActive: value }));
++    assert.deepEqual(d, { allow: false, reason: 'deactivated' }, `isActive=${JSON.stringify(value)}`);
++  }
++});
++
++test('the profile is read for exactly the signing-in uid', async () => {
++  const seen = [];
++  await decideSignIn('abc123', async (uid) => { seen.push(uid); return null; });
++  assert.deepEqual(seen, ['abc123']);
++});
++
++test('a missing or malformed uid is refused without reading anything', async () => {
++  let reads = 0;
++  const read = async () => { reads++; return null; };
++  for (const uid of [undefined, null, '', 42, {}]) {
++    assert.deepEqual(await decideSignIn(uid, read), { allow: false, reason: 'missing-uid' });
++  }
++  assert.equal(reads, 0);
++});
++
++test('a read failure allows sign-in by default and is logged', async () => {
++  const log = quiet();
++  const d = await decideSignIn('u1', async () => { throw new Error('firestore down'); }, { log });
++  assert.deepEqual(d, { allow: true, reason: 'profile-unavailable-allowed' });
++  assert.equal(log.calls.length, 1);
++  assert.match(JSON.stringify(log.calls[0]), /firestore down/);
++});
++
++test('a synchronous throw from the reader is handled the same way', async () => {
++  const d = await decideSignIn('u1', () => { throw new Error('boom'); }, { log: quiet() });
++  assert.equal(d.reason, 'profile-unavailable-allowed');
++});
++
++test('failClosed refuses sign-in when the profile cannot be read', async () => {
++  const d = await decideSignIn('u1', async () => { throw new Error('down'); }, { failClosed: true, log: quiet() });
++  assert.deepEqual(d, { allow: false, reason: 'profile-unavailable' });
++});
++
++test('a hung read times out (blocking functions have a hard 7 s limit)', async () => {
++  const never = () => new Promise(() => {});
++  const started = Date.now();
++  const open = await decideSignIn('u1', never, { timeoutMs: 25, log: quiet() });
++  assert.equal(open.reason, 'profile-unavailable-allowed');
++  assert.ok(Date.now() - started < 1000, 'returned promptly');
++  const closed = await decideSignIn('u1', never, { timeoutMs: 25, failClosed: true, log: quiet() });
++  assert.equal(closed.reason, 'profile-unavailable');
++});
++
++test('a fast read is not affected by the timeout', async () => {
++  const d = await decideSignIn('u1', returns({ isActive: false }), { timeoutMs: 1000 });
++  assert.equal(d.allow, false);
++});
+diff -ruN a/lib/core/services/auth_service.dart b/lib/core/services/auth_service.dart
+--- a/lib/core/services/auth_service.dart	2026-10-07 05:41:25.973782248 +0000
++++ b/lib/core/services/auth_service.dart	2026-10-07 05:41:26.076617026 +0000
+@@ -713,6 +713,13 @@
+       case 'requires-recent-login':
+         return 'Your session has expired. Please sign in again.';
+       case 'internal-error':
++        // The sign-in blocking function (functions/index.js) refuses deactivated
++        // accounts; Firebase reports that as `internal-error` with the function's
++        // message inside. Keep the marker in sync with functions/lib/handlers.js.
++        if ((e.message ?? '').contains('ACCOUNT_DEACTIVATED')) {
++          return 'This account has been deactivated. Please contact your administrator.';
++        }
++        return 'This sign-in method is not available right now. Please try again later.';
+       case 'operation-not-allowed':
+         return 'This sign-in method is not available right now. Please try again later.';
+       default:
+diff -ruN a/lib/core/services/checkout_attempt_store.dart b/lib/core/services/checkout_attempt_store.dart
+--- a/lib/core/services/checkout_attempt_store.dart	2026-10-07 05:41:25.973623806 +0000
++++ b/lib/core/services/checkout_attempt_store.dart	2026-10-07 05:41:26.081016603 +0000
+@@ -15,6 +15,13 @@
+   final String cartId;
+   final DateTime createdAt;
+ 
++  /// What this attempt asked the server for (fulfilment, address, payment
++  /// method, notes). The server answers a repeated key with the FIRST order
++  /// it stored for that key and never compares the request, so a key must
++  /// only ever be reused for the identical request. Null for attempts saved
++  /// by an older app version; those are never reused for a new request.
++  final String? fingerprint;
++
+   /// True once the `place_order` request was sent. From then until the
+   /// server's answer is known, the outcome is UNKNOWN — the order may or may
+   /// not exist — and the attempt must survive an app restart.
+@@ -25,6 +32,7 @@
+     required this.uid,
+     required this.cartId,
+     required this.createdAt,
++    this.fingerprint,
+     this.submitted = false,
+   });
+ 
+@@ -33,6 +41,7 @@
+         uid: uid,
+         cartId: cartId,
+         createdAt: createdAt,
++        fingerprint: fingerprint,
+         submitted: submitted ?? this.submitted,
+       );
+ 
+@@ -41,6 +50,7 @@
+         'uid': uid,
+         'cartId': cartId,
+         'createdAt': createdAt.toIso8601String(),
++        'fingerprint': fingerprint,
+         'submitted': submitted,
+       };
+ 
+@@ -49,19 +59,56 @@
+         uid: json['uid'] as String,
+         cartId: json['cartId'] as String,
+         createdAt: DateTime.parse(json['createdAt'] as String),
++        fingerprint: json['fingerprint'] as String?,
+         submitted: json['submitted'] as bool? ?? false,
+       );
+ }
+ 
++/// Thrown by [CheckoutAttemptStore.begin] when the customer changed their
++/// checkout options after a request whose outcome was unknown, and the server
++/// turns out to have accepted that earlier request. The earlier order is the
++/// real one; the screen should show it instead of placing another.
++class CheckoutAlreadyPlacedException implements Exception {
++  final Order order;
++  const CheckoutAlreadyPlacedException(this.order);
++
++  @override
++  String toString() => 'CheckoutAlreadyPlacedException(${order.id})';
++}
++
++/// Where the single in-flight attempt is persisted.
++abstract class CheckoutAttemptStorage {
++  Future<String?> read();
++  Future<void> write(String value);
++  Future<void> remove();
++}
++
++class _PrefsCheckoutAttemptStorage implements CheckoutAttemptStorage {
++  static const String _storageKey = 'melai_checkout_attempt_v1';
++  final SharedPreferencesAsync _prefs = SharedPreferencesAsync();
++
++  @override
++  Future<String?> read() => _prefs.getString(_storageKey);
++  @override
++  Future<void> write(String value) => _prefs.setString(_storageKey, value);
++  @override
++  Future<void> remove() => _prefs.remove(_storageKey);
++}
++
+ /// Makes "Place Order" safe to retry — including after the connection
+ /// drops mid-request or the app is killed — without ever creating two
+ /// orders or claiming an order that the server did not accept.
+ ///
+ /// How:
+-///  1. [begin] hands out ONE idempotency key per (customer, cart) and saves
+-///     it to disk. Every retry for that cart reuses the same key, and the
+-///     `place_order` database function returns the existing order for a key
+-///     it has already seen instead of creating another.
++///  1. [begin] hands out ONE idempotency key per (customer, cart, request)
++///     and saves it to disk. Every retry of the SAME request reuses the same
++///     key, and the `place_order` database function returns the existing
++///     order for a key it has already seen instead of creating another. The
++///     server does not compare the request on a repeated key, so if the
++///     customer changes their options after a request whose outcome is
++///     unknown, [begin] first asks the server whether that request was
++///     accepted (throwing [CheckoutAlreadyPlacedException] if so) and only
++///     otherwise mints a new key.
+ ///  2. [markSubmitted] is called right before the request is sent.
+ ///  3. On success [clear] is called. On a definitive server rejection
+ ///     [clear] is called too (nothing was created; a later attempt is new).
+@@ -72,13 +119,31 @@
+ ///     [recoveredOrder]); if not, nothing was placed and a retry with the
+ ///     same key remains safe.
+ class CheckoutAttemptStore extends ChangeNotifier {
+-  CheckoutAttemptStore._();
++  CheckoutAttemptStore._()
++      : this.withDependencies(
++          storage: _PrefsCheckoutAttemptStorage(),
++          lookup: (uid, key) => OrdersRepository.instance.findByIdempotencyKey(uid, key),
++        );
++
++  @visibleForTesting
++  CheckoutAttemptStore.withDependencies({
++    required CheckoutAttemptStorage storage,
++    required Future<Order?> Function(String uid, String key) lookup,
++    DateTime Function()? now,
++    String Function()? newKey,
++  })  : _storage = storage,
++        _lookup = lookup,
++        _now = now ?? DateTime.now,
++        _newKeyFn = newKey;
++
+   static final CheckoutAttemptStore instance = CheckoutAttemptStore._();
+ 
+-  static const String _storageKey = 'melai_checkout_attempt_v1';
+   static const Duration _maxAge = Duration(hours: 24);
+ 
+-  final SharedPreferencesAsync _prefs = SharedPreferencesAsync();
++  final CheckoutAttemptStorage _storage;
++  final Future<Order?> Function(String uid, String key) _lookup;
++  final DateTime Function() _now;
++  final String Function()? _newKeyFn;
+ 
+   /// Set when an earlier, unconfirmed checkout turned out to have been
+   /// accepted by the server. The UI shows it once, then [dismissRecovered].
+@@ -86,7 +151,7 @@
+ 
+   Future<CheckoutAttempt?> _read() async {
+     try {
+-      final raw = await _prefs.getString(_storageKey);
++      final raw = await _storage.read();
+       if (raw == null || raw.isEmpty) return null;
+       return CheckoutAttempt.fromJson(Map<String, dynamic>.from(jsonDecode(raw) as Map));
+     } catch (_) {
+@@ -96,27 +161,48 @@
+ 
+   Future<void> _write(CheckoutAttempt attempt) async {
+     try {
+-      await _prefs.setString(_storageKey, jsonEncode(attempt.toJson()));
++      await _storage.write(jsonEncode(attempt.toJson()));
+     } catch (_) {
+       // If the disk write fails the attempt still works for this session.
+     }
+   }
+ 
+-  /// The attempt to use for [cartId]: the saved one if it belongs to this
+-  /// customer and cart and is recent, otherwise a brand-new key.
+-  Future<CheckoutAttempt> begin({required String uid, required String cartId}) async {
++  /// The attempt to use for this exact request ([fingerprint]) on [cartId]:
++  /// the saved one if it belongs to this customer and cart, is recent, and
++  /// asked for the identical request; otherwise a brand-new key.
++  ///
++  /// If the saved attempt was already sent (outcome unknown) but the request
++  /// has since changed, the server is asked about the old key first, because
++  /// it may have accepted that order. Throws [CheckoutAlreadyPlacedException]
++  /// if it did. If the server can't be reached the lookup error propagates and
++  /// the saved attempt is kept: with the outcome unknown, a new key could
++  /// place a second order.
++  Future<CheckoutAttempt> begin({
++    required String uid,
++    required String cartId,
++    required String fingerprint,
++  }) async {
+     final existing = await _read();
+-    if (existing != null &&
++    final usable = existing != null &&
+         existing.uid == uid &&
+         existing.cartId == cartId &&
+-        DateTime.now().difference(existing.createdAt) < _maxAge) {
+-      return existing;
++        _now().difference(existing.createdAt) < _maxAge;
++    if (usable && existing.fingerprint == fingerprint) return existing;
++
++    if (usable && existing.submitted) {
++      final placed = await _lookup(uid, existing.key);
++      if (placed != null) {
++        await clear();
++        throw CheckoutAlreadyPlacedException(placed);
++      }
+     }
++
+     final fresh = CheckoutAttempt(
+       key: _newKey(),
+       uid: uid,
+       cartId: cartId,
+-      createdAt: DateTime.now(),
++      createdAt: _now(),
++      fingerprint: fingerprint,
+     );
+     await _write(fresh);
+     return fresh;
+@@ -126,7 +212,7 @@
+ 
+   Future<void> clear() async {
+     try {
+-      await _prefs.remove(_storageKey);
++      await _storage.remove();
+     } catch (_) {}
+   }
+ 
+@@ -135,13 +221,13 @@
+   Future<void> resolveUnconfirmed(String uid) async {
+     final attempt = await _read();
+     if (attempt == null) return;
+-    if (attempt.uid != uid || DateTime.now().difference(attempt.createdAt) >= _maxAge) {
++    if (attempt.uid != uid || _now().difference(attempt.createdAt) >= _maxAge) {
+       await clear();
+       return;
+     }
+     if (!attempt.submitted) return;
+ 
+-    final order = await OrdersRepository.instance.findByIdempotencyKey(uid, attempt.key);
++    final order = await _lookup(uid, attempt.key);
+     if (order == null) return; // never accepted; a same-key retry is safe
+     await clear();
+     recoveredOrder = order;
+@@ -162,6 +248,8 @@
+   }
+ 
+   String _newKey() {
++    final injected = _newKeyFn;
++    if (injected != null) return injected();
+     final random = Random.secure();
+     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+     return 'co-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+diff -ruN a/lib/core/utils/request_key.dart b/lib/core/utils/request_key.dart
+--- a/lib/core/utils/request_key.dart	1970-01-01 00:00:00.000000000 +0000
++++ b/lib/core/utils/request_key.dart	2026-10-07 05:41:26.072768600 +0000
+@@ -0,0 +1,44 @@
++import 'dart:math';
++
++/// A random key that identifies ONE staff request to the server
++/// (`p_idempotency_key` on `staff_adjust_batch` / `staff_request_transfer`).
++/// 'rk-' + 32 hex chars, inside the server's 8–100 character limit.
++String newRequestKey() {
++  final random = Random.secure();
++  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
++  return 'rk-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
++}
++
++/// Hands out one idempotency key per distinct request.
++///
++/// A form holds one of these. Tapping Submit again with the SAME inputs after
++/// a timeout reuses the key, so the server applies the change once even if the
++/// first attempt actually went through. Changing any input is a new request and
++/// gets a new key (the server refuses a key reused for a different request).
++///
++/// If the first attempt did commit and the user then edits the inputs, the edit
++/// is treated as a genuinely new action, so refresh the data after a failed
++/// submit rather than assuming nothing happened.
++class RequestKeyHolder {
++  RequestKeyHolder({String Function()? generate}) : _generate = generate ?? newRequestKey;
++
++  final String Function() _generate;
++  String? _fingerprint;
++  String? _key;
++
++  /// The key for a request whose inputs serialize to [fingerprint].
++  String keyFor(String fingerprint) {
++    if (_key == null || _fingerprint != fingerprint) {
++      _key = _generate();
++      _fingerprint = fingerprint;
++    }
++    return _key!;
++  }
++
++  /// Forget the current key (e.g. after a confirmed success on a form that
++  /// stays open).
++  void reset() {
++    _key = null;
++    _fingerprint = null;
++  }
++}
+diff -ruN a/lib/data/repositories/staff_repository.dart b/lib/data/repositories/staff_repository.dart
+--- a/lib/data/repositories/staff_repository.dart	2026-10-07 05:41:25.972291884 +0000
++++ b/lib/data/repositories/staff_repository.dart	2026-10-07 05:41:26.085027316 +0000
+@@ -209,6 +209,11 @@
+     DateTime? receivedDate,
+     int? restockThreshold,
+     bool assignExisting = false,
++
++    /// Makes a retry of THIS request safe: the server creates one batch and
++    /// replays its id (instead of "batch code already exists"). See
++    /// `RequestKeyHolder`.
++    String? idempotencyKey,
+   }) async {
+     final id = await _rpc('staff_receive_batch', {
+       'p_branch_id': branchId,
+@@ -219,6 +224,7 @@
+       'p_received_date': receivedDate == null ? null : _date(receivedDate),
+       'p_restock_threshold': restockThreshold,
+       'p_assign_existing': assignExisting,
++      if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
+     });
+     return id as String;
+   }
+@@ -229,12 +235,17 @@
+     required int delta,
+     required String reason,
+     String? note,
++
++    /// Makes a retry of THIS request safe: the server applies it once and
++    /// replays the original result. See `RequestKeyHolder`.
++    String? idempotencyKey,
+   }) async =>
+       _map(await _rpc('staff_adjust_batch', {
+         'p_batch_id': batchId,
+         'p_delta': delta,
+         'p_reason': reason,
+         'p_note': note,
++        if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
+       }));
+ 
+   // ---- Transfers --------------------------------------------------------------
+@@ -250,6 +261,10 @@
+     required String variantId,
+     required int quantity,
+     String? note,
++
++    /// Makes a retry of THIS request safe: the server creates one transfer and
++    /// replays its id. See `RequestKeyHolder`.
++    String? idempotencyKey,
+   }) async =>
+       (await _rpc('staff_request_transfer', {
+         'p_from_branch_id': fromBranchId,
+@@ -257,6 +272,7 @@
+         'p_variant_id': variantId,
+         'p_quantity': quantity,
+         'p_note': note,
++        if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
+       })) as String;
+ 
+   /// [action]: ship | reject (source branch) or cancel | receive (destination).
+diff -ruN a/lib/features/customer/screens/checkout_screen.dart b/lib/features/customer/screens/checkout_screen.dart
+--- a/lib/features/customer/screens/checkout_screen.dart	2026-10-07 05:41:25.968295820 +0000
++++ b/lib/features/customer/screens/checkout_screen.dart	2026-10-07 05:41:26.089019554 +0000
+@@ -1,4 +1,5 @@
+ import 'dart:async';
++import 'dart:convert';
+ 
+ import 'package:flutter/material.dart';
+ import '../../../core/theme/app_colors.dart';
+@@ -187,8 +188,46 @@
+           ]);
+         }
+       }
+-      final attempt = await CheckoutAttemptStore.instance.begin(uid: firebaseUid, cartId: cartId);
+       final itemCount = cart.itemCount;
++      final notes = _notesController.text.trim();
++      // The server answers a repeated key with the FIRST order it stored and
++      // never compares the request, so a key may only be reused for the
++      // identical request. Everything that shapes the order goes in here.
++      final fingerprint = jsonEncode([isDelivery, deliveryAddressId, paymentLabel, notes]);
++      final CheckoutAttempt attempt;
++      try {
++        attempt = await CheckoutAttemptStore.instance.begin(
++          uid: firebaseUid,
++          cartId: cartId,
++          fingerprint: fingerprint,
++        );
++      } on CheckoutAlreadyPlacedException catch (placed) {
++        // The customer changed their options after a request whose outcome was
++        // unknown, and the server had in fact accepted it. That earlier order
++        // is the real one: show it rather than placing a second.
++        await _quietly(() => cart.completeCheckout());
++        unawaited(_quietly(() => CustomerDataStore.instance.refresh()));
++        if (!mounted) return;
++        ScaffoldMessenger.of(context)
++          ..hideCurrentSnackBar()
++          ..showSnackBar(
++            const SnackBar(
++              content: Text('Your earlier order went through, so it was kept as placed. '
++                  'Check its details below.'),
++              duration: Duration(seconds: 6),
++            ),
++          );
++        await Navigator.of(context).pushReplacement(
++          MaterialPageRoute(
++            builder: (_) => OrderConfirmationScreen(
++              order: placed.order,
++              itemCount: itemCount,
++              total: placed.order.total,
++            ),
++          ),
++        );
++        return;
++      }
+       // `place_order` creates the order, its items, and its payment record
+       // together in one database transaction — there is no separate,
+       // second network call to record the payment here, so a dropped
+@@ -202,7 +241,7 @@
+         isDelivery: isDelivery,
+         deliveryAddressId: deliveryAddressId,
+         paymentMethod: paymentLabel,
+-        customerNotes: _notesController.text.trim(),
++        customerNotes: notes,
+         idempotencyKey: attempt.key,
+       );
+ 
+diff -ruN a/lib/features/inventory/screens/inventory_adjustment_screen.dart b/lib/features/inventory/screens/inventory_adjustment_screen.dart
+--- a/lib/features/inventory/screens/inventory_adjustment_screen.dart	2026-10-07 05:41:25.970792688 +0000
++++ b/lib/features/inventory/screens/inventory_adjustment_screen.dart	2026-10-07 05:41:26.093006287 +0000
+@@ -1,3 +1,5 @@
++import 'dart:convert';
++
+ import 'package:flutter/material.dart';
+ import '../../../app/routes.dart';
+ import '../../../core/theme/app_colors.dart';
+@@ -6,6 +8,7 @@
+ import '../../../core/widgets/melai_app_bar.dart';
+ import '../../../core/services/staff_store.dart';
+ import '../../../core/utils/app_error.dart';
++import '../../../core/utils/request_key.dart';
+ import '../../../core/widgets/primary_button.dart';
+ import '../../../data/repositories/staff_repository.dart';
+ import 'package:melai_nuts/data/catalog_store.dart';
+@@ -31,6 +34,7 @@
+   bool _saving = false;
+   final _reasonController = TextEditingController();
+   String _reasonPreset = 'Stock count correction';
++  final _requestKey = RequestKeyHolder();
+ 
+   int get _rawNewStock => widget.batch.quantity + _adjustment;
+   int get _newStock => _rawNewStock.clamp(0, 999999);
+@@ -56,6 +60,11 @@
+         delta: _adjustment,
+         reason: _reasonPreset,
+         note: _reasonController.text,
++        // One key per distinct request: a retry after a timeout reuses it, so
++        // the server applies the adjustment once even if the first try landed.
++        idempotencyKey: _requestKey.keyFor(
++          jsonEncode([widget.batch.id, _adjustment, _reasonPreset, _reasonController.text.trim()]),
++        ),
+       );
+       if (!mounted) return;
+       StaffStore.instance.refreshLive();
+diff -ruN a/lib/features/inventory/screens/receive_batch_screen.dart b/lib/features/inventory/screens/receive_batch_screen.dart
+--- a/lib/features/inventory/screens/receive_batch_screen.dart	2026-10-07 05:41:25.970676338 +0000
++++ b/lib/features/inventory/screens/receive_batch_screen.dart	2026-10-07 05:41:26.097053255 +0000
+@@ -1,9 +1,12 @@
++import 'dart:convert';
++
+ import 'package:flutter/material.dart';
+ import '../../../core/services/staff_store.dart';
+ import '../../../core/theme/app_colors.dart';
+ import '../../../core/theme/app_spacing.dart';
+ import '../../../core/theme/app_text_styles.dart';
+ import '../../../core/utils/app_error.dart';
++import '../../../core/utils/request_key.dart';
+ import '../../../core/utils/validation_utils.dart';
+ import '../../../core/widgets/melai_app_bar.dart';
+ import '../../../core/widgets/primary_button.dart';
+@@ -68,6 +71,7 @@
+   DateTime? _expiry;
+   bool _assignExisting = false;
+   bool _saving = false;
++  final _requestKey = RequestKeyHolder();
+ 
+   InventoryItem? get _item => _variantId == null ? null : widget.store.itemByVariant(_variantId!);
+ 
+@@ -138,6 +142,21 @@
+         receivedDate: _received,
+         restockThreshold: int.tryParse(_thresholdController.text.trim()),
+         assignExisting: _assignExisting,
++        // One key per distinct request: a retry after a timeout reuses it, so the
++        // server returns the batch it already created instead of "code already
++        // exists" (and never adds the stock twice).
++        idempotencyKey: _requestKey.keyFor(
++          jsonEncode([
++            branchId,
++            _variantId,
++            _codeController.text.trim(),
++            _qtyController.text.trim(),
++            _expiry!.toIso8601String(),
++            _received.toIso8601String(),
++            _thresholdController.text.trim(),
++            _assignExisting,
++          ]),
++        ),
+       );
+       if (!mounted) return;
+       widget.store.refreshLive();
+diff -ruN a/lib/features/inventory/screens/stock_transfers_screen.dart b/lib/features/inventory/screens/stock_transfers_screen.dart
+--- a/lib/features/inventory/screens/stock_transfers_screen.dart	2026-10-07 05:41:25.970966097 +0000
++++ b/lib/features/inventory/screens/stock_transfers_screen.dart	2026-10-07 05:41:26.101056915 +0000
+@@ -1,9 +1,12 @@
++import 'dart:convert';
++
+ import 'package:flutter/material.dart';
+ import '../../../core/services/staff_store.dart';
+ import '../../../core/theme/app_colors.dart';
+ import '../../../core/theme/app_spacing.dart';
+ import '../../../core/theme/app_text_styles.dart';
+ import '../../../core/utils/app_error.dart';
++import '../../../core/utils/request_key.dart';
+ import '../../../core/widgets/melai_app_bar.dart';
+ import '../../../core/widgets/primary_button.dart';
+ import '../../../core/widgets/staff_data_scope.dart';
+@@ -213,6 +216,7 @@
+   String? _fromBranchId;
+   String? _variantId;
+   bool _saving = false;
++  final _requestKey = RequestKeyHolder();
+ 
+   @override
+   void dispose() {
+@@ -233,6 +237,11 @@
+         variantId: _variantId!,
+         quantity: int.parse(_qty.text.trim()),
+         note: _note.text,
++        // One key per distinct request: a retry after a timeout reuses it, so
++        // the server creates one transfer even if the first try landed.
++        idempotencyKey: _requestKey.keyFor(
++          jsonEncode([_fromBranchId, toBranch, _variantId, _qty.text.trim(), _note.text.trim()]),
++        ),
+       );
+       if (!mounted) return;
+       widget.store.refreshLive();
+diff -ruN a/supabase/migrations/20261002010000_fix_staff_products_policy.sql b/supabase/migrations/20261002010000_fix_staff_products_policy.sql
+--- a/supabase/migrations/20261002010000_fix_staff_products_policy.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/migrations/20261002010000_fix_staff_products_policy.sql	2026-10-07 05:41:26.113034105 +0000
+@@ -0,0 +1,9 @@
++-- Fix: "staff read all products" had no TO clause, so it applied to anon too.
++-- anon cannot execute is_active_staff(), which made every signed-out read of
++-- public.products fail (guest catalog, product search). Scope it to authenticated.
++-- Idempotent. Requires 20261001000000.
++begin;
++drop policy if exists "staff read all products" on public.products;
++create policy "staff read all products" on public.products
++  for select to authenticated using (public.is_active_staff());
++commit;
+diff -ruN a/supabase/migrations/20261002020000_staff_idempotency_keys.sql b/supabase/migrations/20261002020000_staff_idempotency_keys.sql
+--- a/supabase/migrations/20261002020000_staff_idempotency_keys.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/migrations/20261002020000_staff_idempotency_keys.sql	2026-10-07 05:41:26.116917759 +0000
+@@ -0,0 +1,260 @@
++-- =============================================================================
++-- Melai Nuts — idempotency keys for stock adjustments and transfer requests
++-- =============================================================================
++-- Problem: staff_adjust_batch (+/- delta) and staff_request_transfer are not
++-- idempotent. If a response is lost (timeout, dropped connection) and the app
++-- retries — or an offline queue replays — the change is applied twice.
++-- Verified before this migration: the same adjustment sent twice was applied
++-- 2x, and the same transfer request created 2 rows.
++--
++-- Fix: both RPCs accept an optional p_idempotency_key. With a key:
++--   * first call  -> runs normally and stores (key, request hash, result)
++--   * same key + same request     -> returns the ORIGINAL result, changes nothing
++--   * same key + DIFFERENT request -> refused (a key identifies one request)
++-- Keys are scoped per staff member. Without a key the behaviour is unchanged,
++-- so existing callers keep working.
++--
++-- Safe to run more than once. Requires 20260930010000 (staff foundation).
++-- =============================================================================
++
++begin;
++
++create table if not exists public.staff_request_keys (
++  firebase_uid    text        not null,
++  idempotency_key text        not null,
++  operation       text        not null,
++  request_hash    text        not null,
++  result          jsonb       not null,
++  created_at      timestamptz not null default now(),
++  primary key (firebase_uid, idempotency_key),
++  constraint staff_request_keys_key_length check (char_length(idempotency_key) between 8 and 100)
++);
++
++create index if not exists staff_request_keys_created_at_idx
++  on public.staff_request_keys (created_at);
++
++-- Internal bookkeeping: no client ever reads or writes this directly.
++alter table public.staff_request_keys enable row level security;
++revoke all on public.staff_request_keys from public, anon, authenticated;
++
++-- -----------------------------------------------------------------------------
++-- Helpers (internal; not callable by clients)
++-- -----------------------------------------------------------------------------
++
++-- Returns the stored result when this exact request was already processed,
++-- NULL when it is new. Raises when the key was used for a different request.
++-- Takes a per-key advisory lock so two simultaneous duplicates serialize.
++create or replace function public._idem_begin(
++  p_uid text,
++  p_key text,
++  p_operation text,
++  p_request jsonb
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_row public.staff_request_keys;
++  v_hash text := encode(sha256(convert_to(p_request::text, 'UTF8')), 'hex');
++begin
++  if p_key is null then
++    return null;
++  end if;
++  if char_length(p_key) < 8 or char_length(p_key) > 100 then
++    raise exception 'The request key is not valid.';
++  end if;
++
++  perform pg_advisory_xact_lock(hashtextextended(p_uid || ':' || p_key, 0));
++
++  select * into v_row
++  from public.staff_request_keys
++  where firebase_uid = p_uid and idempotency_key = p_key;
++
++  if not found then
++    -- Housekeeping: a few expired keys per call keeps the table small.
++    delete from public.staff_request_keys
++    where ctid in (
++      select ctid from public.staff_request_keys
++      where created_at < now() - interval '30 days'
++      limit 20
++    );
++    return null;
++  end if;
++
++  if v_row.operation <> p_operation or v_row.request_hash <> v_hash then
++    raise exception 'This request key was already used for a different request.';
++  end if;
++  return v_row.result;
++end;
++$$;
++
++create or replace function public._idem_finish(
++  p_uid text,
++  p_key text,
++  p_operation text,
++  p_request jsonb,
++  p_result jsonb
++)
++returns void
++language plpgsql
++security definer
++set search_path = public
++as $$
++begin
++  if p_key is null then
++    return;
++  end if;
++  insert into public.staff_request_keys (firebase_uid, idempotency_key, operation, request_hash, result)
++  values (p_uid, p_key, p_operation,
++          encode(sha256(convert_to(p_request::text, 'UTF8')), 'hex'), p_result);
++end;
++$$;
++
++revoke all on function public._idem_begin(text, text, text, jsonb) from public, anon, authenticated;
++revoke all on function public._idem_finish(text, text, text, jsonb, jsonb) from public, anon, authenticated;
++
++-- -----------------------------------------------------------------------------
++-- staff_adjust_batch: + p_idempotency_key
++-- -----------------------------------------------------------------------------
++drop function if exists public.staff_adjust_batch(uuid, int, text, text);
++
++create or replace function public.staff_adjust_batch(
++  p_batch_id uuid,
++  p_delta int,
++  p_reason text,
++  p_note text default null,
++  p_idempotency_key text default null
++)
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_staff public.staff_members;
++  b public.inventory_batches;
++  v_reason text := trim(coalesce(p_reason, ''));
++  v_new int;
++  v_total int;
++  v_request jsonb;
++  v_replay jsonb;
++  v_result jsonb;
++begin
++  select * into b from public.inventory_batches where id = p_batch_id for update;
++  if not found then raise exception 'That batch could not be found.'; end if;
++  v_staff := public._require_staff(b.branch_id, 'inventory');
++
++  -- Idempotency: after authorization (only permitted staff reach the key table).
++  v_request := jsonb_build_object('batch_id', p_batch_id, 'delta', p_delta,
++                                  'reason', v_reason, 'note', coalesce(trim(p_note), ''));
++  v_replay := public._idem_begin(v_staff.firebase_uid, p_idempotency_key, 'adjust_batch', v_request);
++  if v_replay is not null then
++    return v_replay;
++  end if;
++
++  if p_delta is null or p_delta = 0 or abs(p_delta) > 100000 then raise exception 'Enter an adjustment other than zero.'; end if;
++  if v_reason = '' or length(v_reason) > 100 then raise exception 'Please choose a reason for this adjustment.'; end if;
++  v_new := b.quantity + p_delta;
++  if v_new < 0 then raise exception 'Stock cannot go below 0. Reduce the adjustment.'; end if;
++
++  perform set_config('app.inventory_managed', '1', true);
++  select quantity into v_total from public.branch_inventory
++  where branch_id = b.branch_id and product_id = b.product_id and variant_id = b.variant_id for update;
++  if coalesce(v_total, 0) + p_delta < 0 then raise exception 'Stock cannot go below 0. Reduce the adjustment.'; end if;
++
++  update public.inventory_batches
++  set quantity = v_new,
++      initial_quantity = greatest(1, v_new,
++        case when p_delta < 0 then b.initial_quantity + p_delta else b.initial_quantity end)
++  where id = b.id;
++  update public.branch_inventory set quantity = quantity + p_delta
++  where branch_id = b.branch_id and product_id = b.product_id and variant_id = b.variant_id;
++
++  insert into public.stock_movements
++    (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reason, created_by)
++  values (b.branch_id, b.product_id, b.variant_id, b.id, 'adjust', p_delta, v_new,
++          left(v_reason || case when nullif(trim(coalesce(p_note, '')), '') is null then '' else ': ' || trim(p_note) end, 300),
++          v_staff.firebase_uid);
++
++  v_result := jsonb_build_object('previous_quantity', b.quantity, 'new_quantity', v_new, 'adjustment', p_delta);
++  perform public._idem_finish(v_staff.firebase_uid, p_idempotency_key, 'adjust_batch', v_request, v_result);
++  return v_result;
++end;
++$$;
++
++revoke all on function public.staff_adjust_batch(uuid, int, text, text, text) from public, anon;
++grant execute on function public.staff_adjust_batch(uuid, int, text, text, text) to authenticated;
++
++-- -----------------------------------------------------------------------------
++-- staff_request_transfer: + p_idempotency_key
++-- -----------------------------------------------------------------------------
++drop function if exists public.staff_request_transfer(uuid, uuid, uuid, int, text);
++
++create or replace function public.staff_request_transfer(
++  p_from_branch_id uuid,
++  p_to_branch_id uuid,
++  p_variant_id uuid,
++  p_quantity int,
++  p_note text default null,
++  p_idempotency_key text default null
++)
++returns text
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_staff public.staff_members;
++  v_product uuid;
++  v_available int;
++  v_id text;
++  v_request jsonb;
++  v_replay jsonb;
++begin
++  -- The requester works at the DESTINATION branch.
++  v_staff := public._require_staff(p_to_branch_id, 'inventory');
++
++  v_request := jsonb_build_object('from', p_from_branch_id, 'to', p_to_branch_id,
++                                  'variant', p_variant_id, 'quantity', p_quantity,
++                                  'note', coalesce(trim(p_note), ''));
++  v_replay := public._idem_begin(v_staff.firebase_uid, p_idempotency_key, 'request_transfer', v_request);
++  if v_replay is not null then
++    return v_replay ->> 'transfer_id';
++  end if;
++
++  if p_from_branch_id is null or p_to_branch_id is null or p_from_branch_id = p_to_branch_id then
++    raise exception 'Choose a different branch to transfer from.';
++  end if;
++  if not exists (select 1 from public.branches where id = p_from_branch_id) then
++    raise exception 'That branch could not be found.';
++  end if;
++  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then raise exception 'Quantity must be between 1 and 100000.'; end if;
++  select pv.product_id into v_product
++  from public.product_variants pv join public.products p on p.id = pv.product_id
++  where pv.id = p_variant_id and p.is_active;
++  if v_product is null then raise exception 'That product variant could not be found.'; end if;
++
++  select coalesce(quantity, 0) into v_available from public.branch_inventory
++  where branch_id = p_from_branch_id and variant_id = p_variant_id;
++  if coalesce(v_available, 0) < p_quantity then
++    raise exception 'The source branch only has % of this item.', coalesce(v_available, 0);
++  end if;
++
++  insert into public.stock_transfers
++    (from_branch_id, to_branch_id, product_id, variant_id, quantity, note, requested_by)
++  values (p_from_branch_id, p_to_branch_id, v_product, p_variant_id, p_quantity,
++          left(coalesce(trim(p_note), ''), 300), v_staff.firebase_uid)
++  returning id into v_id;
++
++  perform public._idem_finish(v_staff.firebase_uid, p_idempotency_key, 'request_transfer', v_request,
++                              jsonb_build_object('transfer_id', v_id));
++  return v_id;
++end;
++$$;
++
++revoke all on function public.staff_request_transfer(uuid, uuid, uuid, int, text, text) from public, anon;
++grant execute on function public.staff_request_transfer(uuid, uuid, uuid, int, text, text) to authenticated;
++
++commit;
+diff -ruN a/supabase/migrations/20261002030000_staff_replay_safe_receive_and_transfer.sql b/supabase/migrations/20261002030000_staff_replay_safe_receive_and_transfer.sql
+--- a/supabase/migrations/20261002030000_staff_replay_safe_receive_and_transfer.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/migrations/20261002030000_staff_replay_safe_receive_and_transfer.sql	2026-10-07 05:41:26.120913520 +0000
+@@ -0,0 +1,244 @@
++-- =============================================================================
++-- Melai Nuts — replay-safe receive-batch and transfer responses
++-- =============================================================================
++-- Follows 20261002020000 (idempotency keys for adjustments / transfer requests).
++--
++-- staff_respond_transfer (ship | reject | cancel | receive)
++--   Already a guarded state machine, so it never double-applied — but a REPLAY
++--   (lost response, double tap, queued retry) failed with "no longer waiting".
++--   It is now idempotent by OUTCOME: asking for the state the transfer is
++--   already in (ship on in_transit, reject on rejected, cancel on cancelled,
++--   receive on received) succeeds as a no-op. Authorization still runs first,
++--   and a genuinely conflicting action (e.g. ship a rejected transfer) still
++--   raises. No key needed, so it also covers plain double taps.
++--
++-- staff_receive_batch
++--   Could never double-apply (unique batch code rolls the call back) but a
++--   replay raised "Batch code already exists". It now accepts the optional
++--   p_idempotency_key from 20261002020000: same key + same request returns the
++--   ORIGINAL batch id; same key + different request is refused.
++--
++-- Safe to run more than once. Requires 20261002020000.
++-- =============================================================================
++
++begin;
++
++-- -----------------------------------------------------------------------------
++-- staff_respond_transfer: replay of an already-applied action is a no-op
++-- -----------------------------------------------------------------------------
++create or replace function public.staff_respond_transfer(p_transfer_id text, p_action text)
++returns void
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_staff public.staff_members;
++  t public.stock_transfers;
++  v_lines jsonb;
++  l jsonb;
++  v_new int;
++  v_from_stock int;
++  v_code text;
++begin
++  select * into t from public.stock_transfers where id = p_transfer_id for update;
++  if not found then raise exception 'That transfer could not be found.'; end if;
++
++  if p_action in ('ship', 'reject') then
++    v_staff := public._require_staff(t.from_branch_id, 'inventory');
++    -- Replay: the transfer is already in the state this action produces.
++    if (p_action = 'ship' and t.status = 'in_transit')
++       or (p_action = 'reject' and t.status = 'rejected') then
++      return;
++    end if;
++    if t.status <> 'requested' then raise exception 'This transfer is no longer waiting for approval.'; end if;
++  elsif p_action in ('cancel', 'receive') then
++    v_staff := public._require_staff(t.to_branch_id, 'inventory');
++    if (p_action = 'cancel' and t.status = 'cancelled')
++       or (p_action = 'receive' and t.status = 'received') then
++      return;
++    end if;
++    if p_action = 'cancel' and t.status <> 'requested' then raise exception 'Only a pending request can be cancelled.'; end if;
++    if p_action = 'receive' and t.status <> 'in_transit' then raise exception 'This transfer is not on its way.'; end if;
++  else
++    raise exception 'Unsupported transfer action.';
++  end if;
++
++  perform set_config('app.inventory_managed', '1', true);
++
++  if p_action = 'reject' then
++    update public.stock_transfers set status = 'rejected', reviewed_by = v_staff.firebase_uid where id = t.id;
++
++  elsif p_action = 'cancel' then
++    update public.stock_transfers set status = 'cancelled' where id = t.id;
++
++  elsif p_action = 'ship' then
++    select quantity into v_from_stock from public.branch_inventory
++    where branch_id = t.from_branch_id and product_id = t.product_id and variant_id = t.variant_id for update;
++    if coalesce(v_from_stock, 0) < t.quantity then
++      raise exception 'Not enough stock at your branch to ship this transfer.';
++    end if;
++    v_lines := public._consume_batches_fefo(t.from_branch_id, t.product_id, t.variant_id, t.quantity,
++                                            'transfer_out', t.id, v_staff.firebase_uid, true);
++    update public.branch_inventory set quantity = quantity - t.quantity
++    where branch_id = t.from_branch_id and product_id = t.product_id and variant_id = t.variant_id;
++    for l in select * from jsonb_array_elements(v_lines) loop
++      insert into public.stock_transfer_batches (transfer_id, batch_code, received_date, expiration_date, quantity)
++      values (t.id, l ->> 'batch_code', (l ->> 'received_date')::date, (l ->> 'expiration_date')::date, (l ->> 'quantity')::int);
++    end loop;
++    update public.stock_transfers
++    set status = 'in_transit', reviewed_by = v_staff.firebase_uid, shipped_at = now()
++    where id = t.id;
++
++  else -- receive
++    insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
++    values (t.to_branch_id, t.product_id, t.variant_id, 0)
++    on conflict (branch_id, product_id, variant_id) do nothing;
++    update public.branch_inventory set quantity = quantity + t.quantity
++    where branch_id = t.to_branch_id and product_id = t.product_id and variant_id = t.variant_id;
++
++    for l in
++      select to_jsonb(sb) from public.stock_transfer_batches sb where sb.transfer_id = t.id
++    loop
++      v_code := l ->> 'batch_code';
++      insert into public.inventory_batches
++        (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity, created_by)
++      values (t.to_branch_id, t.product_id, t.variant_id, v_code,
++              (l ->> 'received_date')::date, (l ->> 'expiration_date')::date,
++              (l ->> 'quantity')::int, (l ->> 'quantity')::int, v_staff.firebase_uid)
++      on conflict (branch_id, variant_id, batch_code) do update
++        set quantity = public.inventory_batches.quantity + excluded.quantity,
++            initial_quantity = public.inventory_batches.initial_quantity + excluded.initial_quantity,
++            expiration_date = least(public.inventory_batches.expiration_date, excluded.expiration_date)
++      returning quantity into v_new;
++      insert into public.stock_movements
++        (branch_id, product_id, variant_id, movement_type, quantity_change, batch_quantity_after, reference, created_by)
++      values (t.to_branch_id, t.product_id, t.variant_id, 'transfer_in', (l ->> 'quantity')::int, v_new, t.id, v_staff.firebase_uid);
++    end loop;
++
++    update public.stock_transfers
++    set status = 'received', received_by = v_staff.firebase_uid, received_at = now()
++    where id = t.id;
++  end if;
++end;
++$$;
++
++revoke all on function public.staff_respond_transfer(text, text) from public, anon;
++grant execute on function public.staff_respond_transfer(text, text) to authenticated;
++
++-- -----------------------------------------------------------------------------
++-- staff_receive_batch: + p_idempotency_key
++-- -----------------------------------------------------------------------------
++drop function if exists public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean);
++
++create or replace function public.staff_receive_batch(
++  p_branch_id uuid,
++  p_variant_id uuid,
++  p_batch_code text,
++  p_quantity int,
++  p_expiration_date date,
++  p_received_date date default null,
++  p_restock_threshold int default null,
++  p_assign_existing boolean default false,
++  p_idempotency_key text default null
++)
++returns uuid
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_staff public.staff_members;
++  v_variant record;
++  v_code text := trim(coalesce(p_batch_code, ''));
++  v_today date := (now() at time zone 'Asia/Manila')::date;
++  v_received date;
++  v_batch_id uuid;
++  v_current int;
++  v_batched int;
++  v_request jsonb;
++  v_replay jsonb;
++begin
++  v_staff := public._require_staff(p_branch_id, 'inventory');
++
++  -- Idempotency: after authorization, before validation, so a replay made after
++  -- the expiry date has passed still returns the original batch.
++  v_request := jsonb_build_object('branch', p_branch_id, 'variant', p_variant_id, 'code', v_code,
++                                  'quantity', p_quantity, 'expiration', p_expiration_date,
++                                  'received', p_received_date, 'threshold', p_restock_threshold,
++                                  'assign_existing', coalesce(p_assign_existing, false));
++  v_replay := public._idem_begin(v_staff.firebase_uid, p_idempotency_key, 'receive_batch', v_request);
++  if v_replay is not null then
++    return (v_replay ->> 'batch_id')::uuid;
++  end if;
++
++  if v_code = '' or length(v_code) > 40 then raise exception 'Please enter a batch code (up to 40 characters).'; end if;
++  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then raise exception 'Quantity must be between 1 and 100000.'; end if;
++  v_received := coalesce(p_received_date, v_today);
++  if v_received > v_today then raise exception 'The received date cannot be in the future.'; end if;
++  if p_expiration_date is null or p_expiration_date <= v_today then
++    raise exception 'The expiration date must be in the future.';
++  end if;
++  if p_expiration_date < v_received then raise exception 'The expiration date cannot be before the received date.'; end if;
++
++  select pv.id, pv.product_id into v_variant
++  from public.product_variants pv join public.products p on p.id = pv.product_id
++  where pv.id = p_variant_id and p.is_active;
++  if not found then raise exception 'That product variant could not be found.'; end if;
++
++  perform set_config('app.inventory_managed', '1', true);
++
++  insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
++  values (p_branch_id, v_variant.product_id, p_variant_id, 0)
++  on conflict (branch_id, product_id, variant_id) do nothing;
++  select quantity into v_current from public.branch_inventory
++  where branch_id = p_branch_id and product_id = v_variant.product_id and variant_id = p_variant_id
++  for update;
++
++  if p_assign_existing then
++    select coalesce(sum(quantity), 0) into v_batched from public.inventory_batches
++    where branch_id = p_branch_id and variant_id = p_variant_id;
++    if p_quantity > v_current - v_batched then
++      raise exception 'Only % unit(s) at this branch are not yet assigned to a batch.', greatest(v_current - v_batched, 0);
++    end if;
++  else
++    update public.branch_inventory set quantity = quantity + p_quantity
++    where branch_id = p_branch_id and product_id = v_variant.product_id and variant_id = p_variant_id;
++  end if;
++
++  begin
++    insert into public.inventory_batches
++      (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity, created_by)
++    values (p_branch_id, v_variant.product_id, p_variant_id, v_code, v_received, p_expiration_date,
++            p_quantity, p_quantity, v_staff.firebase_uid)
++    returning id into v_batch_id;
++  exception when unique_violation then
++    raise exception 'Batch code % already exists for this product at this branch.', v_code;
++  end;
++
++  insert into public.stock_movements
++    (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reason, created_by)
++  values (p_branch_id, v_variant.product_id, p_variant_id, v_batch_id,
++          case when p_assign_existing then 'assign' else 'receive' end,
++          case when p_assign_existing then 0 else p_quantity end, p_quantity,
++          case when p_assign_existing then 'Assigned existing stock to a batch' else 'Batch received' end,
++          v_staff.firebase_uid);
++
++  if p_restock_threshold is not null then
++    if p_restock_threshold < 0 or p_restock_threshold > 100000 then raise exception 'Invalid restock threshold.'; end if;
++    insert into public.stock_thresholds (branch_id, variant_id, restock_threshold)
++    values (p_branch_id, p_variant_id, p_restock_threshold)
++    on conflict (branch_id, variant_id) do update
++      set restock_threshold = excluded.restock_threshold, updated_at = now();
++  end if;
++
++  perform public._idem_finish(v_staff.firebase_uid, p_idempotency_key, 'receive_batch', v_request,
++                              jsonb_build_object('batch_id', v_batch_id));
++  return v_batch_id;
++end;
++$$;
++
++revoke all on function public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean, text) from public, anon;
++grant execute on function public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean, text) to authenticated;
++
++commit;
+diff -ruN a/supabase/tests/staff_cross_branch_test.sql b/supabase/tests/staff_cross_branch_test.sql
+--- a/supabase/tests/staff_cross_branch_test.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/tests/staff_cross_branch_test.sql	2026-10-07 05:41:26.124761519 +0000
+@@ -0,0 +1,443 @@
++-- =============================================================================
++-- Melai Nuts — staff cross-branch / least-privilege test suite
++-- =============================================================================
++-- Fills a gap in the existing suites: they prove identity and the branch helper
++-- functions, but not that every staff MUTATION and every staff READ is refused
++-- when a staff member from branch A reaches for branch B's data, or when a
++-- staff member lacks the permission flag. Also checks customers cannot reach
++-- staff RPCs.
++--
++-- HOW TO RUN (DEV / staging only):
++--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/staff_cross_branch_test.sql
++-- One transaction, rolled back at the end. Raises if any check fails.
++-- =============================================================================
++
++begin;
++
++create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
++create temp table fx (k text primary key, v text);
++grant select on fx to public;
++
++create function pg_temp.act_as(p_uid text) returns void language plpgsql as $$
++begin
++  if p_uid is null then
++    perform set_config('request.jwt.claims', '', true);
++    execute 'set local role anon';
++  else
++    perform set_config('request.jwt.claims', jsonb_build_object(
++      'sub', p_uid, 'role', 'authenticated',
++      'email', p_uid || '@test.local', 'email_verified', true)::text, true);
++    execute 'set local role authenticated';
++  end if;
++end $$;
++
++create function pg_temp.back_to_admin() returns void language plpgsql as $$
++begin
++  execute 'reset role';
++  perform set_config('request.jwt.claims', '', true);
++end $$;
++grant execute on function pg_temp.back_to_admin() to public;
++
++create function pg_temp.chk(p_name text, p_uid text, p_sql text, p_expect text) returns void language plpgsql as $$
++declare v_err text;
++begin
++  perform pg_temp.act_as(p_uid);
++  begin execute p_sql; exception when others then v_err := sqlerrm; end;
++  perform pg_temp.back_to_admin();
++  insert into results(name, passed, detail) values (p_name,
++    case p_expect when 'error' then v_err is not null else v_err is null end,
++    'expected ' || p_expect || ' -> ' || coalesce('error: ' || v_err, 'no error'));
++end $$;
++
++create function pg_temp.call_as(p_uid text, p_sql text) returns text language plpgsql as $$
++declare v text;
++begin
++  perform pg_temp.act_as(p_uid);
++  begin execute p_sql into v;
++  exception when others then perform pg_temp.back_to_admin(); raise; end;
++  perform pg_temp.back_to_admin();
++  return v;
++end $$;
++
++-- Row count the caller can SEE (RLS applied). A permission-denied counts as 0 visible.
++create function pg_temp.visible(p_uid text, p_sql text) returns bigint language plpgsql as $$
++declare v bigint;
++begin
++  perform pg_temp.act_as(p_uid);
++  begin execute p_sql into v; exception when insufficient_privilege then v := 0; end;
++  perform pg_temp.back_to_admin();
++  return v;
++end $$;
++
++create function pg_temp.chk_true(p_name text, p_cond boolean, p_detail text default '') returns void language sql as $$
++  insert into results(name, passed, detail) values (p_name, coalesce(p_cond, false), p_detail);
++$$;
++
++-- Fixtures ------------------------------------------------------------------
++insert into public.branches (name, address, supports_delivery, supports_pickup, delivery_fee)
++values ('XB-TEST A', 'a', true, true, 30), ('XB-TEST B', 'b', true, true, 30);
++insert into fx select 'ba', id::text from public.branches where name = 'XB-TEST A';
++insert into fx select 'bb', id::text from public.branches where name = 'XB-TEST B';
++
++insert into public.product_categories (label) values ('XB-TEST Cat');
++insert into public.products (category_id, name, price, unit)
++select id, 'XB-TEST Nut', 100, 'pack' from public.product_categories where label = 'XB-TEST Cat';
++insert into public.product_variants (product_id, label, price)
++select id, 'Regular', 100 from public.products where name = 'XB-TEST Nut';
++insert into fx select 'prod', id::text from public.products where name = 'XB-TEST Nut';
++insert into fx select 'var', id::text from public.product_variants where product_id = (select v from fx where k='prod')::uuid;
++
++insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
++select (select v from fx where k = b)::uuid, (select v from fx where k='prod')::uuid, (select v from fx where k='var')::uuid, 20
++from (values ('ba'), ('bb')) t(b);
++
++insert into public.staff_members (firebase_uid, full_name, email, role, branch_id, account_status, can_manage_inventory, can_review_refunds)
++select 'x-sa',  'Staff A',  'x-sa@test.local',  'staff', (select v from fx where k='ba')::uuid, 'active', true,  true
++union all select 'x-sb',  'Staff B',  'x-sb@test.local',  'staff', (select v from fx where k='bb')::uuid, 'active', true,  true
++union all select 'x-sc',  'Staff C (no flags)', 'x-sc@test.local', 'staff', (select v from fx where k='ba')::uuid, 'active', false, false
++union all select 'x-own', 'Owner',    'x-own@test.local', 'owner', null, 'active', false, false;
++
++insert into public.customer_profiles (firebase_uid, full_name, email, phone)
++values ('x-c1', 'Cust One', 'x-c1@test.local', '09180000001');
++insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city)
++values ('x-c1', 'Cust One', '09180000001', '1 Private St', 'Calamba');
++insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
++values ('default', 1, 50) on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50;
++
++-- Batches via the real RPC (owner works in both branches).
++select pg_temp.call_as('x-own', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-A1', 5, current_date + 90, null, null, true)::text$q$,
++  (select v from fx where k='ba'), (select v from fx where k='var')));
++select pg_temp.call_as('x-own', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-B1', 5, current_date + 90, null, null, true)::text$q$,
++  (select v from fx where k='bb'), (select v from fx where k='var')));
++insert into fx select 'batch_a', id::text from public.inventory_batches where batch_code = 'XB-A1';
++insert into fx select 'batch_b', id::text from public.inventory_batches where batch_code = 'XB-B1';
++
++-- Customer places two pickup orders at branch B through the real checkout.
++do $$
++declare v_cart text; v_order text; i int;
++begin
++  for i in 1..2 loop
++    v_cart := pg_temp.call_as('x-c1', format($q$select (public.sync_customer_cart(%L::uuid,
++        jsonb_build_array(jsonb_build_object('product_id', %L, 'variant_id', %L, 'quantity', 1)), null, false) ->> 'cart_id')$q$,
++        (select v from fx where k='bb'), (select v from fx where k='prod'), (select v from fx where k='var')));
++    v_order := pg_temp.call_as('x-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', %L)$q$,
++        v_cart, 'xb-key-' || i));
++    insert into fx values ('order' || i, v_order);
++  end loop;
++end $$;
++
++-- Order 1: legitimately completed by branch B staff, then the customer asks for a refund.
++select pg_temp.call_as('x-sb', format($q$select public.staff_confirm_payment(%L, null)::text$q$, (select v from fx where k='order1')));
++select pg_temp.call_as('x-sb', format($q$select public.staff_update_order_status(%L, 'confirmed')::text$q$, (select v from fx where k='order1')));
++select pg_temp.call_as('x-sb', format($q$select public.staff_update_order_status(%L, 'preparing')::text$q$, (select v from fx where k='order1')));
++select pg_temp.call_as('x-sb', format($q$select public.staff_update_order_status(%L, 'readyForPickup')::text$q$, (select v from fx where k='order1')));
++select pg_temp.call_as('x-sb', format($q$select public.staff_update_order_status(%L, 'completed')::text$q$, (select v from fx where k='order1')));
++insert into fx select 'refund1', (pg_temp.call_as('x-c1', format(
++  $q$select public.request_refund(%L, 'Damaged', '', jsonb_build_array(jsonb_build_object('product_name','XB-TEST Nut','variant_label','Regular','quantity',1)))$q$,
++  (select v from fx where k='order1'))));
++
++-- A transfer FROM branch B TO branch A, requested legitimately by A's staff.
++insert into fx select 'xfer', pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 2, 'xb')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var')));
++
++-- 0. Positive controls (so a later denial can't be blamed on broken fixtures) -----
++select pg_temp.chk('control: B staff CAN adjust B''s batch', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Recount')$$, (select v from fx where k='batch_b')), 'ok');
++select pg_temp.chk('control: A staff CAN adjust A''s batch', 'x-sa',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Recount')$$, (select v from fx where k='batch_a')), 'ok');
++select pg_temp.chk('control: owner CAN adjust either branch''s batch', 'x-own',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Recount')$$, (select v from fx where k='batch_b')), 'ok');
++select pg_temp.chk_true('control: fixture refund and orders exist',
++  (select v from fx where k='refund1') is not null and (select v from fx where k='order2') is not null,
++  coalesce((select v from fx where k='refund1'), 'no refund'));
++
++-- 1. Staff A attacks branch B's WRITES ------------------------------------------
++select pg_temp.chk('A cannot adjust B''s batch', 'x-sa',
++  format($$select public.staff_adjust_batch(%L::uuid, 50, 'Recount')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk('A cannot receive stock into B', 'x-sa',
++  format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-EVIL', 10, current_date + 30)$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('A cannot change status of B''s order', 'x-sa',
++  format($$select public.staff_update_order_status(%L, 'confirmed')$$, (select v from fx where k='order2')), 'error');
++select pg_temp.chk('A cannot confirm payment of B''s order', 'x-sa',
++  format($$select public.staff_confirm_payment(%L, null)$$, (select v from fx where k='order2')), 'error');
++select pg_temp.chk('A cannot review B''s refund', 'x-sa',
++  format($$select public.staff_review_refund(%L, 'approve')$$, (select v from fx where k='refund1')), 'error');
++select pg_temp.chk('A cannot ring a POS sale at B', 'x-sa',
++  format($$select public.staff_create_pos_sale(%L::uuid, jsonb_build_array(jsonb_build_object('variant_id', %L, 'quantity', 1)), 'cash', null, 500, null, 'xb-pos-evil')$$,
++    (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('A cannot request a transfer INTO B', 'x-sa',
++  format($$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 1)$$, (select v from fx where k='ba'), (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('A cannot ship stock OUT of B', 'x-sa',
++  format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='xfer')), 'error');
++select pg_temp.chk('A cannot reject a transfer sourced from B', 'x-sa',
++  format($$select public.staff_respond_transfer(%L, 'reject')$$, (select v from fx where k='xfer')), 'error');
++
++-- 2. Staff A attacks branch B's READS (RPCs) ------------------------------------
++-- Non-owners asking for another branch are silently re-scoped to their OWN branch
++-- (fail-closed). So the assertion is on CONTENT: nothing of B's may come back.
++select pg_temp.chk_true('A asking for B''s inventory gets A''s branch, never B''s',
++  pg_temp.call_as('x-sa', format($$select (public.staff_get_inventory(%L::uuid) ->> 'branch_id')$$, (select v from fx where k='bb')))
++    = (select v from fx where k='ba'));
++select pg_temp.chk_true('A asking for B''s orders gets none of B''s orders',
++  position((select v from fx where k='order2') in
++    pg_temp.call_as('x-sa', format($$select public.staff_list_orders(%L::uuid, null, null, 50, null)::text$$, (select v from fx where k='bb')))) = 0);
++select pg_temp.chk_true('control: B''s own order list does contain B''s order',
++  position((select v from fx where k='order2') in
++    pg_temp.call_as('x-sb', format($$select public.staff_list_orders(%L::uuid, null, null, 50, null)::text$$, (select v from fx where k='bb')))) > 0);
++select pg_temp.chk_true('A asking for B''s refunds gets none of B''s refunds',
++  position((select v from fx where k='refund1') in
++    pg_temp.call_as('x-sa', format($$select public.staff_list_refunds(%L::uuid, null)::text$$, (select v from fx where k='bb')))) = 0);
++select pg_temp.chk_true('control: B''s own refund list does contain B''s refund',
++  position((select v from fx where k='refund1') in
++    pg_temp.call_as('x-sb', format($$select public.staff_list_refunds(%L::uuid, null)::text$$, (select v from fx where k='bb')))) > 0);
++select pg_temp.chk_true('A asking for B''s dashboard is scoped to A''s branch',
++  coalesce(pg_temp.call_as('x-sa', format($$select (public.staff_get_dashboard(%L::uuid))::text$$, (select v from fx where k='bb'))), '')
++    not like '%' || (select v from fx where k='order2') || '%');
++
++-- 3. Staff A attacks via direct table access (RLS) ------------------------------
++select pg_temp.chk_true('A sees none of B''s orders (RLS)', pg_temp.visible('x-sa', format($$select count(*) from public.orders where branch_id = %L::uuid$$, (select v from fx where k='bb'))) = 0);
++select pg_temp.chk_true('control: B sees its own orders (RLS)', pg_temp.visible('x-sb', format($$select count(*) from public.orders where branch_id = %L::uuid$$, (select v from fx where k='bb'))) >= 2);
++select pg_temp.chk_true('A sees none of B''s refunds (RLS)', pg_temp.visible('x-sa', $$select count(*) from public.refund_requests$$) = 0);
++select pg_temp.chk_true('A sees none of B''s batches (RLS)', pg_temp.visible('x-sa', format($$select count(*) from public.inventory_batches where branch_id = %L::uuid$$, (select v from fx where k='bb'))) = 0);
++select pg_temp.chk_true('A sees none of B''s stock movements (RLS)', pg_temp.visible('x-sa', format($$select count(*) from public.stock_movements where branch_id = %L::uuid$$, (select v from fx where k='bb'))) = 0);
++select pg_temp.chk_true('A sees none of B''s POS rows (RLS)', pg_temp.visible('x-sa', format($$select count(*) from public.pos_sales where branch_id = %L::uuid$$, (select v from fx where k='bb'))) = 0);
++select pg_temp.chk_true('A sees no customer profiles (RLS)', pg_temp.visible('x-sa', $$select count(*) from public.customer_profiles$$) = 0);
++select pg_temp.chk_true('A sees no customer addresses (RLS)', pg_temp.visible('x-sa', $$select count(*) from public.customer_addresses$$) = 0);
++select pg_temp.chk_true('A sees no loyalty accounts (RLS)', pg_temp.visible('x-sa', $$select count(*) from public.loyalty_accounts$$) = 0);
++select pg_temp.chk_true('A sees none of B''s order lines (RLS)',
++  pg_temp.visible('x-sa', format($$select count(*) from public.order_items where order_id = %L$$, (select v from fx where k='order2'))) = 0);
++select pg_temp.chk_true('A sees none of B''s payments (RLS)',
++  pg_temp.visible('x-sa', format($$select count(*) from public.payments where order_id = %L$$, (select v from fx where k='order2'))) = 0);
++select pg_temp.chk('A cannot UPDATE an order directly', 'x-sa', format($$update public.orders set status = 'cancelled' where id = %L$$, (select v from fx where k='order2')), 'error');
++select pg_temp.chk('A cannot UPDATE stock directly', 'x-sa', $$update public.branch_inventory set quantity = 9999$$, 'error');
++select pg_temp.chk('A cannot INSERT a batch directly', 'x-sa',
++  format($$insert into public.inventory_batches (branch_id, product_id, variant_id, batch_code, expiration_date, quantity, initial_quantity) values (%L::uuid, %L::uuid, %L::uuid, 'DIRECT', current_date+9, 5, 5)$$,
++  (select v from fx where k='ba'), (select v from fx where k='prod'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('A cannot read the cost table', 'x-sa', $$select * from public.product_variant_costs$$, 'error');
++
++-- 4. Permission flags: staff C holds neither inventory nor refund rights -------------
++select pg_temp.chk('C (no inventory flag) cannot adjust even own branch''s batch', 'x-sc',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Recount')$$, (select v from fx where k='batch_a')), 'error');
++select pg_temp.chk('C (no inventory flag) cannot receive stock', 'x-sc',
++  format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-C', 5, current_date + 30)$$, (select v from fx where k='ba'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('C (no refund flag) cannot review a refund even if it were in-branch', 'x-sc',
++  format($$select public.staff_review_refund(%L, 'approve')$$, (select v from fx where k='refund1')), 'error');
++
++-- 5. Customers and the signed-out cannot reach staff RPCs ---------------------
++select pg_temp.chk('customer cannot adjust a batch', 'x-c1', format($$select public.staff_adjust_batch(%L::uuid, 5, 'x')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk('customer cannot confirm own payment', 'x-c1', format($$select public.staff_confirm_payment(%L, 'REF-12345')$$, (select v from fx where k='order2')), 'error');
++select pg_temp.chk('customer cannot complete own order', 'x-c1', format($$select public.staff_update_order_status(%L, 'completed')$$, (select v from fx where k='order2')), 'error');
++select pg_temp.chk('customer cannot approve own refund', 'x-c1', format($$select public.staff_review_refund(%L, 'approve')$$, (select v from fx where k='refund1')), 'error');
++select pg_temp.chk('customer cannot look up other customers', 'x-c1', $$select public.staff_lookup_customer('x-c1@test.local')$$, 'error');
++select pg_temp.chk('customer cannot read owner analytics', 'x-c1', $$select public.owner_sales_summary(30)$$, 'error');
++select pg_temp.chk('customer cannot provision themselves as owner', 'x-c1', $$select public.owner_upsert_staff_member('x-c1', 'me', 'x-c1@test.local', 'owner')$$, 'error');
++select pg_temp.chk('staff (non-owner) cannot read owner analytics', 'x-sa', $$select public.owner_sales_summary(30)$$, 'error');
++select pg_temp.chk('staff (non-owner) cannot provision an owner', 'x-sa', $$select public.owner_upsert_staff_member('x-sa', 'me', 'x-sa@test.local', 'owner')$$, 'error');
++select pg_temp.chk('anon cannot adjust a batch', null, format($$select public.staff_adjust_batch(%L::uuid, 5, 'x')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk('anon cannot read owner analytics', null, $$select public.owner_sales_summary(30)$$, 'error');
++select pg_temp.chk('owner CAN read owner analytics (control)', 'x-own', $$select public.owner_sales_summary(30)$$, 'ok');
++
++-- 6. Replay behaviour (what an offline queue relies on) --------------------------
++select pg_temp.chk('POS: replaying the same idempotency key does not double-sell', 'x-sb',
++  format($$select public.staff_create_pos_sale(%L::uuid, jsonb_build_array(jsonb_build_object('variant_id', %L, 'quantity', 1)), 'cash', null, 500, null, 'xb-pos-1')$$,
++    (select v from fx where k='bb'), (select v from fx where k='var')), 'ok');
++select pg_temp.chk('POS: replay returns the original, no error', 'x-sb',
++  format($$select public.staff_create_pos_sale(%L::uuid, jsonb_build_array(jsonb_build_object('variant_id', %L, 'quantity', 1)), 'cash', null, 500, null, 'xb-pos-1')$$,
++    (select v from fx where k='bb'), (select v from fx where k='var')), 'ok');
++select pg_temp.chk_true('POS replay created exactly one sale',
++  (select count(*) from public.orders where idempotency_key = 'xb-pos-1') = 1);
++
++-- 6b. Idempotency keys (20261002020000) -------------------------------------------
++-- Helper: a stock number read as admin, so the assertions are about real state.
++create function pg_temp.batch_qty(p_code text) returns int language sql as
++  $$ select quantity from public.inventory_batches where batch_code = p_code $$;
++grant execute on function pg_temp.batch_qty(text) to public;
++
++insert into fx values ('qty_before', pg_temp.batch_qty('XB-B1')::text);
++
++select pg_temp.chk('keyed adjust: first call applies', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, 3, 'Keyed probe', null, 'adjust-key-0001')$$, (select v from fx where k='batch_b')), 'ok');
++insert into fx values ('first_result', pg_temp.call_as('x-sb',
++  format($q$select public.staff_adjust_batch(%L::uuid, 3, 'Keyed probe', null, 'adjust-key-0001')::text$q$, (select v from fx where k='batch_b'))));
++select pg_temp.chk_true('keyed adjust: replay applied exactly once (+3, not +6)',
++  pg_temp.batch_qty('XB-B1') = (select v from fx where k='qty_before')::int + 3,
++  'before ' || (select v from fx where k='qty_before') || ', after ' || pg_temp.batch_qty('XB-B1'));
++select pg_temp.chk_true('keyed adjust: replay recorded one movement',
++  (select count(*) from public.stock_movements where reason = 'Keyed probe') = 1);
++select pg_temp.chk_true('keyed adjust: replay returns the ORIGINAL result',
++  (select v from fx where k='first_result')::jsonb ->> 'adjustment' = '3'
++  and (select v from fx where k='first_result')::jsonb ->> 'new_quantity' = (pg_temp.batch_qty('XB-B1'))::text);
++
++select pg_temp.chk('keyed adjust: same key + different delta is refused', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, 7, 'Keyed probe', null, 'adjust-key-0001')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk('keyed adjust: same key + different reason is refused', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, 3, 'Damaged', null, 'adjust-key-0001')$$, (select v from fx where k='batch_b')), 'error');
++-- Same key, same staff, DIFFERENT batch: the owner can reach both branches.
++select pg_temp.chk('keyed adjust: key first used on batch A', 'x-own',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Keyed probe', null, 'adjust-key-0004')$$, (select v from fx where k='batch_a')), 'ok');
++select pg_temp.chk('keyed adjust: same key + different batch is refused', 'x-own',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Keyed probe', null, 'adjust-key-0004')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk_true('keyed adjust: mismatches changed no stock', pg_temp.batch_qty('XB-B1') = (select v from fx where k='qty_before')::int + 3);
++
++-- Keys are scoped per staff member: the owner using the same key string runs independently.
++select pg_temp.chk('keyed adjust: another staff member''s identical key is NOT a replay', 'x-own',
++  format($$select public.staff_adjust_batch(%L::uuid, 3, 'Keyed probe', null, 'adjust-key-0001')$$, (select v from fx where k='batch_b')), 'ok');
++select pg_temp.chk_true('keyed adjust: per-staff scoping applied the second staff member''s change',
++  pg_temp.batch_qty('XB-B1') = (select v from fx where k='qty_before')::int + 6);
++
++-- A FAILED attempt stores nothing, so the same key can be retried with a corrected request.
++select pg_temp.chk('keyed adjust: an invalid attempt fails', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, -999999, 'Keyed probe', null, 'adjust-key-0003')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk('keyed adjust: failed key can be reused for a corrected request', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Keyed probe', null, 'adjust-key-0003')$$, (select v from fx where k='batch_b')), 'ok');
++
++select pg_temp.chk('keyed adjust: a too-short key is refused', 'x-sb',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Keyed probe', null, 'abc')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk('keyed adjust: unauthorized staff cannot use a key to probe', 'x-sa',
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'Keyed probe', null, 'adjust-key-0001')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk_true('keyed adjust: the refused call stored nothing for that staff member',
++  (select count(*) from public.staff_request_keys where firebase_uid = 'x-sa' and idempotency_key = 'adjust-key-0001') = 0);
++
++-- Transfers
++insert into fx values ('xfer_k1', pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 1, 'keyed', 'xfer-key-00001')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var'))));
++insert into fx values ('xfer_k2', pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 1, 'keyed', 'xfer-key-00001')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var'))));
++select pg_temp.chk_true('keyed transfer: replay returns the SAME transfer id',
++  (select v from fx where k='xfer_k1') is not null and (select v from fx where k='xfer_k1') = (select v from fx where k='xfer_k2'));
++select pg_temp.chk_true('keyed transfer: replay created exactly one row',
++  (select count(*) from public.stock_transfers where note = 'keyed') = 1);
++select pg_temp.chk('keyed transfer: same key + different quantity is refused', 'x-sa',
++  format($$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 2, 'keyed', 'xfer-key-00001')$$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('keyed transfer: key first used for B -> A', 'x-own',
++  format($$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 1, 'keyed-own', 'xfer-key-00003')$$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var')), 'ok');
++select pg_temp.chk('keyed transfer: same key + reversed direction is refused', 'x-own',
++  format($$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 1, 'keyed-own', 'xfer-key-00003')$$,
++  (select v from fx where k='ba'), (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk_true('keyed transfer: the refused reversal created no row',
++  (select count(*) from public.stock_transfers where note = 'keyed-own') = 1);
++select pg_temp.chk('keyed transfer: A still cannot request INTO B with a key', 'x-sa',
++  format($$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 1, 'x', 'xfer-key-00002')$$,
++  (select v from fx where k='ba'), (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++
++-- The bookkeeping table and helpers are sealed off from clients.
++select pg_temp.chk('staff cannot read the key table', 'x-sb', $$select * from public.staff_request_keys$$, 'error');
++select pg_temp.chk('staff cannot write the key table', 'x-sb', $$insert into public.staff_request_keys values ('x-sb','forged-key-1','adjust_batch','h','{}')$$, 'error');
++select pg_temp.chk('customer cannot read the key table', 'x-c1', $$select * from public.staff_request_keys$$, 'error');
++select pg_temp.chk('anon cannot read the key table', null, $$select * from public.staff_request_keys$$, 'error');
++select pg_temp.chk('staff cannot call the internal begin helper', 'x-sb', $$select public._idem_begin('x-sb','adjust-key-0001','adjust_batch','{}'::jsonb)$$, 'error');
++select pg_temp.chk('staff cannot call the internal finish helper', 'x-sb', $$select public._idem_finish('x-sb','forged-key-2','adjust_batch','{}'::jsonb,'{}'::jsonb)$$, 'error');
++select pg_temp.chk('anon cannot call the keyed adjust RPC', null,
++  format($$select public.staff_adjust_batch(%L::uuid, 1, 'x', null, 'adjust-key-0009')$$, (select v from fx where k='batch_b')), 'error');
++select pg_temp.chk_true('no stale 4-argument adjust overload remains',
++  not exists (select 1 from pg_proc where proname = 'staff_adjust_batch' and pronargs = 4));
++select pg_temp.chk_true('no stale 5-argument transfer overload remains',
++  not exists (select 1 from pg_proc where proname = 'staff_request_transfer' and pronargs = 5));
++
++-- 6c. Replay-safe transfer responses and receive-batch (20261002030000) ------------
++create function pg_temp.inv_qty(p_branch uuid) returns int language sql as
++  $$ select quantity from public.branch_inventory
++     where branch_id = p_branch and variant_id = (select v from fx where k='var')::uuid $$;
++grant execute on function pg_temp.inv_qty(uuid) to public;
++create function pg_temp.n(p_sql text) returns bigint language plpgsql as $$ declare v bigint; begin execute p_sql into v; return v; end $$;
++grant execute on function pg_temp.n(text) to public;
++
++insert into fx values ('t1', pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 2, 'life')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var'))));
++insert into fx values ('t1_b0', pg_temp.inv_qty((select v from fx where k='bb')::uuid)::text);
++insert into fx values ('t1_a0', pg_temp.inv_qty((select v from fx where k='ba')::uuid)::text);
++select pg_temp.chk('control: B ships the transfer', 'x-sb', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t1')), 'ok');
++insert into fx values ('t1_lines', pg_temp.n(format($q$select count(*) from public.stock_transfer_batches where transfer_id = %L$q$, (select v from fx where k='t1'))) ::text);
++insert into fx values ('t1_out', pg_temp.n(format($q$select count(*) from public.stock_movements where movement_type = 'transfer_out' and reference = %L$q$, (select v from fx where k='t1')))::text);
++select pg_temp.chk('replayed ship succeeds (no error)', 'x-sb', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t1')), 'ok');
++select pg_temp.chk('double-tapped ship succeeds again', 'x-sb', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t1')), 'ok');
++select pg_temp.chk_true('ship replays moved the source stock once (-2)', pg_temp.inv_qty((select v from fx where k='bb')::uuid) = (select v from fx where k='t1_b0')::int - 2, 'before ' || (select v from fx where k='t1_b0') || ', now ' || pg_temp.inv_qty((select v from fx where k='bb')::uuid));
++select pg_temp.chk_true('ship replays did not duplicate the batch lines', pg_temp.n(format($q$select count(*) from public.stock_transfer_batches where transfer_id = %L$q$, (select v from fx where k='t1'))) = (select v from fx where k='t1_lines')::int and (select v from fx where k='t1_lines')::int >= 1);
++select pg_temp.chk_true('ship replays did not duplicate the outgoing movements', pg_temp.n(format($q$select count(*) from public.stock_movements where movement_type = 'transfer_out' and reference = %L$q$, (select v from fx where k='t1'))) = (select v from fx where k='t1_out')::int and (select v from fx where k='t1_out')::int >= 1, 'movements ' || (select v from fx where k='t1_out'));
++select pg_temp.chk('control: A receives the transfer', 'x-sa', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t1')), 'ok');
++insert into fx values ('t1_in', pg_temp.n(format($q$select count(*) from public.stock_movements where movement_type = 'transfer_in' and reference = %L$q$, (select v from fx where k='t1')))::text);
++select pg_temp.chk('replayed receive succeeds (no error)', 'x-sa', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t1')), 'ok');
++select pg_temp.chk('double-tapped receive succeeds again', 'x-sa', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t1')), 'ok');
++select pg_temp.chk_true('receive replays added the stock once (+2)', pg_temp.inv_qty((select v from fx where k='ba')::uuid) = (select v from fx where k='t1_a0')::int + 2, 'before ' || (select v from fx where k='t1_a0') || ', now ' || pg_temp.inv_qty((select v from fx where k='ba')::uuid));
++select pg_temp.chk_true('receive replays did not duplicate the incoming movements', pg_temp.n(format($q$select count(*) from public.stock_movements where movement_type = 'transfer_in' and reference = %L$q$, (select v from fx where k='t1'))) = (select v from fx where k='t1_in')::int and (select v from fx where k='t1_in')::int >= 1);
++select pg_temp.chk_true('the source branch stock is unchanged by the receive replays', pg_temp.inv_qty((select v from fx where k='bb')::uuid) = (select v from fx where k='t1_b0')::int - 2);
++select pg_temp.chk('conflict: shipping an already-received transfer still errors', 'x-sb', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t1')), 'error');
++select pg_temp.chk('conflict: rejecting an already-received transfer still errors', 'x-sb', format($$select public.staff_respond_transfer(%L, 'reject')$$, (select v from fx where k='t1')), 'error');
++select pg_temp.chk('conflict: cancelling an already-received transfer still errors', 'x-sa', format($$select public.staff_respond_transfer(%L, 'cancel')$$, (select v from fx where k='t1')), 'error');
++select pg_temp.chk('replay still authorizes: destination staff cannot "ship" an in-transit/received transfer', 'x-sa', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t1')), 'error');
++select pg_temp.chk('replay still authorizes: source staff cannot "receive" for the destination', 'x-sb', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t1')), 'error');
++select pg_temp.chk('replay still authorizes: staff without the inventory flag cannot replay a receive', 'x-sc', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t1')), 'error');
++select pg_temp.chk('replay still authorizes: customer cannot replay a receive', 'x-c1', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t1')), 'error');
++insert into fx values ('t2', pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 2, 'reject-path')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var'))));
++select pg_temp.chk('wrong-state: receiving a transfer that was never shipped errors', 'x-sa', format($$select public.staff_respond_transfer(%L, 'receive')$$, (select v from fx where k='t2')), 'error');
++select pg_temp.chk('control: B rejects the request', 'x-sb', format($$select public.staff_respond_transfer(%L, 'reject')$$, (select v from fx where k='t2')), 'ok');
++select pg_temp.chk('replayed reject succeeds', 'x-sb', format($$select public.staff_respond_transfer(%L, 'reject')$$, (select v from fx where k='t2')), 'ok');
++select pg_temp.chk('conflict: shipping a rejected transfer errors', 'x-sb', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t2')), 'error');
++select pg_temp.chk('conflict: cancelling a rejected transfer errors', 'x-sa', format($$select public.staff_respond_transfer(%L, 'cancel')$$, (select v from fx where k='t2')), 'error');
++insert into fx values ('t3', pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 2, 'cancel-path')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var'))));
++insert into fx values ('t3_b0', pg_temp.inv_qty((select v from fx where k='bb')::uuid)::text);
++insert into fx values ('t3_a0', pg_temp.inv_qty((select v from fx where k='ba')::uuid)::text);
++select pg_temp.chk('control: A cancels its request', 'x-sa', format($$select public.staff_respond_transfer(%L, 'cancel')$$, (select v from fx where k='t3')), 'ok');
++select pg_temp.chk('replayed cancel succeeds', 'x-sa', format($$select public.staff_respond_transfer(%L, 'cancel')$$, (select v from fx where k='t3')), 'ok');
++select pg_temp.chk('conflict: shipping a cancelled transfer errors', 'x-sb', format($$select public.staff_respond_transfer(%L, 'ship')$$, (select v from fx where k='t3')), 'error');
++select pg_temp.chk('conflict: rejecting a cancelled transfer errors', 'x-sb', format($$select public.staff_respond_transfer(%L, 'reject')$$, (select v from fx where k='t3')), 'error');
++select pg_temp.chk_true('reject/cancel replays moved no stock anywhere', pg_temp.inv_qty((select v from fx where k='bb')::uuid) = (select v from fx where k='t3_b0')::int and pg_temp.inv_qty((select v from fx where k='ba')::uuid) = (select v from fx where k='t3_a0')::int);
++
++-- staff_receive_batch with a key
++insert into fx values ('rb_b0', pg_temp.inv_qty((select v from fx where k='bb')::uuid)::text);
++select pg_temp.chk('control: keyed receive creates the batch', 'x-sb', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-KEYED', 4, current_date + 60, null, null, false, 'recv-key-0001')$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'ok');
++insert into fx values ('rb1', pg_temp.call_as('x-sb', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-KEYED', 4, current_date + 60, null, null, false, 'recv-key-0001')::text$q$, (select v from fx where k='bb'), (select v from fx where k='var'))));
++select pg_temp.chk_true('keyed receive replay returns the ORIGINAL batch id', (select v from fx where k='rb1') is not null and (select v from fx where k='rb1')::uuid = (select id from public.inventory_batches where batch_code = 'XB-KEYED' and branch_id = (select v from fx where k='bb')::uuid));
++select pg_temp.chk_true('keyed receive replay added the stock once (+4)', pg_temp.inv_qty((select v from fx where k='bb')::uuid) = (select v from fx where k='rb_b0')::int + 4, 'before ' || (select v from fx where k='rb_b0') || ', now ' || pg_temp.inv_qty((select v from fx where k='bb')::uuid));
++select pg_temp.chk_true('keyed receive replay left exactly one batch and one movement', (select count(*) from public.inventory_batches where batch_code = 'XB-KEYED') = 1 and (select count(*) from public.stock_movements m join public.inventory_batches b on b.id = m.batch_id where b.batch_code = 'XB-KEYED' and m.movement_type = 'receive') = 1);
++select pg_temp.chk('keyed receive: same key + different quantity is refused', 'x-sb', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-KEYED', 9, current_date + 60, null, null, false, 'recv-key-0001')$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('keyed receive: same key + different batch code is refused', 'x-sb', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-OTHER', 4, current_date + 60, null, null, false, 'recv-key-0001')$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('unkeyed receive of an existing code still errors (behaviour unchanged)', 'x-sb', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-KEYED', 4, current_date + 60, null, null, false)$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk_true('refused receives changed no stock', pg_temp.inv_qty((select v from fx where k='bb')::uuid) = (select v from fx where k='rb_b0')::int + 4);
++select pg_temp.chk('keyed receive: A cannot receive into B', 'x-sa', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-EVIL2', 3, current_date + 60, null, null, false, 'recv-key-0002')$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('keyed receive: staff without the inventory flag cannot receive', 'x-sc', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-EVIL3', 3, current_date + 60, null, null, false, 'recv-key-0003')$$, (select v from fx where k='ba'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('keyed receive: customer cannot receive', 'x-c1', format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-EVIL4', 3, current_date + 60, null, null, false, 'recv-key-0004')$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk('keyed receive: anon cannot receive', null, format($$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-EVIL5', 3, current_date + 60, null, null, false, 'recv-key-0005')$$, (select v from fx where k='bb'), (select v from fx where k='var')), 'error');
++select pg_temp.chk_true('no stale 8-argument receive overload remains', not exists (select 1 from pg_proc where proname = 'staff_receive_batch' and pronargs = 8));
++
++-- Informational ("known gaps"): stock adjustments and transfer requests carry no
++-- idempotency key, so an offline queue that replays them after a lost response
++-- applies them twice. Printed separately; they do not fail the suite.
++create temp table gaps (name text, observed text);
++select pg_temp.call_as('x-sb', format($q$select public.staff_adjust_batch(%L::uuid, 3, 'Replay probe')::text$q$, (select v from fx where k='batch_b')));
++select pg_temp.call_as('x-sb', format($q$select public.staff_adjust_batch(%L::uuid, 3, 'Replay probe')::text$q$, (select v from fx where k='batch_b')));
++insert into gaps select '(no key supplied) same stock adjustment sent twice -> applied N times',
++  (select count(*)::text from public.stock_movements where reason like 'Replay probe%');
++select pg_temp.call_as('x-sa', format($q$select public.staff_request_transfer(%L::uuid, %L::uuid, %L::uuid, 2, 'xb')$q$,
++  (select v from fx where k='bb'), (select v from fx where k='ba'), (select v from fx where k='var')));
++insert into gaps select '(no key supplied) same transfer request sent twice -> N transfer rows',
++  (select count(*)::text from public.stock_transfers
++   where from_branch_id = (select v from fx where k='bb')::uuid and to_branch_id = (select v from fx where k='ba')::uuid
++     and status = 'requested' and note = 'xb' and requested_by = 'x-sa');
++select pg_temp.call_as('x-sb', format($q$select public.staff_confirm_payment(%L, 'REUSED-REF-1')::text$q$, (select v from fx where k='order2')));
++insert into fx select 'order3', pg_temp.call_as('x-c1', format($q$select public.place_order(%L::uuid, false, null, 'GCash E-Wallet', '', 'xb-key-3')$q$,
++  pg_temp.call_as('x-c1', format($q$select (public.sync_customer_cart(%L::uuid,
++    jsonb_build_array(jsonb_build_object('product_id', %L, 'variant_id', %L, 'quantity', 1)), null, false) ->> 'cart_id')$q$,
++    (select v from fx where k='bb'), (select v from fx where k='prod'), (select v from fx where k='var')))));
++select pg_temp.call_as('x-sb', format($q$select public.staff_confirm_payment(%L, 'REUSED-REF-1')::text$q$, (select v from fx where k='order3')));
++insert into gaps select 'same payment reference accepted on two different orders -> N payments (want 1)',
++  (select count(*)::text from public.payments where reference_number = 'REUSED-REF-1');
++
++-- Report ---------------------------------------------------------------------
++select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;
++select count(*) filter (where not passed) as failed, count(*) filter (where passed) as passed, count(*) as total from results;
++
++select 'KNOWN GAP' as kind, name, observed from gaps;
++
++do $$
++declare n int;
++begin
++  select count(*) into n from results where not passed;
++  if n > 0 then raise exception '% staff cross-branch check(s) FAILED — see the report above.', n; end if;
++end $$;
++
++rollback;
+diff -ruN a/supabase/tests/staff_idempotency_concurrency_test.sh b/supabase/tests/staff_idempotency_concurrency_test.sh
+--- a/supabase/tests/staff_idempotency_concurrency_test.sh	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/tests/staff_idempotency_concurrency_test.sh	2026-10-07 05:41:26.128674922 +0000
+@@ -0,0 +1,154 @@
++#!/usr/bin/env bash
++# =============================================================================
++# Melai Nuts — concurrent duplicate keyed staff requests apply exactly once
++# =============================================================================
++# Fires N simultaneous sessions that all send the SAME idempotency key (as a
++# retrying app / offline queue replay would) and checks that the stock change
++# or transfer happened once, every caller got the same answer, and nobody got
++# an error. Needs COMMITTED data, so it creates and then removes its own
++# fixtures. DEV / staging only.
++#
++#   DATABASE_URL=postgresql://... bash supabase/tests/staff_idempotency_concurrency_test.sh
++# =============================================================================
++set -uo pipefail
++: "${DATABASE_URL:?set DATABASE_URL}"
++N="${N:-8}"
++PSQL=(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt)
++fail=0
++ok()   { echo "PASS  $1"; }
++bad()  { echo "FAIL  $1  ($2)"; fail=1; }
++
++cleanup() {
++  "${PSQL[@]}" >/dev/null 2>&1 <<'SQL'
++delete from public.staff_request_keys where firebase_uid like 'idem-%';
++delete from public.stock_transfer_batches where transfer_id in (select id from public.stock_transfers where requested_by like 'idem-%');
++delete from public.stock_transfers where requested_by like 'idem-%';
++delete from public.stock_movements where created_by like 'idem-%';
++delete from public.inventory_batches where batch_code like 'IDEM-%';
++delete from public.branch_inventory where branch_id in (select id from public.branches where name like 'IDEM-%');
++delete from public.staff_members where firebase_uid like 'idem-%';
++delete from public.products where name like 'IDEM-%';
++delete from public.product_categories where label like 'IDEM-%';
++delete from public.branches where name like 'IDEM-%';
++SQL
++}
++trap cleanup EXIT
++cleanup
++
++# --- fixtures (committed) -----------------------------------------------------
++"${PSQL[@]}" >/dev/null <<'SQL'
++insert into public.branches (name, address, supports_delivery, supports_pickup, delivery_fee)
++values ('IDEM-A','a',true,true,30), ('IDEM-B','b',true,true,30);
++insert into public.product_categories (label) values ('IDEM-Cat');
++insert into public.products (category_id, name, price, unit)
++  select id,'IDEM-Nut',100,'pack' from public.product_categories where label='IDEM-Cat';
++insert into public.product_variants (product_id,label,price)
++  select id,'Reg',100 from public.products where name='IDEM-Nut';
++insert into public.branch_inventory (branch_id,product_id,variant_id,quantity)
++  select b.id, v.product_id, v.id, 50 from public.branches b, public.product_variants v
++  where b.name like 'IDEM-%' and v.product_id=(select id from public.products where name='IDEM-Nut');
++insert into public.staff_members (firebase_uid,full_name,email,role,branch_id,account_status,can_manage_inventory,can_review_refunds)
++  select 'idem-a','Idem A','idem-a@test.local','staff',id,'active',true,false from public.branches where name='IDEM-A';
++insert into public.staff_members (firebase_uid,full_name,email,role,branch_id,account_status,can_manage_inventory,can_review_refunds)
++  select 'idem-b','Idem B','idem-b@test.local','staff',id,'active',true,false from public.branches where name='IDEM-B';
++SQL
++
++BA=$("${PSQL[@]}" -c "select id from public.branches where name='IDEM-A'")
++BB=$("${PSQL[@]}" -c "select id from public.branches where name='IDEM-B'")
++VAR=$("${PSQL[@]}" -c "select v.id from public.product_variants v join public.products p on p.id=v.product_id where p.name='IDEM-Nut'")
++
++# A batch for branch B, via the real RPC as B's staff.
++as_staff() { # uid, sql  -> prints the query result, or "ERROR: ..." if anything failed
++  local out
++  out=$("${PSQL[@]}" -c "begin; select set_config('request.jwt.claims', '{\"sub\":\"$1\",\"role\":\"authenticated\",\"email\":\"$1@test.local\",\"email_verified\":true}', true); set local role authenticated; $2; commit;" 2>&1)
++  if grep -q 'ERROR' <<<"$out"; then grep -m1 'ERROR' <<<"$out"; else tail -1 <<<"$out"; fi
++}
++as_staff idem-b "select public.staff_receive_batch('$BB','$VAR','IDEM-B1',10,current_date+60,null,null,true)" >/dev/null
++BATCH=$("${PSQL[@]}" -c "select id from public.inventory_batches where batch_code='IDEM-B1'")
++QTY0=$("${PSQL[@]}" -c "select quantity from public.inventory_batches where id='$BATCH'")
++
++# --- 1. N simultaneous identical keyed adjustments ------------------------------
++tmp=$(mktemp -d)
++for i in $(seq 1 "$N"); do
++  ( as_staff idem-b "select public.staff_adjust_batch('$BATCH', 5, 'Concurrency probe', null, 'idem-concurrent-adjust-1')::text" > "$tmp/adj$i" ) &
++done
++wait
++QTY1=$("${PSQL[@]}" -c "select quantity from public.inventory_batches where id='$BATCH'")
++MOVES=$("${PSQL[@]}" -c "select count(*) from public.stock_movements where reason='Concurrency probe'")
++DISTINCT=$(cat "$tmp"/adj* | sort -u | wc -l | tr -d ' ')
++ERRS=$(cat "$tmp"/adj* | grep -ci 'error' || true)
++[ "$QTY1" -eq $((QTY0 + 5)) ] && ok "$N simultaneous identical adjustments changed stock once (+5)" || bad "stock after $N duplicates" "before $QTY0, after $QTY1"
++[ "$MOVES" -eq 1 ]            && ok "exactly one stock movement recorded"                          || bad "movement rows" "$MOVES"
++[ "$DISTINCT" -eq 1 ]         && ok "every caller received the same result"                        || bad "distinct results" "$DISTINCT: $(cat "$tmp"/adj* | sort -u | tr '\n' ' ')"
++[ "$ERRS" -eq 0 ]             && ok "no caller got an error"                                       || bad "errors" "$ERRS"
++
++# --- 2. N simultaneous identical keyed transfer requests ------------------------
++for i in $(seq 1 "$N"); do
++  ( as_staff idem-a "select public.staff_request_transfer('$BB','$BA','$VAR',2,'idem-xfer','idem-concurrent-xfer-01')" > "$tmp/xf$i" ) &
++done
++wait
++ROWS=$("${PSQL[@]}" -c "select count(*) from public.stock_transfers where note='idem-xfer'")
++XD=$(cat "$tmp"/xf* | sort -u | wc -l | tr -d ' ')
++XE=$(cat "$tmp"/xf* | grep -ci 'error' || true)
++[ "$ROWS" -eq 1 ] && ok "$N simultaneous identical transfer requests created one transfer" || bad "transfer rows" "$ROWS"
++[ "$XD" -eq 1 ]   && ok "every caller received the same transfer id"                      || bad "distinct ids" "$XD"
++[ "$XE" -eq 0 ]   && ok "no caller got an error"                                           || bad "errors" "$XE"
++
++# --- 3. N simultaneous DIFFERENT keys are NOT collapsed -------------------------
++for i in $(seq 1 "$N"); do
++  ( as_staff idem-b "select public.staff_adjust_batch('$BATCH', 1, 'Distinct probe', null, 'idem-distinct-key-$i')::text" > "$tmp/d$i" ) &
++done
++wait
++DM=$("${PSQL[@]}" -c "select count(*) from public.stock_movements where reason='Distinct probe'")
++[ "$DM" -eq "$N" ] && ok "$N different keys were each applied (keys do not over-collapse)" || bad "distinct-key movements" "$DM of $N"
++
++# --- 4. N simultaneous ships of the SAME transfer (no key: outcome-idempotent) ----
++inv() { "${PSQL[@]}" -c "select quantity from public.branch_inventory where branch_id='$1' and variant_id='$VAR'"; }
++TID=$("${PSQL[@]}" -c "select id from public.stock_transfers where note='idem-xfer'")
++B0=$(inv "$BB"); A0=$(inv "$BA")
++for i in $(seq 1 "$N"); do
++  ( as_staff idem-b "select public.staff_respond_transfer('$TID','ship')" > "$tmp/sh$i" ) &
++done
++wait
++B1=$(inv "$BB")
++STATUS=$("${PSQL[@]}" -c "select status from public.stock_transfers where id='$TID'")
++LINES=$("${PSQL[@]}" -c "select count(*) from public.stock_transfer_batches where transfer_id='$TID'")
++OUTM=$("${PSQL[@]}" -c "select count(*) from public.stock_movements where movement_type='transfer_out' and reference='$TID'")
++SE=$(cat "$tmp"/sh* | grep -c 'ERROR' || true)
++[ "$SE" -eq 0 ]                  && ok "$N simultaneous ships: none got an error"                      || bad "ship errors" "$SE"
++[ "$STATUS" = "in_transit" ]     && ok "transfer is in transit"                                        || bad "status" "$STATUS"
++[ "$B1" -eq $((B0 - 2)) ]        && ok "source stock reduced once (-2), not $N times"                  || bad "source stock" "before $B0, after $B1"
++[ "$LINES" -eq 1 ] && [ "$OUTM" -eq 1 ] && ok "one batch line and one outgoing movement"                || bad "lines/movements" "$LINES / $OUTM"
++
++# --- 5. N simultaneous receives of the SAME transfer ------------------------------
++for i in $(seq 1 "$N"); do
++  ( as_staff idem-a "select public.staff_respond_transfer('$TID','receive')" > "$tmp/rc$i" ) &
++done
++wait
++A1=$(inv "$BA")
++STATUS=$("${PSQL[@]}" -c "select status from public.stock_transfers where id='$TID'")
++INM=$("${PSQL[@]}" -c "select count(*) from public.stock_movements where movement_type='transfer_in' and reference='$TID'")
++RE=$(cat "$tmp"/rc* | grep -c 'ERROR' || true)
++[ "$RE" -eq 0 ]               && ok "$N simultaneous receives: none got an error"                      || bad "receive errors" "$RE"
++[ "$STATUS" = "received" ]    && ok "transfer is received"                                             || bad "status" "$STATUS"
++[ "$A1" -eq $((A0 + 2)) ]     && ok "destination stock increased once (+2), not $N times"              || bad "destination stock" "before $A0, after $A1"
++[ "$INM" -eq 1 ]              && ok "one incoming movement"                                            || bad "incoming movements" "$INM"
++
++# --- 6. N simultaneous identical keyed batch receipts -----------------------------
++A2=$(inv "$BA")
++for i in $(seq 1 "$N"); do
++  ( as_staff idem-a "select public.staff_receive_batch('$BA','$VAR','IDEM-A-KEYED',7,current_date+60,null,null,false,'idem-concurrent-recv-001')::text" > "$tmp/rb$i" ) &
++done
++wait
++A3=$(inv "$BA")
++RB=$("${PSQL[@]}" -c "select count(*) from public.inventory_batches where batch_code='IDEM-A-KEYED'")
++RD=$(cat "$tmp"/rb* | sort -u | wc -l | tr -d ' ')
++RBE=$(cat "$tmp"/rb* | grep -c 'ERROR' || true)
++[ "$RBE" -eq 0 ]            && ok "$N simultaneous identical receipts: none got an error"              || bad "receipt errors" "$RBE"
++[ "$RB" -eq 1 ]             && ok "exactly one batch created"                                          || bad "batches" "$RB"
++[ "$RD" -eq 1 ]             && ok "every caller received the same batch id"                            || bad "distinct ids" "$RD"
++[ "$A3" -eq $((A2 + 7)) ]   && ok "stock increased once (+7), not $N times"                            || bad "stock" "before $A2, after $A3"
++
++rm -rf "$tmp"
++echo
++[ $fail -eq 0 ] && echo "ALL CHECKS PASSED" || { echo "SOME CHECKS FAILED"; exit 1; }
+diff -ruN a/test/checkout_attempt_store_test.dart b/test/checkout_attempt_store_test.dart
+--- a/test/checkout_attempt_store_test.dart	1970-01-01 00:00:00.000000000 +0000
++++ b/test/checkout_attempt_store_test.dart	2026-10-07 05:41:26.105088829 +0000
+@@ -0,0 +1,189 @@
++import 'dart:convert';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:melai_nuts/core/services/checkout_attempt_store.dart';
++import 'package:melai_nuts/data/models/order.dart';
++
++/// Regression tests for the checkout idempotency key.
++///
++/// The server answers a repeated key with the FIRST order stored for it and
++/// never compares the request. So the store must reuse a key only for the
++/// identical request, and must ask the server about an unconfirmed attempt
++/// before replacing its key. See finding 1 of the customer-flow audit.
++class _MemoryStorage implements CheckoutAttemptStorage {
++  String? value;
++  @override
++  Future<String?> read() async => value;
++  @override
++  Future<void> write(String v) async => value = v;
++  @override
++  Future<void> remove() async => value = null;
++}
++
++Order _order(String id) => Order(
++      id: id,
++      date: DateTime(2026, 10, 7),
++      status: OrderStatus.pending,
++      branch: 'Test Branch',
++      isDelivery: false,
++      items: const [],
++      deliveryFee: 0,
++      paymentMethod: 'Cash on Counter Pickup',
++      pointsEarned: 0,
++    );
++
++const _pickupCash = '[false,null,"Cash on Counter Pickup",""]';
++const _deliveryGcash = '[true,"addr-1","GCash E-Wallet",""]';
++
++void main() {
++  late _MemoryStorage storage;
++  late DateTime clock;
++  late int keyCounter;
++  late Map<String, Order> serverOrders; // idempotency key -> order the server stored
++  late List<String> lookups;
++  late bool offline;
++  late CheckoutAttemptStore store;
++
++  setUp(() {
++    storage = _MemoryStorage();
++    clock = DateTime(2026, 10, 7, 12);
++    keyCounter = 0;
++    serverOrders = {};
++    lookups = [];
++    offline = false;
++    store = CheckoutAttemptStore.withDependencies(
++      storage: storage,
++      now: () => clock,
++      newKey: () => 'key-${++keyCounter}',
++      lookup: (uid, key) async {
++        lookups.add(key);
++        if (offline) throw Exception('offline');
++        return serverOrders[key];
++      },
++    );
++  });
++
++  Future<CheckoutAttempt> begin(String fingerprint, {String uid = 'u1', String cart = 'cart-1'}) =>
++      store.begin(uid: uid, cartId: cart, fingerprint: fingerprint);
++
++  test('retrying the identical request reuses the same key', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    final retry = await begin(_pickupCash);
++    expect(retry.key, first.key);
++    expect(lookups, isEmpty, reason: 'no server round trip needed for an identical retry');
++  });
++
++  test('changing options BEFORE anything was sent mints a new key without asking the server', () async {
++    final first = await begin(_pickupCash); // never markSubmitted
++    final second = await begin(_deliveryGcash);
++    expect(second.key, isNot(first.key));
++    expect(second.fingerprint, _deliveryGcash);
++    expect(lookups, isEmpty);
++  });
++
++  test('REGRESSION: changing options after an unknown outcome that DID commit returns the earlier order', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    serverOrders[first.key] = _order('order-from-first-attempt');
++
++    // The customer switches to delivery + GCash and taps Place Order again.
++    // Before the fix this reused first.key and the server silently returned the
++    // original pickup/cash order.
++    await expectLater(
++      begin(_deliveryGcash),
++      throwsA(isA<CheckoutAlreadyPlacedException>()
++          .having((e) => e.order.id, 'order id', 'order-from-first-attempt')),
++    );
++    expect(lookups, [first.key]);
++    expect(storage.value, isNull, reason: 'the settled attempt is forgotten');
++  });
++
++  test('changing options after an unknown outcome that did NOT commit mints a new key', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    // serverOrders is empty: the server never accepted it.
++    final second = await begin(_deliveryGcash);
++    expect(second.key, isNot(first.key));
++    expect(lookups, [first.key]);
++  });
++
++  test('changing options while offline after an unknown outcome refuses and keeps the old attempt', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    offline = true;
++    await expectLater(begin(_deliveryGcash), throwsException);
++    // Minting a new key here could place a second order, so the old attempt stays.
++    final saved = CheckoutAttempt.fromJson(jsonDecode(storage.value!) as Map<String, dynamic>);
++    expect(saved.key, first.key);
++    expect(saved.submitted, isTrue);
++  });
++
++  test('an attempt saved by an older app version (no fingerprint) is not reused for a new request', () async {
++    storage.value = jsonEncode({
++      'key': 'legacy-key',
++      'uid': 'u1',
++      'cartId': 'cart-1',
++      'createdAt': clock.toIso8601String(),
++      'submitted': false,
++    });
++    final attempt = await begin(_pickupCash);
++    expect(attempt.key, isNot('legacy-key'));
++  });
++
++  test('an unconfirmed legacy attempt is still checked against the server before being replaced', () async {
++    storage.value = jsonEncode({
++      'key': 'legacy-key',
++      'uid': 'u1',
++      'cartId': 'cart-1',
++      'createdAt': clock.toIso8601String(),
++      'submitted': true,
++    });
++    serverOrders['legacy-key'] = _order('legacy-order');
++    await expectLater(begin(_pickupCash), throwsA(isA<CheckoutAlreadyPlacedException>()));
++  });
++
++  test('a different cart or customer never inherits a key', () async {
++    final first = await begin(_pickupCash);
++    expect((await begin(_pickupCash, cart: 'cart-2')).key, isNot(first.key));
++    final other = await begin(_pickupCash, uid: 'u2', cart: 'cart-2');
++    expect(other.uid, 'u2');
++  });
++
++  test('an attempt older than 24h is replaced', () async {
++    final first = await begin(_pickupCash);
++    clock = clock.add(const Duration(hours: 25));
++    expect((await begin(_pickupCash)).key, isNot(first.key));
++  });
++
++  test('the attempt survives a restart and still dedupes the identical request', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    final restarted = CheckoutAttemptStore.withDependencies(
++      storage: storage,
++      now: () => clock,
++      newKey: () => 'key-after-restart',
++      lookup: (uid, key) async => serverOrders[key],
++    );
++    final retry = await restarted.begin(uid: 'u1', cartId: 'cart-1', fingerprint: _pickupCash);
++    expect(retry.key, first.key);
++    expect(retry.submitted, isTrue);
++  });
++
++  test('resolveUnconfirmed recovers an accepted order and clears the attempt', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    serverOrders[first.key] = _order('recovered');
++    await store.resolveUnconfirmed('u1');
++    expect(store.recoveredOrder?.id, 'recovered');
++    expect(storage.value, isNull);
++  });
++
++  test('resolveUnconfirmed keeps an attempt the server never saw', () async {
++    final first = await begin(_pickupCash);
++    await store.markSubmitted(first);
++    await store.resolveUnconfirmed('u1');
++    expect(store.recoveredOrder, isNull);
++    expect(storage.value, isNotNull);
++  });
++}
+diff -ruN a/test/request_key_test.dart b/test/request_key_test.dart
+--- a/test/request_key_test.dart	1970-01-01 00:00:00.000000000 +0000
++++ b/test/request_key_test.dart	2026-10-07 05:41:26.108953952 +0000
+@@ -0,0 +1,49 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:melai_nuts/core/utils/request_key.dart';
++
++void main() {
++  test('newRequestKey is within the server length limit and unique', () {
++    final keys = {for (var i = 0; i < 200; i++) newRequestKey()};
++    expect(keys.length, 200);
++    for (final k in keys) {
++      expect(k.startsWith('rk-'), isTrue);
++      expect(k.length, inInclusiveRange(8, 100)); // staff_request_keys check constraint
++      expect(RegExp(r'^rk-[0-9a-f]{32}$').hasMatch(k), isTrue);
++    }
++  });
++
++  group('RequestKeyHolder', () {
++    late int n;
++    late RequestKeyHolder holder;
++    setUp(() {
++      n = 0;
++      holder = RequestKeyHolder(generate: () => 'key-${++n}');
++    });
++
++    test('the same inputs reuse the same key (a retry after a timeout)', () {
++      final first = holder.keyFor('[1,2,3]');
++      expect(holder.keyFor('[1,2,3]'), first);
++      expect(holder.keyFor('[1,2,3]'), first);
++      expect(n, 1);
++    });
++
++    test('changed inputs get a new key (the server refuses a key reused for a different request)', () {
++      final first = holder.keyFor('[1,2,3]');
++      final second = holder.keyFor('[1,2,4]');
++      expect(second, isNot(first));
++      expect(n, 2);
++    });
++
++    test('going back to earlier inputs does not resurrect the old key', () {
++      final a = holder.keyFor('A');
++      holder.keyFor('B');
++      expect(holder.keyFor('A'), isNot(a));
++    });
++
++    test('reset forgets the key', () {
++      final first = holder.keyFor('A');
++      holder.reset();
++      expect(holder.keyFor('A'), isNot(first));
++    });
++  });
++}

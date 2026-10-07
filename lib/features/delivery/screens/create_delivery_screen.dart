@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -7,7 +8,6 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
 import '../../../data/models/delivery.dart';
 
 class _StopDraft {
@@ -174,7 +174,7 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
               DropdownButtonFormField<String>(
                 initialValue: _branch,
                 decoration: const InputDecoration(labelText: 'Branch'),
-                items: [for (final b in kInventoryBranches) DropdownMenuItem(value: b, child: Text(b))],
+                items: [for (final b in kBranches) DropdownMenuItem(value: b.name, child: Text(b.name))],
                 onChanged: (v) => setState(() => _branch = v),
                 validator: (v) => ValidationUtils.validateRequired(v, 'Branch'),
               ),

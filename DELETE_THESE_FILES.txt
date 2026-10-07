@@ -1,0 +1,28 @@
+Delete these from your project (removed as fake, empty or unreachable).
+Extracting the zip does NOT delete files, so please remove them by hand.
+
+  lib/features/ocr/                                          (folder: simulated scanner)
+  lib/features/customer/screens/rfid_detected_screen.dart    (no route, simulated tap)
+  lib/features/owner/screens/sales_forecast_screen.dart      (simulated regression, no backend)
+  lib/features/owner/widgets/branch_performance_card.dart    (showed fabricated branch fields)
+  lib/data/dummy_data/dummy_inventory.dart
+  lib/data/dummy_data/dummy_sales.dart
+  lib/data/dummy_data/dummy_branches.dart
+  lib/data/dummy_data/dummy_loyalty.dart
+  lib/data/dummy_data/dummy_orders.dart
+  lib/data/dummy_data/dummy_payments.dart
+  lib/data/dummy_data/dummy_promotions.dart
+  lib/data/dummy_data/dummy_refunds.dart
+  (lib/data/dummy_data/dummy_deliveries.dart stays until the delivery decision)
+
+PowerShell (from the project root):
+  Remove-Item -Recurse -Force lib\features\ocr
+  Remove-Item -Force lib\features\customer\screens\rfid_detected_screen.dart
+  Remove-Item -Force lib\features\owner\screens\sales_forecast_screen.dart
+  Remove-Item -Force lib\features\owner\widgets\branch_performance_card.dart
+  "inventory","sales","branches","loyalty","orders","payments","promotions","refunds" | ForEach-Object { Remove-Item -Force "lib\data\dummy_data\dummy_$_.dart" }
+
+ALSO APPLY THE DATABASE MIGRATION (the app cannot do this itself):
+  supabase/migrations/20261002000000_owner_sales_summary.sql
+  e.g.  supabase db push     (or paste the file into the Supabase SQL editor)
+Until it is applied, the owner analytics screens show a "could not load" error with Retry.
