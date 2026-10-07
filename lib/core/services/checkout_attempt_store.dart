@@ -37,31 +37,31 @@ class CheckoutAttempt {
   });
 
   CheckoutAttempt copyWith({bool? submitted}) => CheckoutAttempt(
-        key: key,
-        uid: uid,
-        cartId: cartId,
-        createdAt: createdAt,
-        fingerprint: fingerprint,
-        submitted: submitted ?? this.submitted,
-      );
+    key: key,
+    uid: uid,
+    cartId: cartId,
+    createdAt: createdAt,
+    fingerprint: fingerprint,
+    submitted: submitted ?? this.submitted,
+  );
 
   Map<String, dynamic> toJson() => {
-        'key': key,
-        'uid': uid,
-        'cartId': cartId,
-        'createdAt': createdAt.toIso8601String(),
-        'fingerprint': fingerprint,
-        'submitted': submitted,
-      };
+    'key': key,
+    'uid': uid,
+    'cartId': cartId,
+    'createdAt': createdAt.toIso8601String(),
+    'fingerprint': fingerprint,
+    'submitted': submitted,
+  };
 
   factory CheckoutAttempt.fromJson(Map<String, dynamic> json) => CheckoutAttempt(
-        key: json['key'] as String,
-        uid: json['uid'] as String,
-        cartId: json['cartId'] as String,
-        createdAt: DateTime.parse(json['createdAt'] as String),
-        fingerprint: json['fingerprint'] as String?,
-        submitted: json['submitted'] as bool? ?? false,
-      );
+    key: json['key'] as String,
+    uid: json['uid'] as String,
+    cartId: json['cartId'] as String,
+    createdAt: DateTime.parse(json['createdAt'] as String),
+    fingerprint: json['fingerprint'] as String?,
+    submitted: json['submitted'] as bool? ?? false,
+  );
 }
 
 /// Thrown by [CheckoutAttemptStore.begin] when the customer changed their
@@ -121,19 +121,17 @@ class _PrefsCheckoutAttemptStorage implements CheckoutAttemptStorage {
 class CheckoutAttemptStore extends ChangeNotifier {
   CheckoutAttemptStore._()
       : this.withDependencies(
-          storage: _PrefsCheckoutAttemptStorage(),
-          lookup: (uid, key) => OrdersRepository.instance.findByIdempotencyKey(uid, key),
-        );
+    storage: _PrefsCheckoutAttemptStorage(),
+    lookup: (uid, key) => OrdersRepository.instance.findByIdempotencyKey(uid, key),
+  );
 
   @visibleForTesting
   CheckoutAttemptStore.withDependencies({
-    required CheckoutAttemptStorage storage,
-    required Future<Order?> Function(String uid, String key) lookup,
+    required this._storage,
+    required this._lookup,
     DateTime Function()? now,
     String Function()? newKey,
-  })  : _storage = storage,
-        _lookup = lookup,
-        _now = now ?? DateTime.now,
+  })  : _now = now ?? DateTime.now,
         _newKeyFn = newKey;
 
   static final CheckoutAttemptStore instance = CheckoutAttemptStore._();

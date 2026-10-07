@@ -39,11 +39,11 @@ class InactiveProduct {
   });
 
   factory InactiveProduct.fromJson(Map<String, dynamic> j) => InactiveProduct(
-        id: j['id'] as String,
-        name: (j['name'] as String?) ?? '',
-        price: (j['price'] as num?)?.toDouble() ?? 0,
-        sku: j['sku'] as String?,
-      );
+    id: j['id'] as String,
+    name: (j['name'] as String?) ?? '',
+    price: (j['price'] as num?)?.toDouble() ?? 0,
+    sku: j['sku'] as String?,
+  );
 }
 
 /// Every staff-side call to the backend.
@@ -127,13 +127,13 @@ class StaffRepository {
   /// Products currently switched off. Active staff may read these (RLS policy
   /// "staff read all products"); customers cannot.
   Future<List<InactiveProduct>> listInactiveProducts() => _guard(() async {
-        final rows = await _client
-            .from('products')
-            .select('id, name, price, sku')
-            .eq('is_active', false)
-            .order('name');
-        return _list(rows).map(InactiveProduct.fromJson).toList();
-      });
+    final rows = await _client
+        .from('products')
+        .select('id, name, price, sku')
+        .eq('is_active', false)
+        .order('name');
+    return _list(rows).map(InactiveProduct.fromJson).toList();
+  });
 
   Future<String> saveCategory({String? categoryId, required String label, String? iconName, int? sortOrder}) async =>
       (await _rpc('staff_save_category', {
@@ -224,7 +224,7 @@ class StaffRepository {
       'p_received_date': receivedDate == null ? null : _date(receivedDate),
       'p_restock_threshold': restockThreshold,
       'p_assign_existing': assignExisting,
-      if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
+      'p_idempotency_key': ?idempotencyKey,
     });
     return id as String;
   }
@@ -245,7 +245,7 @@ class StaffRepository {
         'p_delta': delta,
         'p_reason': reason,
         'p_note': note,
-        if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
+        'p_idempotency_key': ?idempotencyKey,
       }));
 
   // ---- Transfers --------------------------------------------------------------
@@ -272,7 +272,7 @@ class StaffRepository {
         'p_variant_id': variantId,
         'p_quantity': quantity,
         'p_note': note,
-        if (idempotencyKey != null) 'p_idempotency_key': idempotencyKey,
+        'p_idempotency_key': ?idempotencyKey,
       })) as String;
 
   /// [action]: ship | reject (source branch) or cancel | receive (destination).
@@ -347,19 +347,19 @@ class StaffRepository {
   // ---- Notifications (RLS: a person only ever sees their own) -----------------------
 
   Future<List<StaffNotification>> fetchNotifications() => _guard(() async {
-        final rows = await _client
-            .from('staff_notifications')
-            .select()
-            .order('created_at', ascending: false)
-            .limit(100);
-        return List<Map<String, dynamic>>.from(rows).map(StaffNotification.fromRow).toList();
-      });
+    final rows = await _client
+        .from('staff_notifications')
+        .select()
+        .order('created_at', ascending: false)
+        .limit(100);
+    return List<Map<String, dynamic>>.from(rows).map(StaffNotification.fromRow).toList();
+  });
 
   Future<void> markNotificationRead(String id) =>
       _guard(() async => _client.from('staff_notifications').update({'read': true}).eq('id', id));
 
   Future<void> markAllNotificationsRead() => _guard(
-      () async => _client.from('staff_notifications').update({'read': true}).eq('read', false));
+          () async => _client.from('staff_notifications').update({'read': true}).eq('read', false));
 
   Future<void> deleteNotification(String id) =>
       _guard(() async => _client.from('staff_notifications').delete().eq('id', id));
