@@ -22,31 +22,43 @@ class ProductThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.circular(14);
-    if (product.images.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: radius,
-        child: Image.network(
-          product.images.first,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          // A broken/expired image URL falls back to the placeholder
-          // instead of Flutter's default error icon.
-          errorBuilder: (context, error, stackTrace) => _placeholder(radius),
-          loadingBuilder: (context, child, progress) {
-            if (progress == null) return child;
-            return _placeholder(radius);
-          },
-        ),
-      );
-    }
-    return _placeholder(radius);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Resolve a finite edge: explicit size, else the available space.
+        final w = size.isFinite ? size : constraints.maxWidth;
+        final h = size.isFinite ? size : constraints.maxHeight;
+        final iconSize =
+        (w.isFinite && h.isFinite) ? (w < h ? w : h) * 0.42 : 36.0;
+
+        if (product.images.isNotEmpty) {
+          return ClipRRect(
+            borderRadius: radius,
+            child: Image.network(
+              product.images.first,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              // A broken/expired image URL falls back to the placeholder
+              // instead of Flutter's default error icon.
+              errorBuilder: (context, error, stackTrace) =>
+                  _placeholder(radius, iconSize),
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return _placeholder(radius, iconSize);
+              },
+            ),
+          );
+        }
+        return _placeholder(radius, iconSize);
+      },
+    );
   }
 
-  Widget _placeholder(BorderRadius radius) {
+  Widget _placeholder(BorderRadius radius, double iconSize) {
     return Container(
       width: size,
       height: size,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         borderRadius: radius,
         gradient: LinearGradient(
@@ -58,7 +70,7 @@ class ProductThumbnail extends StatelessWidget {
           ],
         ),
       ),
-      child: Icon(product.icon, color: product.color, size: size * 0.42),
+      child: Icon(product.icon, color: product.color, size: iconSize),
     );
   }
 }
